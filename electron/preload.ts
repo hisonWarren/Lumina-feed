@@ -32,5 +32,15 @@ contextBridge.exposeInMainWorld("luminaApi", {
 
 // M3：合法 OA PDF 桥（渲染侧抓取经主进程，绕 CORS + 守门）
 contextBridge.exposeInMainWorld("luminaOa", {
+  resolve: (paperId: string) => invoke("oa:resolve", paperId),
   fetchPdf: (url: string) => invoke("oa:fetchPdf", url),
+});
+
+// issue5：自定义无边框标题栏的窗口控制
+contextBridge.exposeInMainWorld("luminaWin", {
+  minimize: () => invoke("win:minimize"),
+  maximize: () => invoke("win:maximize"),
+  close: () => invoke("win:close"),
+  isMaximized: () => invoke("win:isMaximized"),
+  onMaximizeChange: (cb: (m: boolean) => void) => on("win:maximized", cb),
 });

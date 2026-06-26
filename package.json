@@ -1,7 +1,9 @@
 {
   "name": "lumina-feed",
   "version": "1.0.0",
-  "description": "Lumina Feed · 本地优先的文献发现与每日推送（多源检索 + 合法 OA 全文 + 可信 AI 总结 + 定时/多渠道推送 + 导出）",
+  "description": "Lumina Feed · 本地优先的文献发现与每日推送",
+  "author": "hisonWarren",
+  "main": "build/main.cjs",
   "type": "module",
   "scripts": {
     "quickstart": "node tools/quickstart.mjs",
@@ -12,19 +14,64 @@
     "verify:summarize": "node --experimental-strip-types --experimental-sqlite tools/verify-summarize.mjs",
     "verify:scheduler-push": "node --experimental-strip-types tools/verify-scheduler-push.mjs",
     "verify:export": "node --experimental-strip-types tools/verify-export.mjs",
-    "verify:trust": "node --experimental-strip-types --experimental-sqlite tools/verify-trust.mjs",
+    "verify:trust": "node --experimental-strip-types tools/verify-trust.mjs",
     "worker:once": "node --experimental-strip-types worker/push-worker.mjs --once",
-    "worker:daemon": "node --experimental-strip-types worker/push-worker.mjs --daemon"
+    "worker:daemon": "node --experimental-strip-types worker/push-worker.mjs --daemon",
+    "build:electron": "node tools/build-electron.mjs",
+    "build:win": "node tools/build-electron.mjs && node tools/electron-builder-win.mjs",
+    "dist:win": "npm run verify && npm run build:win"
   },
   "engines": { "node": ">=22.18" },
-  "//deps": "核心零运行时依赖（Node 内置 + global fetch + node:sqlite/zlib）。生产可选下列。",
-  "optionalDependencies": {
-    "better-sqlite3": "^11.0.0",
-    "electron": "^31.0.0",
-    "pdfjs-dist": "^4.0.0",
-    "nodemailer": "^6.9.0",
+  "dependencies": {
     "auto-launch": "^5.0.6",
-    "keytar": "^7.9.0"
+    "better-sqlite3": "^11.0.0",
+    "keytar": "^7.9.0",
+    "nodemailer": "^6.9.0"
   },
-  "//note": "桌面壳走 Electron；沙箱/CI 用 node:sqlite 跑全部门禁，无需任何安装。"
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.24.2",
+    "lucide-react": "^0.460.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "optionalDependencies": {
+    "pdfjs-dist": "^4.0.0"
+  },
+  "build": {
+    "appId": "com.lumina.feed",
+    "productName": "Lumina Feed",
+    "copyright": "Copyright © 2026 Lumina",
+    "directories": {
+      "output": "release",
+      "buildResources": "assets"
+    },
+    "files": [
+      "build/**/*",
+      "dist/**/*",
+      "assets/**/*",
+      "icon.png",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "**/node_modules/better-sqlite3/**",
+      "**/node_modules/keytar/**"
+    ],
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ],
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "Lumina Feed"
+    },
+    "portable": {
+      "artifactName": "Lumina-Feed-${version}-portable.exe"
+    }
+  }
 }

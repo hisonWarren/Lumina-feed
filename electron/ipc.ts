@@ -8,6 +8,7 @@ import { aggregateSearch } from "../src/core/aggregate.ts";
 import { exportPapers, type ExportFormat, trendByYear, countByType, summarize } from "../src/core/export/index.ts";
 import { llmFromConfig } from "../src/core/summarize/llm-client.ts";
 import { makeOaFullTextProvider } from "../src/core/oa/provider.ts";
+import { resolveOa } from "../src/core/oa/oa-resolver.ts";
 import { sqliteSummaryCache } from "../src/core/summarize/summaries.repo.ts";
 import { summarizeGrounded } from "../src/core/trust/index.ts";
 import { saveGrounding } from "../src/core/trust/audit.ts";
@@ -31,7 +32,7 @@ export function registerIpc(deps: IpcDeps): void {
     const spec = rawToSpec(raw, filters);
     const agg = await aggregateSearch(spec, { limit: 30 });
     store.papers.upsertMany(agg.papers);
-    return { perSource: agg.perSource, count: agg.papers.length };
+    return { perSource: agg.perSource, count: agg.papers.length, papers: agg.papers };
   });
 
   // ── 订阅 CRUD ──
@@ -53,6 +54,15 @@ export function registerIpc(deps: IpcDeps): void {
     const res = await summarizeGrounded(paper, opts, { llm, fullText, cache, ground: {} });
     if (res) saveGrounding(store.db, paper.id, res.model, res.sourceBasis, res.grounded);
     return res;
+  });
+
+  // ── 合法 OA 全文地址解析（给"获取全文"按钮：先解析再经主进程抓取） ──
+  ipcMain.handle("oa:resolve", async (_e, paperId: string) => {
+    const paper = store.papers.getById(paperId);
+    if (!paper) return null;
+    const settings = await loadAppSettings(store);
+    const urls = await resolveOa(paper, { email: settings.contactEmail });
+    return urls[0] ?? paper.oaUrl ?? null;
   });
 
   // ── 文献状态（人工 screening；AI 不裁判） ──

@@ -1,7 +1,7 @@
 // lumina-feed · Electron 应用入口（装配全部里程碑）
 // 这是把 M1–M6 接成一个产品的总装：
 //   M1 store ─ M3 OA全文 ─ M4 总结 ─ 证据可信性 grounding ─ M5 调度/推送 ─ M6 导出
-import { app, BrowserWindow, Tray, Menu, nativeImage } from "electron";
+import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain } from "electron";
 import path from "node:path";
 
 import { openBetterSqlite } from "../src/core/store/db.ts";
@@ -80,10 +80,19 @@ async function buildScheduler(): Promise<Scheduler> {
 
 async function createWindow() {
   win = new BrowserWindow({
-    width: 1280, height: 880, show: !process.argv.includes("--lumina-autostart"),
+    width: 1280, height: 880, minWidth: 940, minHeight: 600,
+    show: !process.argv.includes("--lumina-autostart"),
+    frame: false,                       // issue5：无原生边框（自定义标题栏）
+    titleBarStyle: "hidden",            // macOS：隐藏标题栏，保留红绿灯
+    autoHideMenuBar: true,              // 不显示 File/Edit/View/Window/Help 菜单条
+    backgroundColor: "#F1EFE8",         // 默认亮色，避免加载白闪/黑闪
     webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false },
   });
+  win.removeMenu();                     // 彻底移除窗口菜单（Windows/Linux）
   await win.loadURL(process.env.VITE_DEV_SERVER_URL ?? `file://${path.join(__dirname, "../dist/index.html")}`);
+  const emitMax = () => win?.webContents.send("win:maximized", win?.isMaximized() ?? false);
+  win.on("maximize", emitMax);
+  win.on("unmaximize", emitMax);
   win.on("close", async (e) => {
     const s = await loadAppSettings(store);
     if (s.backgroundEnabled && !(app as any).isQuiting) { e.preventDefault(); win?.hide(); } // B：托盘常驻
@@ -111,11 +120,17 @@ async function toggleAutostart(enabled: boolean) {
 }
 
 app.whenReady().then(async () => {
+  Menu.setApplicationMenu(null);               // issue5：移除应用级菜单（File/Edit/View/Window/Help）
   setPoliteIdentity({ tool: "lumina-feed", email: process.env.LUMINA_CONTACT_EMAIL });
   store = initStore(await openBetterSqlite(path.join(app.getPath("userData"), "lumina.db")));
   await createWindow();
   buildTray();
-  registerOaPdfBridge();                       // M3：主进程 PDF 桥
+  await registerOaPdfBridge();                 // M3：主进程 PDF 桥
+  // 自定义标题栏窗口控制
+  ipcMain.handle("win:minimize", () => win?.minimize());
+  ipcMain.handle("win:maximize", () => (win?.isMaximized() ? win.unmaximize() : win?.maximize()));
+  ipcMain.handle("win:close", () => win?.close());
+  ipcMain.handle("win:isMaximized", () => win?.isMaximized() ?? false);
   scheduler = await buildScheduler();
   registerIpc({ store, scheduler, secrets, rebuildScheduler: async () => { scheduler = await buildScheduler(); scheduler.start(); }, focusWindow: () => win?.show() });
   scheduler.start(60_000);                      // M5：tick + 启动即 catch-up

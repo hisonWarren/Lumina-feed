@@ -2,8 +2,11 @@ import React, { useState, useMemo, useRef, useEffect } from "react";
 import {
   Aperture, Sunrise, Search, Sparkles, Star, Bookmark, Inbox, X,
   ChevronRight, ChevronDown, SlidersHorizontal, List, Rows3, Quote,
-  ShieldCheck, AlertTriangle, Check, ArrowUpRight, FileDown, Layers, Circle, Moon, Sun, Command, ArrowUpDown
+  ShieldCheck, AlertTriangle, Check, ArrowUpRight, FileDown, Layers, Circle, Moon, Sun, Command, ArrowUpDown, Settings
 } from "lucide-react";
+import { THEMES, THEME_CSS, DEFAULT_THEME, isLight } from "./themes.js";
+import { TitleBar, ThemePicker, SubscriptionManager, SubscribeEntry, SettingsPanel, UX_STYLE, emptySub } from "./lumina-ux.jsx";
+import { bridge, hasBackend, digestItemToCard } from "./lumina-bridge.js";
 
 /* ════════════════════════════════════════════════════════════════════
    LUMINA FEED · "THE OBSERVATORY"
@@ -502,9 +505,9 @@ function Card({ p, dense, lit, kbd, onOpen, starred, onStar, screening, onScreen
           <span className="lf-src">{p.source}</span>
         </div>
         <div className="lf-acts">
-          <button className={`lf-act${fetched ? " on" : ""}${fetching ? " loading" : ""}`} disabled={p.oa === "closed" || fetching} onClick={() => onFetch(p.id)}
-            title={p.oa === "closed" ? "无合法 OA — 可经机构访问" : "获取合法 OA 全文"}>
-            <FileDown size={13} />{fetching ? "获取中…" : fetched ? "已取全文" : p.oa === "closed" ? "经机构访问" : "取全文"}
+          <button className={`lf-act lf-act-ft${fetched ? " on" : ""}${fetching ? " loading" : ""}`} disabled={p.oa === "closed" || fetching} onClick={() => onFetch(p.id)}
+            title={p.oa === "closed" ? "无合法 OA — 可经机构访问" : "获取合法 OA 全文 PDF"}>
+            <FileDown size={13} />{fetching ? "获取中…" : fetched ? "已取全文" : p.oa === "closed" ? "经机构访问" : "获取全文"}
           </button>
           <button className={`lf-act${starred ? " on" : ""}`} onClick={() => onStar(p.id)}>
             <Star size={13} fill={starred ? "currentColor" : "none"} />收藏
@@ -528,10 +531,22 @@ function Drawer({ p, onClose, screening, onScreen }) {
   const [g, setG] = useState(null);
   const [shown, setShown] = useState(0);
   const [prep, setPrep] = useState(false);
+  const [awaiting, setAwaiting] = useState(false);
   const t = TYPE[p.type], oaOk = p.oa !== "closed";
   const useFt = o.source === "prefer_fulltext" && oaOk && o.pdf !== "no";
-  const gen = () => {
+  const gen = async () => {
     if (o.source === "none") return setG({ skip: true });
+    if (hasBackend()) {
+      setG(null); setAwaiting(true);
+      try {
+        const r = await bridge.summarize(p.id, o);
+        setAwaiting(false);
+        if (!r) return setG({ error: "生成失败：请在「设置」里配置 LLM（Claude/OpenAI/本地 Ollama）后重试。" });
+        setG({ basis: r.sourceBasis, full: r.text || "(空)", banner: r.banner, groundedRatio: r.groundedRatio, model: r.model, real: true });
+      } catch (e) { setAwaiting(false); setG({ error: "生成失败：" + String((e && e.message) || e) }); }
+      return;
+    }
+    // —— 无 Electron：mock 演示 ——
     const basis = useFt ? "fulltext" : "abstract";
     const body = {
       tldr: p.tldr,
@@ -542,7 +557,7 @@ function Drawer({ p, onClose, screening, onScreen }) {
     setG({ basis, full: body, bi: o.lang === "bilingual" });
   };
   useEffect(() => {
-    if (!g || g.skip) return;
+    if (!g || g.skip || g.error) return;
     setShown(0); setPrep(true);
     let iv;
     const to = setTimeout(() => {
@@ -604,15 +619,19 @@ function Drawer({ p, onClose, screening, onScreen }) {
             {o.source === "prefer_fulltext" && !oaOk && (
               <p style={{ fontSize: 11.5, color: "var(--pre)", margin: "0 0 10px" }}>该文无合法 OA → 将回退为基于摘要总结(可经机构访问获取全文)。</p>
             )}
-            <button className="lf-gen" onClick={gen} disabled={streaming || prep}>{o.source === "none" ? "(已选不总结)" : (streaming || prep) ? "生成中…" : "生成总结"}</button>
-            {g && !g.skip && (
+            <button className="lf-gen" onClick={gen} disabled={streaming || prep || awaiting}>{o.source === "none" ? "(已选不总结)" : (streaming || prep || awaiting) ? "生成中…" : "生成总结"}</button>
+            {awaiting && <div className="lf-prep" style={{ marginTop: 12 }}>正在调用 LLM{useFt ? " · 读取合法 OA 全文" : " · 依据摘要"}…<span className="sweep" /></div>}
+            {g?.error && <p style={{ marginTop: 12, fontSize: 12, color: "var(--pre)", lineHeight: 1.5 }}>{g.error}</p>}
+            {g && !g.skip && !g.error && (
               <div className="lf-out">
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 9 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 9, flexWrap: "wrap" }}>
                   <span className="lf-basis" style={{ color: g.basis === "fulltext" ? "var(--t-rct)" : "var(--pre)", background: g.basis === "fulltext" ? "rgba(118,214,174,.12)" : "rgba(230,168,98,.12)" }}>
                     {g.basis === "fulltext" ? <ShieldCheck size={12} /> : <Layers size={12} />}{g.basis === "fulltext" ? "基于全文" : "基于摘要"}
                   </span>
-                  <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink4)" }}>model: your-llm · 附原文,反幻觉</span>
+                  {typeof g.groundedRatio === "number" && <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: g.groundedRatio >= 0.6 ? "var(--t-rct)" : "var(--pre)" }}>grounding {Math.round(g.groundedRatio * 100)}%</span>}
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink4)" }}>model: {g.model || "your-llm"} · 附原文,反幻觉</span>
                 </div>
+                {g.banner && <p style={{ fontSize: 11.5, color: "var(--pre)", margin: "0 0 8px", lineHeight: 1.5 }}>{g.banner}</p>}
                 {prep ? (
                   <div className="lf-prep">{g.basis === "fulltext" ? "正在读取全文 PDF 并提炼…" : "正在依据摘要生成…"}<span className="sweep" /></div>
                 ) : (
@@ -639,41 +658,67 @@ function Drawer({ p, onClose, screening, onScreen }) {
 }
 
 /* ════ TODAY VIEW ════ */
-function Today({ onOpen, fetched, fetching, onFetch, screening, onScreen, star, onStar, hov, setHov }) {
+function Today({ subs, onOpen, fetched, fetching, onFetch, screening, onScreen, star, onStar, hov, setHov }) {
   const byId = (id) => PAPERS.find((p) => p.id === id);
-  const totalToday = SUBS.reduce((s, x) => s + x.n, 0);
+  const list = subs && subs.length ? subs : SUBS;
+  const live = hasBackend();
+  const [digest, setDigest] = useState({});       // subId -> { items, loading, ran, skipped }
+  const [refreshing, setRefreshing] = useState(false);
+  const runOne = async (sub) => {
+    setDigest((d) => ({ ...d, [sub.id]: { ...(d[sub.id] || {}), loading: true } }));
+    try {
+      const r = await bridge.subsRunNow(sub.id);
+      const items = (r && r.digest && r.digest.items) || [];
+      setDigest((d) => ({ ...d, [sub.id]: { items, loading: false, ran: true, skipped: r && r.skipped } }));
+    } catch { setDigest((d) => ({ ...d, [sub.id]: { items: [], loading: false, ran: true, error: true } })); }
+  };
+  const runAll = async () => { setRefreshing(true); for (const s of list) { if (s.enabled !== false) await runOne(s); } setRefreshing(false); };
+  useEffect(() => { if (live && list.length) runAll(); /* eslint-disable-next-line */ }, [live]);
+  const liveCount = (s) => (digest[s.id]?.items?.length ?? 0);
+  const totalToday = live ? list.reduce((n, s) => n + liveCount(s), 0) : list.reduce((s, x) => s + (x.n || 0), 0);
+  const today = new Date().toISOString().slice(0, 10);
   return (
     <div className="lf-dawn">
-      <div className="lf-eyebrow rise"><Sunrise size={13} /> 每日证据简报 · 本机生成<span className="ln" /></div>
+      <div className="lf-eyebrow rise"><Sunrise size={13} /> 每日证据简报 · 本机生成<span className="ln" />
+        {live && <button className="lf-clear" style={{ marginLeft: "auto" }} onClick={runAll} disabled={refreshing}>{refreshing ? "刷新中…" : "刷新今日"}</button>}
+      </div>
       <h1 className="lf-date rise" style={{ animationDelay: "40ms" }}>6月26日<span className="dow">Friday · 2026</span></h1>
       <p className="lf-lead rise" style={{ animationDelay: "80ms" }}>
-        昨夜至今，你关注的领域亮起 <b>{totalToday} 篇</b>新研究。最亮的是一项来自 NEJM 的多中心 RCT。下面是按订阅整理的简报——每条都标了证据来源，决策权始终在你手里。
+        {live
+          ? <>截至今日，你订阅的主题共亮起 <b>{totalToday} 篇</b>新研究。下面按订阅整理——每条都标了证据来源，纳入/排除始终由你决定。</>
+          : <>昨夜至今，你关注的领域亮起 <b>{totalToday} 篇</b>新研究。最亮的是一项来自 NEJM 的多中心 RCT。下面是按订阅整理的简报——每条都标了证据来源，决策权始终在你手里。</>}
       </p>
 
-      <Spectrum onHover={setHov} onOpen={onOpen} litId={hov} />
+      {!live && <Spectrum onHover={setHov} onOpen={onOpen} litId={hov} />}
 
-      {SUBS.map((s, si) => (
+      {list.map((s, si) => {
+        const d = live ? digest[s.id] : null;
+        const cards = live ? (d?.items || []).map(digestItemToCard) : (s.hits || []).map(byId).filter(Boolean);
+        const isLoading = live && d?.loading;
+        return (
         <div key={s.id}>
           <div className="lf-subhead rise" style={{ animationDelay: `${180 + si * 60}ms` }}>
             <Aperture size={16} style={{ color: "var(--peri)" }} />
-            <h3>{s.name}</h3><span className="ct">今日 {s.n}</span>
-            <span style={{ marginLeft: 4, opacity: 0.85 }}><Sparkline data={s.spark} color="var(--peri)" /></span>
+            <h3>{s.name}</h3><span className="ct">今日 {live ? cards.length : (s.n || 0)}</span>
+            {!live && <span style={{ marginLeft: 4, opacity: 0.85 }}><Sparkline data={s.spark || [0, 0, 0, 0, 0, 0, 0]} color="var(--peri)" /></span>}
             <span className="ln" />
           </div>
-          {s.n === 0 ? (
-            <div className="lf-empty rise">今日无新命中。已检索至 {TODAY}，有新文献会自动出现在这里。</div>
+          {isLoading ? (
+            <div className="lf-empty rise">正在检索该订阅的当日新发表…</div>
+          ) : cards.length === 0 ? (
+            <div className="lf-empty rise">今日无新命中。已检索至 {live ? today : TODAY}，有新文献会自动出现在这里。</div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
-              {s.hits.map((id, i) => (
-                <Card key={id} p={byId(id)} idx={i} dense={false} lit={hov === id}
-                  onOpen={onOpen} starred={star.has(id)} onStar={onStar}
-                  screening={screening[id]} onScreen={onScreen} fetched={!!fetched[id]} fetching={!!fetching[id]} onFetch={onFetch}
+              {cards.map((c, i) => (
+                <Card key={c.id} p={c} idx={i} dense={false} lit={hov === c.id}
+                  onOpen={onOpen} starred={star.has(c.id)} onStar={onStar}
+                  screening={screening[c.id]} onScreen={onScreen} fetched={!!fetched[c.id]} fetching={!!fetching[c.id]} onFetch={onFetch}
                   onHover={setHov} />
               ))}
             </div>
           )}
         </div>
-      ))}
+      ); })}
       <p className="lf-dawn-foot">本机休眠时，你会在下次唤醒收到补发简报 · 要真正 24/7 推到手机，需常开机器或自建小服务</p>
     </div>
   );
@@ -852,7 +897,15 @@ export default function LuminaFeedObservatory() {
   const [fetched, setFetched] = useState({});
   const [fetching, setFetching] = useState({});
   const [hov, setHov] = useState(null);
-  const [day, setDay] = useState(false);
+  const [themeId, setThemeId] = useState(DEFAULT_THEME);
+  const day = isLight(themeId);
+  const [subs, setSubs] = useState(SUBS);
+  const [subMgr, setSubMgr] = useState(false);
+  const live = hasBackend();
+  const [papers, setPapers] = useState(PAPERS);
+  const [loading, setLoading] = useState(false);
+  const [searchErr, setSearchErr] = useState(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [cursor, setCursor] = useState(-1);
   const [booting, setBooting] = useState(true);
   const [palette, setPalette] = useState(false);
@@ -860,6 +913,37 @@ export default function LuminaFeedObservatory() {
   const searchRef = useRef(null);
 
   useEffect(() => { const t = setTimeout(() => setBooting(false), 950); return () => clearTimeout(t); }, []);
+
+  // ── 接真实引擎：启动载入订阅 + 监听后台每日推送结果 ──
+  useEffect(() => {
+    if (!live) return;
+    let alive = true;
+    bridge.subsList().then((list) => { if (alive && list) setSubs(list); }).catch(() => {});
+    const off = bridge.onDigest((res) => {
+      const n = (res && (res.newCount ?? (res.digest && res.digest.items ? res.digest.items.length : 0))) || 0;
+      if (n > 0) pushToast(`今日推送：${n} 篇新命中`, <Sunrise size={14} color="var(--gold)" />);
+      bridge.subsList().then((l) => l && setSubs(l)).catch(() => {});
+    });
+    return () => { alive = false; off && off(); };
+  }, [live]);
+
+  // ── 在线检索（防抖 350ms）：把真实命中写进 papers，替代 mock；纯浏览器预览保持 mock ──
+  useEffect(() => {
+    if (!live || mode !== "explore") return;
+    let alive = true;
+    const filters = {
+      sources: [...sources], types: [...types], oa: [...oa], langs: [...langs],
+      peer, hideRet, yearFrom: yf, yearTo: yt,
+    };
+    setLoading(true); setSearchErr(null);
+    const t = setTimeout(() => {
+      bridge.searchOnline(q, filters)
+        .then((r) => { if (!alive) return; if (r) setPapers(r.papers); })
+        .catch((e) => { if (alive) setSearchErr(String((e && e.message) || e)); })
+        .finally(() => { if (alive) setLoading(false); });
+    }, 350);
+    return () => { alive = false; clearTimeout(t); };
+  }, [live, mode, q, yf, yt, sources, types, oa, langs, peer, hideRet]);
   const pushToast = (msg, icon) => {
     const id = Date.now() + Math.random();
     setToasts((ts) => [...ts, { id, msg, icon }]);
@@ -867,27 +951,51 @@ export default function LuminaFeedObservatory() {
   };
 
   const tog = (set, v, setter) => { const n = new Set(set); n.has(v) ? n.delete(v) : n.add(v); setter(n); };
-  const onStar = (id) => { const has = star.has(id); tog(star, id, setStar); pushToast(has ? "已取消收藏" : "已加入收藏", <Star size={14} fill={has ? "none" : "var(--gold)"} color="var(--gold)" />); };
+  const onStar = (id) => { const has = star.has(id); tog(star, id, setStar); if (live) bridge.setState(id, { starred: !has }).catch(() => {}); pushToast(has ? "已取消收藏" : "已加入收藏", <Star size={14} fill={has ? "none" : "var(--gold)"} color="var(--gold)" />); };
   const onScreen = (id, s) => {
-    const cur = screen[id]; setScreen((m) => ({ ...m, [id]: m[id] === s ? undefined : s }));
+    const cur = screen[id]; const next = cur === s ? undefined : s;
+    setScreen((m) => ({ ...m, [id]: next }));
+    if (live) bridge.setState(id, { screening: next ?? "none" }).catch(() => {});   // AI 不裁判：纳入/排除永远人工落库
     if (cur !== s) pushToast(s === "pending" ? "已加入待筛" : s === "kept" ? "已标记纳入" : "已标记排除", <Inbox size={14} color="var(--peri)" />);
   };
   const onFetch = (id) => {
-    const p = PAPERS.find((x) => x.id === id);
-    if (p.oa === "closed" || fetching[id] || fetched[id]) return;
+    const p = papers.find((x) => x.id === id);
+    if (!p || p.oa === "closed" || fetching[id] || fetched[id]) return;
     setFetching((m) => ({ ...m, [id]: true }));
-    setTimeout(() => { setFetching((m) => ({ ...m, [id]: false })); setFetched((m) => ({ ...m, [id]: true })); pushToast("已获取合法 OA 全文", <FileDown size={14} color="var(--t-rct)" />); }, 950);
+    if (live) {
+      bridge.fetchFullText(p).then((r) => {
+        setFetching((m) => ({ ...m, [id]: false }));
+        if (r && r.ok) { setFetched((m) => ({ ...m, [id]: true })); pushToast("已获取合法 OA 全文", <FileDown size={14} color="var(--t-rct)" />); }
+        else pushToast(r && r.reason === "no_oa" ? "无合法 OA 全文，可经机构访问" : "获取失败，请重试", <AlertTriangle size={14} color="var(--pre)" />);
+      }).catch(() => { setFetching((m) => ({ ...m, [id]: false })); pushToast("获取失败，请重试", <AlertTriangle size={14} color="var(--pre)" />); });
+    } else {
+      setTimeout(() => { setFetching((m) => ({ ...m, [id]: false })); setFetched((m) => ({ ...m, [id]: true })); pushToast("已获取合法 OA 全文（演示）", <FileDown size={14} color="var(--t-rct)" />); }, 950);
+    }
   };
   const clearFilters = () => { setSources(new Set()); setTypes(new Set()); setOa(new Set()); setLangs(new Set()); setPeer(false); setQ(""); setYf(2020); setYt(2026); };
   const activeFilters = sources.size + types.size + oa.size + langs.size + (peer ? 1 : 0) + (q ? 1 : 0) + (yf !== 2020 || yt !== 2026 ? 1 : 0);
+  const doExport = async (list, format = "bibtex") => {
+    if (!live) return;
+    try {
+      const text = await bridge.exportPapers(list.map((x) => x.id), format);
+      if (!text) return pushToast("导出为空");
+      const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+      const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+      a.download = `lumina-export.${format === "ris" ? "ris" : format === "csv" ? "csv" : "bib"}`;
+      a.click(); URL.revokeObjectURL(a.href);
+      pushToast(`已导出 ${list.length} 篇 · ${format.toUpperCase()}`, <FileDown size={14} color="var(--t-rct)" />);
+    } catch { pushToast("导出失败"); }
+  };
   const toggleTheme = (e) => {
     const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (e) { const x = e.clientX, y = e.clientY; document.documentElement.style.setProperty("--cx", x + "px"); document.documentElement.style.setProperty("--cy", y + "px"); }
-    if (document.startViewTransition && !reduce) document.startViewTransition(() => setDay((d) => !d));
-    else setDay((d) => !d);
+    // 在当前亮/暗各自的默认主题间切换；细粒度选择交给 ThemePicker
+    const next = isLight(themeId) ? "observatory" : "daylight";
+    if (document.startViewTransition && !reduce) document.startViewTransition(() => setThemeId(next));
+    else setThemeId(next);
   };
 
-  const base = useMemo(() => PAPERS.filter((p) => {
+  const base = useMemo(() => papers.filter((p) => {
     if (q && !`${p.title} ${p.abstract} ${p.authors.join(" ")}`.toLowerCase().includes(q.toLowerCase())) return false;
     if (hideRet && p.retracted) return false;
     if (p.year < yf || p.year > yt) return false;
@@ -897,7 +1005,7 @@ export default function LuminaFeedObservatory() {
     if (langs.size && !langs.has(p.lang)) return false;
     if (peer && !p.peer) return false;
     return true;
-  }), [q, sources, types, oa, langs, peer, hideRet, yf, yt]);
+  }), [papers, q, sources, types, oa, langs, peer, hideRet, yf, yt]);
 
   const results = useMemo(() => {
     const r = [...base];
@@ -935,7 +1043,7 @@ export default function LuminaFeedObservatory() {
   const cnt = (fn) => base.reduce((m, p) => { const k = fn(p); m[k] = (m[k] || 0) + 1; return m; }, {});
   const cS = cnt((p) => p.source), cT = cnt((p) => p.type), cL = cnt((p) => p.lang);
   const cO = base.reduce((m, p) => { const k = p.oa === "closed" ? "closed" : "oa"; m[k] = (m[k] || 0) + 1; return m; }, {});
-  const selP = PAPERS.find((p) => p.id === sel);
+  const selP = papers.find((p) => p.id === sel);
   const pend = Object.values(screen).filter((v) => v === "pending").length;
   const kbdId = cursor >= 0 && results[cursor] ? results[cursor].id : null;
 
@@ -947,12 +1055,18 @@ export default function LuminaFeedObservatory() {
     { id: "sort-cites", label: "排序 · 被引最多", keywords: "sort cite 排序 被引", icon: <ArrowUpDown size={15} />, run: () => { setMode("explore"); setSort("cites"); } },
     { id: "sort-ev", label: "排序 · 证据等级", keywords: "sort evidence 排序 证据", icon: <ArrowUpDown size={15} />, run: () => { setMode("explore"); setSort("evidence"); } },
     { id: "clear", label: "清除全部筛选", keywords: "clear reset 清除 重置", icon: <X size={15} />, run: () => { setMode("explore"); clearFilters(); } },
-    ...SUBS.map((s) => ({ id: "sub-" + s.id, label: "订阅 · " + s.name, sub: `今日 ${s.n} 篇`, keywords: s.name, icon: <Aperture size={15} />, run: () => setMode("today") })),
+    { id: "subs-manage", label: "管理 · 订阅与推送", sub: "新建/编辑你的文献雷达", keywords: "subscription push 订阅 推送 新建 自定义", icon: <Aperture size={15} />, run: () => setSubMgr(true) },
+    { id: "settings", label: "设置 · LLM 与邮箱", sub: "配置大模型 / OA 邮箱", keywords: "settings llm 设置 模型 密钥", icon: <Settings size={15} />, run: () => setSettingsOpen(true) },
+    ...(live ? [{ id: "export", label: "导出 · 当前结果 (BibTeX)", sub: "导出检索结果", keywords: "export bibtex 导出", icon: <FileDown size={15} />, run: () => doExport(results) }] : []),
+    ...subs.map((s) => ({ id: "sub-" + s.id, label: "订阅 · " + s.name, sub: `今日 ${s.n || 0} 篇`, keywords: s.name, icon: <Aperture size={15} />, run: () => setMode("today") })),
   ];
 
   return (
-    <div className={day ? "lf day" : "lf"}>
+    <div className={day ? "lf day" : "lf"} data-theme={themeId}>
       <style>{STYLE}</style>
+      <style>{THEME_CSS}</style>
+      <style>{UX_STYLE}</style>
+      <TitleBar />
       <div className="lf-aurora"><i /><i /><i /></div>
       <div className="lf-grain" /><div className="lf-vignette" />
 
@@ -968,13 +1082,13 @@ export default function LuminaFeedObservatory() {
             ))}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <SubscribeEntry count={subs.length} onClick={() => setSubMgr(true)} />
             <button className="lf-kbd" onClick={() => setPalette(true)} title="命令面板 · 检索文献与一切操作" style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
               <Command size={11} /> K
             </button>
-            <div className="lf-status"><span className="lf-live" /> 6 源 · 已同步</div>
-            <button className="lf-theme" onClick={toggleTheme} title={day ? "切换到夜间观测" : "切换到白昼阅读"} aria-label="切换主题">
-              {day ? <Moon size={16} /> : <Sun size={16} />}
-            </button>
+            <div className="lf-status"><span className="lf-live" /> {live ? "已连接引擎" : "6 源 · 已同步"}</div>
+            <button className="lf-theme" onClick={() => setSettingsOpen(true)} title="设置（LLM / 邮箱）" aria-label="设置"><Settings size={16} /></button>
+            <ThemePicker themes={THEMES} current={themeId} onPick={setThemeId} />
           </div>
         </header>
 
@@ -982,7 +1096,7 @@ export default function LuminaFeedObservatory() {
           <div className="lf-view" key="boot"><Boot mode={mode} /></div>
         ) : mode === "today" ? (
           <div className="lf-view lf-scroll" key="today">
-            <Today onOpen={setSel} fetched={fetched} fetching={fetching} onFetch={onFetch} screening={screen} onScreen={onScreen} star={star} onStar={onStar} hov={hov} setHov={setHov} />
+            <Today subs={subs} onOpen={setSel} fetched={fetched} fetching={fetching} onFetch={onFetch} screening={screen} onScreen={onScreen} star={star} onStar={onStar} hov={hov} setHov={setHov} />
           </div>
         ) : (
           <div className="lf-view lf-exp" key="explore">
@@ -1025,16 +1139,21 @@ export default function LuminaFeedObservatory() {
                 </div>
               </div>
               <div className="lf-count">
-                <span><b>{results.length}</b> 篇结果{q && ` · "${q}"`}</span>
+                <span>{loading ? <span style={{ color: "var(--gold)" }}>检索中…</span> : <><b>{results.length}</b> 篇结果{q && ` · "${q}"`}</>}</span>
                 <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  {live && results.length > 0 && <button className="lf-clear" onClick={() => doExport(results)} title="导出当前结果"><FileDown size={12} />导出</button>}
                   {activeFilters > 0 && <button className="lf-clear" onClick={clearFilters}><X size={12} />清除筛选 {activeFilters}</button>}
                   {pend > 0 && <Tag c="var(--gold)" bg="rgba(242,200,121,.08)" b="var(--line2)" icon={Inbox}>待筛 {pend}</Tag>}
                   {star.size > 0 && <Tag c="var(--gold)" bg="rgba(242,200,121,.08)" b="var(--line2)" icon={Star}>收藏 {star.size}</Tag>}
                 </span>
               </div>
               <div className="lf-stream lf-scroll">
-                {results.length === 0
-                  ? <div className="lf-noresult">没有匹配的文献。<br /><button className="lf-clear" style={{ marginTop: 12 }} onClick={clearFilters}><X size={12} />清除全部筛选</button></div>
+                {searchErr
+                  ? <div className="lf-noresult">检索出错：{searchErr}<br /><span style={{ fontSize: 12 }}>请检查网络或稍后重试。</span></div>
+                  : loading && results.length === 0
+                  ? <div className="lf-noresult">正在向 PubMed / Europe PMC / OpenAlex 等检索…</div>
+                  : results.length === 0
+                  ? <div className="lf-noresult">{live ? "未检索到文献。换个检索式，或放宽筛选。" : "没有匹配的文献。"}<br /><button className="lf-clear" style={{ marginTop: 12 }} onClick={clearFilters}><X size={12} />清除全部筛选</button></div>
                   : results.map((p, i) => (
                     <Card key={p.id} p={p} idx={i} dense={dense} lit={hov === p.id} kbd={kbdId === p.id} onOpen={setSel}
                       starred={star.has(p.id)} onStar={onStar} screening={screen[p.id]} onScreen={onScreen}
@@ -1048,6 +1167,18 @@ export default function LuminaFeedObservatory() {
 
       {selP && <Drawer key={selP.id} p={selP} onClose={() => setSel(null)} screening={screen[selP.id]} onScreen={onScreen} />}
       {palette && <Palette commands={commands} onClose={() => setPalette(false)} onOpenPaper={(id) => { setSel(id); }} />}
+      <SubscriptionManager
+        open={subMgr}
+        subs={subs}
+        onClose={() => setSubMgr(false)}
+        onSave={(s) => {
+          setSubs((list) => list.some((x) => x.id === s.id) ? list.map((x) => x.id === s.id ? s : x) : [...list, s]);
+          if (live) bridge.subsSave(s).then(() => bridge.subsRunNow(s.id)).catch(() => {});
+          pushToast("订阅已保存", <Check size={14} color="var(--t-rct)" />);
+        }}
+        onDelete={(id) => { setSubs((list) => list.filter((x) => x.id !== id)); if (live) bridge.subsRemove(id).catch(() => {}); pushToast("订阅已删除"); }}
+      />
+      <SettingsPanel open={settingsOpen} api={live ? bridge : null} onClose={() => setSettingsOpen(false)} onSaved={() => pushToast("设置已保存", <Check size={14} color="var(--t-rct)" />)} />
       <Toasts items={toasts} />
     </div>
   );
