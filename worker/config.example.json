@@ -1,0 +1,44 @@
+{
+  "productName": "Lumina Feed",
+  "contactEmail": "you@example.com",
+  "statePath": "./lumina-state.json",
+  "pageSize": 25,
+  "tickMs": 60000,
+  "summarize": { "enabled": false, "max": 10 },
+
+  "subscriptions": [
+    {
+      "id": "ami-sglt2",
+      "name": "急性心梗 · SGLT2",
+      "query": { "raw": "(myocardial infarction) AND SGLT2" },
+      "schedule": { "freq": "daily", "time": "08:00", "tz": "Asia/Shanghai", "quietHours": [22, 8] },
+      "enabled": true
+    },
+    {
+      "id": "neuroimmune-microglia",
+      "name": "神经免疫 · 小胶质细胞",
+      "query": { "terms": ["microglia", "neuroinflammation"] },
+      "schedule": { "freq": "weekly", "time": "09:00", "tz": "Asia/Shanghai", "weekday": 1 },
+      "enabled": true
+    }
+  ],
+
+  "channels": {
+    "email": {
+      "enabled": false,
+      "from": "Lumina <bot@example.com>",
+      "to": "you@example.com",
+      "smtp": { "host": "smtp.example.com", "port": 465, "secure": true, "user": "bot@example.com" }
+    },
+    "telegram": {
+      "enabled": false,
+      "chatId": "123456789"
+    },
+    "webhook": {
+      "enabled": false,
+      "url": "https://example.com/lumina-hook"
+    }
+  },
+
+  "_secrets_note": "密钥绝不写本文件 —— 用环境变量：SMTP_PASS / TELEGRAM_BOT_TOKEN / WEBHOOK_SECRET / LLM_API_KEY"
+}

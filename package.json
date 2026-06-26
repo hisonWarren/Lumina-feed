@@ -1,0 +1,30 @@
+{
+  "name": "lumina-feed",
+  "version": "1.0.0",
+  "description": "Lumina Feed · 本地优先的文献发现与每日推送（多源检索 + 合法 OA 全文 + 可信 AI 总结 + 定时/多渠道推送 + 导出）",
+  "type": "module",
+  "scripts": {
+    "quickstart": "node tools/quickstart.mjs",
+    "package": "node tools/package.mjs",
+    "verify": "node tools/verify-all.mjs",
+    "verify:data-core": "node --experimental-strip-types --experimental-sqlite tools/verify-data-core.mjs",
+    "verify:oa-fulltext": "node --experimental-strip-types tools/verify-oa-fulltext.mjs",
+    "verify:summarize": "node --experimental-strip-types --experimental-sqlite tools/verify-summarize.mjs",
+    "verify:scheduler-push": "node --experimental-strip-types tools/verify-scheduler-push.mjs",
+    "verify:export": "node --experimental-strip-types tools/verify-export.mjs",
+    "verify:trust": "node --experimental-strip-types --experimental-sqlite tools/verify-trust.mjs",
+    "worker:once": "node --experimental-strip-types worker/push-worker.mjs --once",
+    "worker:daemon": "node --experimental-strip-types worker/push-worker.mjs --daemon"
+  },
+  "engines": { "node": ">=22.18" },
+  "//deps": "核心零运行时依赖（Node 内置 + global fetch + node:sqlite/zlib）。生产可选下列。",
+  "optionalDependencies": {
+    "better-sqlite3": "^11.0.0",
+    "electron": "^31.0.0",
+    "pdfjs-dist": "^4.0.0",
+    "nodemailer": "^6.9.0",
+    "auto-launch": "^5.0.6",
+    "keytar": "^7.9.0"
+  },
+  "//note": "桌面壳走 Electron；沙箱/CI 用 node:sqlite 跑全部门禁，无需任何安装。"
+}

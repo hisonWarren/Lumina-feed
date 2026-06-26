@@ -1,0 +1,20 @@
+{
+  "libgen_config_url": "https://raw.githubusercontent.com/obsfx/libgen-downloader/configuration/config.v3.json",
+  "libgen_mirrors": [
+    "https://libgen.li",
+    "https://libgen.vg",
+    "https://libgen.gl",
+    "https://libgen.bz",
+    "https://libgen.la"
+  ],
+  "annas_mirrors": [
+    "https://annas-archive.gl",
+    "https://annas-archive.pk",
+    "https://annas-archive.gd"
+  ],
+  "scihub_mirrors": [
+    "https://sci-hub.se",
+    "https://sci-hub.st",
+    "https://sci-hub.ru"
+  ]
+}
