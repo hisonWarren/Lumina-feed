@@ -1,7 +1,7 @@
 // lumina-feed · Electron 应用入口（装配全部里程碑）
 // 这是把 M1–M6 接成一个产品的总装：
 //   M1 store ─ M3 OA全文 ─ M4 总结 ─ 证据可信性 grounding ─ M5 调度/推送 ─ M6 导出
-import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain } from "electron";
+import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, shell } from "electron";
 import path from "node:path";
 
 import { openBetterSqlite } from "../src/core/store/db.ts";
@@ -131,6 +131,8 @@ app.whenReady().then(async () => {
   ipcMain.handle("win:maximize", () => (win?.isMaximized() ? win.unmaximize() : win?.maximize()));
   ipcMain.handle("win:close", () => win?.close());
   ipcMain.handle("win:isMaximized", () => win?.isMaximized() ?? false);
+  // 用默认浏览器打开外链（doi / 原文 / 机构访问）
+  ipcMain.handle("shell:openExternal", (_e, url: string) => { if (typeof url === "string" && /^https?:\/\//.test(url)) return shell.openExternal(url); });
   scheduler = await buildScheduler();
   registerIpc({ store, scheduler, secrets, rebuildScheduler: async () => { scheduler = await buildScheduler(); scheduler.start(); }, focusWindow: () => win?.show() });
   scheduler.start(60_000);                      // M5：tick + 启动即 catch-up

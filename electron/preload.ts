@@ -42,5 +42,6 @@ contextBridge.exposeInMainWorld("luminaWin", {
   maximize: () => invoke("win:maximize"),
   close: () => invoke("win:close"),
   isMaximized: () => invoke("win:isMaximized"),
+  openExternal: (url: string) => invoke("shell:openExternal", url),
   onMaximizeChange: (cb: (m: boolean) => void) => on("win:maximized", cb),
 });

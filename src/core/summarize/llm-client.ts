@@ -72,17 +72,26 @@ export function ollamaClient(cfg: { model: string }, deps: ClientDeps = {}): Llm
 }
 
 export interface LlmConfig {
-  provider: "anthropic" | "openai" | "ollama";
+  provider: "anthropic" | "openai" | "ollama" | "deepseek" | "moonshot" | string;
   model: string;
   baseUrl?: string;
 }
+
+/** OpenAI 兼容提供方的默认 base（DeepSeek/Moonshot 等；自定义可用 baseUrl 覆盖） */
+const OPENAI_COMPAT_BASE: Record<string, string> = {
+  openai: "https://api.openai.com",
+  deepseek: "https://api.deepseek.com",
+  moonshot: "https://api.moonshot.cn",
+};
 
 /** 从配置 + 取 key 函数装配（key 来自钥匙串/env） */
 export async function llmFromConfig(cfg: LlmConfig, getKey: () => Promise<string | null> | string | null, deps: ClientDeps = {}): Promise<LlmClient> {
   if (cfg.provider === "ollama") return ollamaClient({ model: cfg.model }, { ...deps, baseUrl: cfg.baseUrl });
   const key = await getKey();
   if (!key) throw new Error(`缺少 ${cfg.provider} API key（请置于钥匙串/env，勿写配置）`);
-  return cfg.provider === "anthropic"
-    ? anthropicClient({ model: cfg.model, apiKey: key }, { ...deps, baseUrl: cfg.baseUrl })
-    : openaiClient({ model: cfg.model, apiKey: key }, { ...deps, baseUrl: cfg.baseUrl });
+  if (cfg.provider === "anthropic")
+    return anthropicClient({ model: cfg.model, apiKey: key }, { ...deps, baseUrl: cfg.baseUrl });
+  // openai 及所有 OpenAI 兼容（openai / deepseek / moonshot / 自定义 baseUrl）
+  const base = cfg.baseUrl ?? OPENAI_COMPAT_BASE[cfg.provider];
+  return openaiClient({ model: cfg.model, apiKey: key }, { ...deps, baseUrl: base });
 }

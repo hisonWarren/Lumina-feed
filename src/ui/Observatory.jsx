@@ -15,7 +15,7 @@ import { bridge, hasBackend, digestItemToCard } from "./lumina-bridge.js";
    ════════════════════════════════════════════════════════════════════ */
 
 const STYLE = `
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
 
 .lf{
   --bg:#0A0D14; --bg2:#0E121C; --surf:#141925; --surf2:#19202E;
@@ -24,15 +24,17 @@ const STYLE = `
   --gold:#F2C879; --goldDim:#C9A463; --peri:#8AA9E0;
   --t-meta:#F4D9A0; --t-rct:#76D6AE; --t-cohort:#86A9E6; --t-review:#C2A6EC; --t-basic:#9BD0D8; --t-case:#9AA0AC;
   --pre:#E6A862; --ret:#E58686;
-  --serif:'Fraunces',Georgia,'Times New Roman',serif;
-  --sans:'Inter',system-ui,-apple-system,sans-serif;
+  --serif:'Source Serif 4','Noto Serif',Georgia,'Times New Roman',serif;
+  --sans:'Inter',system-ui,-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
   --mono:'Space Mono','SFMono-Regular',ui-monospace,monospace;
-  position:relative; width:100%; height:820px; overflow:hidden;
+  position:relative; width:100%; height:100vh; overflow:hidden;
+  display:flex; flex-direction:column;
   background:var(--bg); color:var(--ink); font-family:var(--sans);
-  border-radius:16px; border:1px solid var(--line);
   -webkit-font-smoothing:antialiased; isolation:isolate;
   font-feature-settings:"ss01","cv01";
 }
+html,body,#root{height:100%; margin:0; padding:0}
+body{background:#F4F4F1}
 .lf *{box-sizing:border-box}
 .lf ::selection{background:rgba(242,200,121,.22); color:#fff}
 .lf-scroll{overflow-y:auto; scrollbar-width:thin; scrollbar-color:var(--line2) transparent}
@@ -52,7 +54,7 @@ const STYLE = `
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
 .lf-vignette{position:absolute; inset:0; z-index:1; pointer-events:none;
   background:radial-gradient(120% 90% at 50% 0%,transparent 55%,rgba(0,0,0,.45) 100%)}
-.lf-stage{position:relative; z-index:2; display:flex; flex-direction:column; height:100%}
+.lf-stage{position:relative; z-index:2; display:flex; flex-direction:column; flex:1; min-height:0}
 
 /* ── top bar ── */
 .lf-top{display:flex; align-items:center; justify-content:space-between; padding:14px 20px;
@@ -68,7 +70,7 @@ const STYLE = `
 .lf-segbtn{display:flex; align-items:center; gap:7px; padding:7px 15px; border-radius:8px; cursor:pointer; border:none; background:transparent;
   font-family:var(--sans); font-size:13px; font-weight:500; color:var(--ink2); transition:all .22s cubic-bezier(.4,0,.2,1)}
 .lf-segbtn:hover{color:var(--ink)}
-.lf-segbtn.on{color:#0A0D14; background:linear-gradient(180deg,#F6D391,#E6B45F);
+.lf-segbtn.on{color:#0A0D14; background:linear-gradient(180deg,var(--gold),var(--goldDim));
   box-shadow:0 2px 10px rgba(242,200,121,.30), inset 0 1px 0 rgba(255,255,255,.4)}
 .lf-status{font-family:var(--mono); font-size:10.5px; color:var(--ink3); display:flex; align-items:center; gap:7px}
 .lf-live{width:6px;height:6px;border-radius:50%; background:var(--t-rct); box-shadow:0 0 8px var(--t-rct); animation:pulse 2.4s ease-in-out infinite}
@@ -118,7 +120,7 @@ const STYLE = `
 .lf-card::before{content:''; position:absolute; left:0; top:0; bottom:0; width:2px; background:var(--accent,transparent); opacity:.0; transition:opacity .28s}
 .lf-card:hover{transform:translateY(-2px); border-color:var(--line2); box-shadow:0 14px 36px rgba(0,0,0,.4), 0 0 0 1px rgba(242,200,121,.06)}
 .lf-card:hover::before{opacity:.85}
-.lf-card.lit{border-color:rgba(242,200,121,.5); box-shadow:0 0 0 1px rgba(242,200,121,.30), 0 14px 40px rgba(242,200,121,.10)}
+.lf-card.lit{border-color:color-mix(in srgb,var(--gold) 50%,transparent); box-shadow:0 0 0 1px color-mix(in srgb,var(--gold) 30%,transparent), 0 14px 40px color-mix(in srgb,var(--gold) 10%,transparent)}
 .lf-card.dense{padding:13px 17px; gap:13px}
 
 .lf-lum{position:relative; flex-shrink:0; width:14px; display:flex; flex-direction:column; align-items:center; padding-top:4px}
@@ -128,9 +130,9 @@ const STYLE = `
 
 .lf-body{min-width:0; flex:1}
 .lf-rowtop{display:flex; align-items:flex-start; justify-content:space-between; gap:10px}
-.lf-title{font-family:var(--serif); font-weight:600; font-size:18.5px; line-height:1.28; letter-spacing:-.008em; color:var(--ink); cursor:pointer; text-align:left; background:none; border:none; padding:0; transition:color .2s}
+.lf-title{font-family:var(--sans); font-weight:600; font-size:15px; line-height:1.45; letter-spacing:-.006em; color:var(--ink); cursor:pointer; text-align:left; background:none; border:none; padding:0; transition:color .2s}
 .lf-title:hover{color:var(--gold)}
-.lf-card.dense .lf-title{font-size:15.5px}
+.lf-card.dense .lf-title{font-size:13.5px; line-height:1.4}
 .lf-meta{font-family:var(--mono); font-size:11.5px; color:var(--ink3); margin-top:7px; line-height:1.5}
 .lf-meta .j{color:var(--ink2)}
 .lf-tldr{display:flex; gap:8px; margin-top:10px; font-size:13px; line-height:1.55; color:var(--ink2)}
@@ -163,15 +165,15 @@ const STYLE = `
 .lf-opt-row:hover{background:rgba(255,255,255,.03)}
 .lf-cb{display:flex; align-items:center; gap:9px}
 .lf-box{width:15px;height:15px; border-radius:5px; border:1px solid var(--ink4); display:grid; place-items:center; transition:all .18s}
-.lf-box.ck{background:linear-gradient(180deg,#F6D391,#E6B45F); border-color:transparent; box-shadow:0 0 10px rgba(242,200,121,.3)}
+.lf-box.ck{background:linear-gradient(180deg,var(--gold),var(--goldDim)); border-color:transparent; box-shadow:0 0 10px rgba(242,200,121,.3)}
 .lf-dot{width:8px;height:8px;border-radius:50%}
 .lf-cnt{font-family:var(--mono); font-size:11px; color:var(--ink4)}
 .lf-range{padding:10px 6px 4px}
 .lf-range-v{display:flex; justify-content:space-between; font-family:var(--mono); font-size:11px; color:var(--ink2); margin-bottom:9px}
 .lf-rng{-webkit-appearance:none; appearance:none; width:100%; height:3px; border-radius:3px; background:var(--line2); outline:none; margin:7px 0}
 .lf-rng::-webkit-slider-thumb{-webkit-appearance:none; width:15px;height:15px;border-radius:50%; cursor:pointer;
-  background:radial-gradient(circle at 35% 30%,#F6D391,#D49E4E); box-shadow:0 0 0 1px rgba(0,0,0,.3),0 0 10px rgba(242,200,121,.4)}
-.lf-rng::-moz-range-thumb{width:15px;height:15px;border:none;border-radius:50%; cursor:pointer; background:#E6B45F; box-shadow:0 0 10px rgba(242,200,121,.4)}
+  background:radial-gradient(circle at 35% 30%,var(--gold),var(--goldDim)); box-shadow:0 0 0 1px rgba(0,0,0,.3),0 0 10px rgba(242,200,121,.4)}
+.lf-rng::-moz-range-thumb{width:15px;height:15px;border:none;border-radius:50%; cursor:pointer; background:var(--gold); box-shadow:0 0 8px color-mix(in srgb,var(--gold) 45%,transparent)}
 
 .lf-main{flex:1; display:flex; flex-direction:column; min-width:0}
 .lf-cmd{display:flex; align-items:center; gap:11px; padding:14px 20px; border-bottom:1px solid var(--line); background:rgba(14,18,28,.4)}
@@ -190,11 +192,17 @@ const STYLE = `
 .lf-count b{font-family:var(--mono); color:var(--ink); font-weight:700}
 .lf-stream{flex:1; padding:4px 20px 22px; display:flex; flex-direction:column; gap:11px}
 .lf-noresult{margin-top:60px; text-align:center; color:var(--ink3); font-size:14px}
+.lf-prompt{margin:auto; max-width:440px; text-align:center; padding:48px 24px; display:flex; flex-direction:column; align-items:center; gap:14px}
+.lf-prompt-ic{width:64px; height:64px; display:grid; place-items:center; border-radius:18px; color:var(--gold); background:color-mix(in srgb,var(--gold) 9%,transparent); border:1px solid color-mix(in srgb,var(--gold) 22%,transparent)}
+.lf-prompt-t{font-family:var(--serif); font-size:21px; font-weight:600; color:var(--ink); letter-spacing:-.01em}
+.lf-prompt-s{font-size:13px; line-height:1.7; color:var(--ink3); max-width:400px}
+.lf-prompt-btn{margin-top:6px; display:inline-flex; align-items:center; gap:7px; padding:10px 18px; border-radius:11px; border:none; cursor:pointer; font-family:var(--sans); font-size:13px; font-weight:600; color:#fff; background:var(--gold); transition:filter .2s, transform .15s}
+.lf-prompt-btn:hover{filter:brightness(1.08); transform:translateY(-1px)}
 
 /* ════ DETAIL DRAWER ════ */
-.lf-scrim{position:absolute; inset:0; z-index:30; background:rgba(5,7,12,.55); backdrop-filter:blur(3px); animation:fadeIn .25s ease}
+.lf-scrim{position:fixed; inset:0; top:34px; z-index:30; background:rgba(5,7,12,.55); backdrop-filter:blur(3px); animation:fadeIn .25s ease}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
-.lf-drawer{position:absolute; top:0; right:0; bottom:0; z-index:31; width:438px; max-width:92%;
+.lf-drawer{position:fixed; top:34px; right:0; bottom:0; z-index:31; width:438px; max-width:92%;
   background:linear-gradient(180deg,#11151F,#0B0E15); border-left:1px solid var(--line2);
   box-shadow:-24px 0 60px rgba(0,0,0,.5); display:flex; flex-direction:column; animation:slideIn .34s cubic-bezier(.2,.7,.2,1)}
 @keyframes slideIn{from{transform:translateX(40px); opacity:.4}to{transform:none; opacity:1}}
@@ -217,9 +225,9 @@ const STYLE = `
 .lf-seg{padding:6px 12px; border-radius:8px; cursor:pointer; border:1px solid var(--line2); background:rgba(10,13,20,.5);
   color:var(--ink2); font-family:var(--sans); font-size:12px; transition:all .18s}
 .lf-seg:hover{border-color:var(--ink4); color:var(--ink)}
-.lf-seg.on{border-color:transparent; color:#0A0D14; background:linear-gradient(180deg,#F6D391,#E6B45F); font-weight:600}
+.lf-seg.on{border-color:transparent; color:#0A0D14; background:linear-gradient(180deg,var(--gold),var(--goldDim)); font-weight:600}
 .lf-gen{width:100%; margin-top:4px; padding:11px; border-radius:10px; border:none; cursor:pointer;
-  background:linear-gradient(180deg,#F6D391,#E2AF59); color:#0A0D14; font-family:var(--sans); font-weight:600; font-size:13px;
+  background:linear-gradient(180deg,var(--gold),var(--goldDim)); color:#0A0D14; font-family:var(--sans); font-weight:600; font-size:13px;
   box-shadow:0 4px 16px rgba(242,200,121,.25); transition:transform .15s}
 .lf-gen:hover{transform:translateY(-1px)}
 .lf-gen:active{transform:none}
@@ -232,7 +240,7 @@ const STYLE = `
 .lf-dbtn{flex:1; padding:9px; border-radius:9px; cursor:pointer; border:1px solid var(--line2); background:rgba(10,13,20,.5);
   color:var(--ink2); font-size:12px; font-family:var(--sans); transition:all .18s}
 .lf-dbtn:hover{border-color:var(--ink4); color:var(--ink)}
-.lf-dbtn.on{border-color:transparent; background:linear-gradient(180deg,#F6D391,#E6B45F); color:#0A0D14; font-weight:600}
+.lf-dbtn.on{border-color:transparent; background:linear-gradient(180deg,var(--gold),var(--goldDim)); color:#0A0D14; font-weight:600}
 
 mark{background:rgba(242,200,121,.18); color:var(--gold); border-radius:3px; padding:0 1px}
 
@@ -271,10 +279,10 @@ mark{background:rgba(242,200,121,.18); color:var(--gold); border-radius:3px; pad
 
 /* ════ DAYLIGHT THEME ════ */
 .lf.day{
-  --bg:#F1EFE8; --bg2:#E9E7DE; --surf:#FCFBF7; --surf2:#F4F2EB;
-  --line:#DED9CC; --line2:#CDC7B6;
-  --ink:#22252B; --ink2:#56585F; --ink3:#8A887E; --ink4:#AEAC9F;
-  --gold:#A86E22; --goldDim:#8C5C1C; --peri:#3C5DA4;
+  --bg:#F4F4F1; --bg2:#ECECE7; --surf:#FBFBF9; --surf2:#F3F3EF;
+  --line:#E2E1DA; --line2:#D2D1C8;
+  --ink:#1C1E24; --ink2:#52555E; --ink3:#86887F; --ink4:#AEB0A6;
+  --gold:#0E7C6F; --goldDim:#0B5F55; --peri:#3E5C92;
   --t-meta:#A9792A; --t-rct:#2C8A60; --t-cohort:#3B66B0; --t-review:#7A57B4; --t-basic:#2C8690; --t-case:#7A7E87;
   --pre:#B06F26; --ret:#BE3A2C;
 }
@@ -286,6 +294,7 @@ mark{background:rgba(242,200,121,.18); color:var(--gold); border-radius:3px; pad
 .lf.day .lf-theme{background:rgba(255,255,255,.55)}
 .lf.day .lf-theme:hover{box-shadow:0 0 14px rgba(168,110,34,.16)}
 .lf.day .lf-kbd{background:rgba(255,255,255,.5)}
+.lf.day .lf-segbtn.on, .lf.day .lf-seg.on, .lf.day .lf-gen, .lf.day .lf-dbtn.on, .lf.day .lf-box.ck{color:#fff}
 .lf.day .lf-search input,.lf.day .lf-sel,.lf.day .lf-dense{background:rgba(255,255,255,.72)}
 .lf.day .lf-search input:focus{box-shadow:0 0 0 3px rgba(168,110,34,.14)}
 .lf.day .lf-seg,.lf.day .lf-act,.lf.day .lf-dbtn{background:rgba(255,255,255,.6)}
@@ -293,12 +302,12 @@ mark{background:rgba(242,200,121,.18); color:var(--gold); border-radius:3px; pad
 .lf.day .lf-spec{background:linear-gradient(180deg,rgba(255,255,255,.6),rgba(244,241,233,.34))}
 .lf.day .lf-panel{background:linear-gradient(180deg,rgba(255,255,255,.62),rgba(244,241,233,.3))}
 .lf.day .lf-empty{background:rgba(255,255,255,.45)}
-.lf.day .lf-drawer{background:linear-gradient(180deg,#FCFBF7,#F1EFE8)}
+.lf.day .lf-drawer{background:linear-gradient(180deg,var(--surf),var(--surf2))}
 .lf.day .lf-scrim{background:rgba(58,52,40,.28)}
 .lf.day .lf-x{background:rgba(0,0,0,.05)} .lf.day .lf-x:hover{background:rgba(0,0,0,.09)}
 .lf.day .lf-opt-row:hover{background:rgba(0,0,0,.04)}
-.lf.day .lf-card:hover{box-shadow:0 16px 38px rgba(70,58,32,.12),0 0 0 1px rgba(168,110,34,.10)}
-.lf.day .lf-card.lit{border-color:rgba(168,110,34,.45); box-shadow:0 0 0 1px rgba(168,110,34,.28),0 14px 40px rgba(168,110,34,.10)}
+.lf.day .lf-card:hover{box-shadow:0 14px 34px rgba(40,44,52,.10),0 0 0 1px color-mix(in srgb,var(--gold) 14%,transparent)}
+.lf.day .lf-card.lit{border-color:color-mix(in srgb,var(--gold) 45%,transparent); box-shadow:0 0 0 1px color-mix(in srgb,var(--gold) 30%,transparent),0 14px 36px color-mix(in srgb,var(--gold) 12%,transparent)}
 .lf.day mark{background:rgba(168,110,34,.16); color:var(--goldDim)}
 .lf.day .lf-rng{background:#CDC7B6}
 .lf.day .lf-aurora{opacity:.42}
@@ -313,7 +322,7 @@ mark{background:rgba(242,200,121,.18); color:var(--gold); border-radius:3px; pad
 .lf-cmdk{width:580px; max-width:92%; max-height:62vh; display:flex; flex-direction:column; border-radius:16px; overflow:hidden;
   background:linear-gradient(180deg,#141925,#0C1018); border:1px solid var(--line2); box-shadow:0 32px 80px rgba(0,0,0,.6), 0 0 0 1px rgba(242,200,121,.06);
   animation:cmdkIn .26s cubic-bezier(.2,.8,.2,1)}
-.lf.day .lf-cmdk{background:linear-gradient(180deg,#FCFBF7,#F1EFE8)}
+.lf.day .lf-cmdk{background:linear-gradient(180deg,var(--surf),var(--surf2))}
 @keyframes cmdkIn{from{opacity:0; transform:translateY(-12px) scale(.98)}to{opacity:1; transform:none}}
 .lf-cmdk-in{display:flex; align-items:center; gap:11px; padding:15px 18px; border-bottom:1px solid var(--line)}
 .lf-cmdk-in svg{color:var(--gold); flex-shrink:0}
@@ -345,7 +354,7 @@ mark{background:rgba(242,200,121,.18); color:var(--gold); border-radius:3px; pad
 .lf-toasts{position:absolute; left:50%; bottom:26px; z-index:60; transform:translateX(-50%); display:flex; flex-direction:column; gap:8px; align-items:center; pointer-events:none}
 .lf-toast{display:flex; align-items:center; gap:9px; padding:9px 15px; border-radius:11px; font-size:12.5px; color:var(--ink);
   background:linear-gradient(180deg,#19202E,#10141D); border:1px solid var(--line2); box-shadow:0 12px 32px rgba(0,0,0,.5); animation:toastIn .3s cubic-bezier(.2,.8,.2,1)}
-.lf.day .lf-toast{background:linear-gradient(180deg,#FCFBF7,#F1EFE8); box-shadow:0 12px 30px rgba(70,58,32,.18)}
+.lf.day .lf-toast{background:linear-gradient(180deg,var(--surf),var(--surf2)); box-shadow:0 12px 30px rgba(40,44,52,.14)}
 .lf-toast svg{flex-shrink:0}
 @keyframes toastIn{from{opacity:0; transform:translateY(14px) scale(.96)}to{opacity:1; transform:none}}
 
@@ -579,7 +588,7 @@ function Drawer({ p, onClose, screening, onScreen }) {
           <div className="lf-dmeta">
             {p.authors.join(", ")}<br />
             <span style={{ color: "var(--ink)" }}>{p.journal}</span> · {p.year}{p.n ? ` · n=${p.n.toLocaleString()}` : ""}<br />
-            <a href="#" onClick={(e) => e.preventDefault()}>doi:{p.doi} <ArrowUpRight size={12} /></a>
+            <a href={`https://doi.org/${p.doi}`} onClick={(e) => { e.preventDefault(); const u = `https://doi.org/${p.doi}`; if (window.luminaWin && window.luminaWin.openExternal) window.luminaWin.openExternal(u); else window.open(u, "_blank", "noopener"); }} style={{ cursor: "pointer" }}>doi:{p.doi} <ArrowUpRight size={12} /></a>
           </div>
           <div className="lf-tags" style={{ marginTop: 14 }}>
             <Tag c={t.c} b="var(--line2)">{t.label}</Tag>
@@ -658,9 +667,9 @@ function Drawer({ p, onClose, screening, onScreen }) {
 }
 
 /* ════ TODAY VIEW ════ */
-function Today({ subs, onOpen, fetched, fetching, onFetch, screening, onScreen, star, onStar, hov, setHov }) {
+function Today({ subs, onOpen, onNewSub, fetched, fetching, onFetch, screening, onScreen, star, onStar, hov, setHov }) {
   const byId = (id) => PAPERS.find((p) => p.id === id);
-  const list = subs && subs.length ? subs : SUBS;
+  const list = hasBackend() ? subs : (subs && subs.length ? subs : SUBS);
   const live = hasBackend();
   const [digest, setDigest] = useState({});       // subId -> { items, loading, ran, skipped }
   const [refreshing, setRefreshing] = useState(false);
@@ -683,6 +692,16 @@ function Today({ subs, onOpen, fetched, fetching, onFetch, screening, onScreen, 
         {live && <button className="lf-clear" style={{ marginLeft: "auto" }} onClick={runAll} disabled={refreshing}>{refreshing ? "刷新中…" : "刷新今日"}</button>}
       </div>
       <h1 className="lf-date rise" style={{ animationDelay: "40ms" }}>6月26日<span className="dow">Friday · 2026</span></h1>
+      {live && list.length === 0 ? (
+        <div className="lf-emptysub rise" style={{ animationDelay: "80ms" }}>
+          <p className="lf-lead" style={{ margin: "0 0 18px" }}>你还没有订阅。订阅 = 一条检索式 + 调度，每天自动把"当天新发表"的命中整理成简报推给你。</p>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button className="lf-prompt-btn" onClick={() => onNewSub && onNewSub()}><Aperture size={14} /> 新建订阅</button>
+          </div>
+          <p style={{ fontSize: 12.5, color: "var(--ink3)", marginTop: 18, lineHeight: 1.6 }}>只想检索和下载全文？这不需要订阅——切到「探索」直接搜，命中后一键取 OA 全文。</p>
+        </div>
+      ) : (
+      <>
       <p className="lf-lead rise" style={{ animationDelay: "80ms" }}>
         {live
           ? <>截至今日，你订阅的主题共亮起 <b>{totalToday} 篇</b>新研究。下面按订阅整理——每条都标了证据来源，纳入/排除始终由你决定。</>
@@ -720,6 +739,8 @@ function Today({ subs, onOpen, fetched, fetching, onFetch, screening, onScreen, 
         </div>
       ); })}
       <p className="lf-dawn-foot">本机休眠时，你会在下次唤醒收到补发简报 · 要真正 24/7 推到手机，需常开机器或自建小服务</p>
+      </>
+      )}
     </div>
   );
 }
@@ -879,7 +900,7 @@ function Toasts({ items }) {
 
 /* ════ ROOT ════ */
 export default function LuminaFeedObservatory() {
-  const [mode, setMode] = useState("today");
+  const [mode, setMode] = useState("explore");
   const [q, setQ] = useState("");
   const [sources, setSources] = useState(new Set());
   const [types, setTypes] = useState(new Set());
@@ -927,10 +948,11 @@ export default function LuminaFeedObservatory() {
     return () => { alive = false; off && off(); };
   }, [live]);
 
-  // ── 在线检索（防抖 350ms）：把真实命中写进 papers，替代 mock；纯浏览器预览保持 mock ──
+  // ── 在线检索（防抖 350ms）：仅在有检索式时才查；空查询不盲搜（否则返回无关记录）──
   useEffect(() => {
     if (!live || mode !== "explore") return;
     let alive = true;
+    if (!q.trim()) { setPapers([]); setLoading(false); setSearchErr(null); return; }
     const filters = {
       sources: [...sources], types: [...types], oa: [...oa], langs: [...langs],
       peer, hideRet, yearFrom: yf, yearTo: yt,
@@ -1096,7 +1118,7 @@ export default function LuminaFeedObservatory() {
           <div className="lf-view" key="boot"><Boot mode={mode} /></div>
         ) : mode === "today" ? (
           <div className="lf-view lf-scroll" key="today">
-            <Today subs={subs} onOpen={setSel} fetched={fetched} fetching={fetching} onFetch={onFetch} screening={screen} onScreen={onScreen} star={star} onStar={onStar} hov={hov} setHov={setHov} />
+            <Today subs={subs} onOpen={setSel} onNewSub={() => setSubMgr(true)} fetched={fetched} fetching={fetching} onFetch={onFetch} screening={screen} onScreen={onScreen} star={star} onStar={onStar} hov={hov} setHov={setHov} />
           </div>
         ) : (
           <div className="lf-view lf-exp" key="explore">
@@ -1139,7 +1161,7 @@ export default function LuminaFeedObservatory() {
                 </div>
               </div>
               <div className="lf-count">
-                <span>{loading ? <span style={{ color: "var(--gold)" }}>检索中…</span> : <><b>{results.length}</b> 篇结果{q && ` · "${q}"`}</>}</span>
+                <span>{loading ? <span style={{ color: "var(--gold)" }}>检索中…</span> : (live && !q.trim()) ? <span style={{ color: "var(--ink3)" }}>输入检索式开始</span> : <><b>{results.length}</b> 篇结果{q && ` · "${q}"`}</>}</span>
                 <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   {live && results.length > 0 && <button className="lf-clear" onClick={() => doExport(results)} title="导出当前结果"><FileDown size={12} />导出</button>}
                   {activeFilters > 0 && <button className="lf-clear" onClick={clearFilters}><X size={12} />清除筛选 {activeFilters}</button>}
@@ -1150,6 +1172,13 @@ export default function LuminaFeedObservatory() {
               <div className="lf-stream lf-scroll">
                 {searchErr
                   ? <div className="lf-noresult">检索出错：{searchErr}<br /><span style={{ fontSize: 12 }}>请检查网络或稍后重试。</span></div>
+                  : live && !q.trim()
+                  ? <div className="lf-prompt">
+                      <div className="lf-prompt-ic"><Search size={26} /></div>
+                      <div className="lf-prompt-t">检索文献，获取合法全文</div>
+                      <div className="lf-prompt-s">输入标题 / 关键词 / 作者，跨 PubMed · Europe PMC · OpenAlex · Crossref · arXiv · bioRxiv 聚合检索。<br />命中后可一键获取开放获取(OA)全文 PDF，或生成带依据的 AI 总结。</div>
+                      <button className="lf-prompt-btn" onClick={() => searchRef.current && searchRef.current.focus()}><Search size={14} /> 开始检索</button>
+                    </div>
                   : loading && results.length === 0
                   ? <div className="lf-noresult">正在向 PubMed / Europe PMC / OpenAlex 等检索…</div>
                   : results.length === 0

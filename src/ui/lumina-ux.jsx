@@ -186,13 +186,15 @@ export function SubscribeEntry({ count, onClick }) {
 }
 
 /* ════════════════ ④ 设置面板（LLM / 邮箱） ════════════════ */
-const PROVIDERS = [["anthropic", "Claude (Anthropic)"], ["openai", "OpenAI"], ["ollama", "本地 Ollama"]];
-const MODEL_HINT = { anthropic: "claude-3-5-sonnet-latest", openai: "gpt-4o-mini", ollama: "llama3.1" };
+const PROVIDERS = [["deepseek", "DeepSeek"], ["anthropic", "Claude"], ["openai", "OpenAI"], ["moonshot", "Kimi (Moonshot)"], ["ollama", "本地 Ollama"], ["custom", "OpenAI 兼容(自定义)"]];
+const MODEL_HINT = { deepseek: "deepseek-chat", anthropic: "claude-3-5-sonnet-latest", openai: "gpt-4o-mini", moonshot: "moonshot-v1-8k", ollama: "llama3.1", custom: "model-name" };
+const NEEDS_BASE = { custom: true };
 
 export function SettingsPanel({ open, api, onClose, onSaved }) {
-  const [provider, setProvider] = useState("anthropic");
+  const [provider, setProvider] = useState("deepseek");
   const [model, setModel] = useState("");
   const [key, setKey] = useState("");
+  const [base, setBase] = useState("");
   const [email, setEmail] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -200,7 +202,7 @@ export function SettingsPanel({ open, api, onClose, onSaved }) {
     if (!open || !api) return;
     setLoaded(false);
     api.getSettings().then((s) => {
-      if (s && s.llm) { setProvider(s.llm.provider || "anthropic"); setModel(s.llm.model || ""); }
+      if (s && s.llm) { setProvider(s.llm.provider || "deepseek"); setModel(s.llm.model || ""); setBase(s.llm.baseUrl || ""); }
       if (s && s.contactEmail) setEmail(s.contactEmail);
       setLoaded(true);
     }).catch(() => setLoaded(true));
@@ -209,7 +211,9 @@ export function SettingsPanel({ open, api, onClose, onSaved }) {
   const save = async () => {
     setSaving(true);
     try {
-      await api.saveSettings({ llm: { provider, model: model || MODEL_HINT[provider] }, contactEmail: email });
+      const llm = { provider, model: model || MODEL_HINT[provider] };
+      if (provider === "custom" && base.trim()) llm.baseUrl = base.trim();
+      await api.saveSettings({ llm, contactEmail: email });
       if (key.trim()) await api.setSecret(`${provider}_key`, key.trim());
       setKey("");
       onSaved && onSaved();
@@ -240,12 +244,19 @@ export function SettingsPanel({ open, api, onClose, onSaved }) {
                 <span className="lux-lab">模型</span>
                 <input className="lux-in" value={model} placeholder={MODEL_HINT[provider]} onChange={(e) => setModel(e.target.value)} />
               </label>
+              {NEEDS_BASE[provider] && (
+                <label className="lux-field">
+                  <span className="lux-lab">接口地址（OpenAI 兼容 base URL）</span>
+                  <input className="lux-in" value={base} placeholder="https://api.example.com" onChange={(e) => setBase(e.target.value)} />
+                </label>
+              )}
               {provider !== "ollama" && (
                 <label className="lux-field">
                   <span className="lux-lab">API 密钥（存入钥匙串）</span>
                   <input className="lux-in" type="password" value={key} placeholder={loaded ? "••• 已保存则留空不改 •••" : "加载中…"} onChange={(e) => setKey(e.target.value)} />
                 </label>
               )}
+              {provider === "deepseek" && <p className="lux-hint" style={{ margin: "-6px 0 12px" }}>DeepSeek 为 OpenAI 兼容接口，默认 api.deepseek.com，填入 DeepSeek 平台的 API Key 即可。</p>}
               <label className="lux-field">
                 <span className="lux-lab">联系邮箱（OA 接口礼貌头 / Unpaywall 要求）</span>
                 <input className="lux-in" type="email" value={email} placeholder="you@example.com" onChange={(e) => setEmail(e.target.value)} />
@@ -275,7 +286,7 @@ export const UX_STYLE = `
 
 /* —— 主题选择器 —— */
 .lux-theme-wrap{position:relative}
-.lux-theme-pop{position:absolute; right:0; top:42px; width:208px; padding:6px; border-radius:13px; background:var(--surf); border:1px solid var(--line2); box-shadow:0 18px 50px rgba(0,0,0,.32); z-index:80; animation:luxPop .16s ease}
+.lux-theme-pop{position:absolute; right:0; top:calc(100% + 8px); width:216px; padding:6px; border-radius:13px; background:var(--surf); border:1px solid var(--line2); box-shadow:0 20px 56px rgba(0,0,0,.30), 0 2px 10px rgba(0,0,0,.12); z-index:300; animation:luxPop .16s ease}
 @keyframes luxPop{from{opacity:0; transform:translateY(-6px)} to{opacity:1; transform:none}}
 .lux-pop-h{font-family:var(--mono); font-size:9.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--ink3); padding:6px 8px 4px}
 .lux-theme-row{width:100%; display:flex; align-items:center; gap:10px; padding:8px; border:0; border-radius:9px; background:transparent; cursor:pointer; color:var(--ink); transition:background .14s}
