@@ -14,7 +14,7 @@ ok(bal(rd) && bal(st) && bal(rh), "Reader/Settings/ReadHub 括号平衡");
 ok(/ipcMain\.handle\("llm:test"/.test(ipc) && /llmFromConfig\(llmCfg, getKey\)/.test(ipc), "ipc llm:test（复用 llmFromConfig，极小补全验证）");
 ok(/maxTokens: 8/.test(ipc) && /不持久化、不回显密钥/.test(ipc), "测试用极小补全且不持久化/不回显密钥（红线3）");
 ok(/testLlm: \(cfg\) => invoke\("llm:test", cfg\)/.test(pre), "preload 暴露 testLlm");
-ok(/async testLlm\(cfg\)/.test(br) && /演示模式无法测试/.test(br), "bridge testLlm + 演示模式兜底");
+ok(/async testLlm\(cfg\)/.test(br) && /const api = A\(\)/.test(br.split("async testLlm")[1] || "") && /api\.testLlm/.test(br), "bridge testLlm 走 luminaApi（非 luminaReader）");
 ok(/const onTestLlm = useCallback/.test(st) && /bridge\.testLlm\(/.test(st), "Settings onTestLlm 调用 bridge.testLlm");
 ok(/测试连接/.test(st) && /set-test/.test(st) && /连接成功/.test(st), "Settings「测试连接」按钮 + 成功/失败结果行");
 ok(/apiKey: apiKey\.trim\(\) \|\| undefined/.test(st), "支持保存前测试当前填写的密钥（否则用钥匙串）");

@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld("luminaApi", {
   getSettings: () => invoke("settings:get"),
   saveSettings: (s: unknown) => invoke("settings:save", s),
   setSecret: (key: string, value: string) => invoke("secrets:set", key, value),
+  secretHas: (key: string) => invoke("secrets:has", key),
   testLlm: (cfg) => invoke("llm:test", cfg),
   listModels: (cfg) => invoke("llm:listModels", cfg),
   llmStatus: () => invoke("llm:status"),

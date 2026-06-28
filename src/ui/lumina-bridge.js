@@ -420,9 +420,14 @@ export const bridge = {
     try { return await r.saveNavmarks(docKey, pages); } catch (e) { return false; }
   },
   async testLlm(cfg) {
-    const r = R();
-    if (!r || !r.testLlm) return { ok: false, error: "演示模式无法测试连接（请在桌面应用中配置 AI 模型后测试）" };
-    try { return await r.testLlm(cfg); } catch (e) { return { ok: false, error: "测试失败" }; }
+    const api = A();
+    if (!api || !api.testLlm) return { ok: false, error: "未连接本地引擎，无法测试连接" };
+    try { return await api.testLlm(cfg); } catch (e) { return { ok: false, error: "测试失败" }; }
+  },
+  async secretHas(key) {
+    const api = A();
+    if (!api || !api.secretHas || !key) return false;
+    try { return !!(await api.secretHas(key)); } catch { return false; }
   },
   async saveSettings(s) { const api = A(); if (!api) return null; return api.saveSettings(s); },
   async resetLocalData() { const api = A(); if (!api || !api.resetLocalData) return { ok: false, error: "no_backend" }; return api.resetLocalData(); },

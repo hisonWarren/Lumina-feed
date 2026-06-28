@@ -416,6 +416,7 @@ export function registerIpc(deps: IpcDeps): void {
     }
   });
   ipcMain.handle("secrets:set", (_e, key: string, value: string) => secrets.set(key, value));
+  ipcMain.handle("secrets:has", async (_e, key: string) => !!(await secrets.get(key)));
   // 测试连接：用当前(表单或已存)配置做一次极小补全，验证密钥/模型/网络是否通。不持久化、不回显密钥（红线3）。
   ipcMain.handle("llm:test", async (_e, cfg: { provider?: string; model?: string; baseUrl?: string; apiKey?: string }) => {
     try {

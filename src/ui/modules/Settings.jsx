@@ -77,6 +77,8 @@ const SET_CSS = `
 .set-combo-tg:hover{border-color:var(--gold);color:var(--gold)}
 .set-key-eye{flex-shrink:0;width:38px;height:38px;display:grid;place-items:center;border:1px solid var(--line2);border-radius:9px;background:var(--surf);color:var(--ink2);cursor:pointer}
 .set-key-eye:hover{border-color:var(--gold);color:var(--gold)}
+.set-key-st{font-size:12px;margin-top:6px;display:flex;align-items:center;gap:6px}
+.set-key-st.ok{color:var(--ok,#2d8a4e)}
 .set-combo-rf{flex-shrink:0;width:38px;height:38px;display:grid;place-items:center;border:1px solid var(--line2);border-radius:9px;background:var(--surf);color:var(--ink2);cursor:pointer}
 .set-combo-rf:hover:not(:disabled){border-color:var(--gold);color:var(--gold)}
 .set-combo-rf:disabled{opacity:.6;cursor:default}
@@ -173,12 +175,21 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
   const [altMirrors, setAltMirrors] = useState({});
   const [prefetchOnIdentifier, setPrefetchOnIdentifier] = useState(false);
   const [keysConfigured, setKeysConfigured] = useState({});
+  const [llmKeySaved, setLlmKeySaved] = useState(false);
   const backend = hasBackend();
 
   const refreshKeysStatus = useCallback(async () => {
     const st = await bridge.sourcesStatus();
     setKeysConfigured(st || {});
   }, []);
+
+  const refreshLlmKeyStatus = useCallback(async (prov) => {
+    const p = prov || provider;
+    const pr = presetOf(p);
+    if (!backend || !pr.needsKey) { setLlmKeySaved(false); return; }
+    const has = await bridge.secretHas(p + "_key");
+    setLlmKeySaved(!!has);
+  }, [provider, backend]);
 
   useEffect(() => {
     let alive = true;
@@ -198,8 +209,11 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
       bridge.setBackground && bridge.setBackground(!!(s.app && s.app.minimizeToTray), !!(s.app && s.app.openAtLogin)); // 启动同步主进程
     }).catch(() => {});
     refreshKeysStatus();
+    refreshLlmKeyStatus();
     return () => { alive = false; };
-  }, [refreshKeysStatus]);
+  }, [refreshKeysStatus, refreshLlmKeyStatus]);
+
+  useEffect(() => { refreshLlmKeyStatus(provider); }, [provider, refreshLlmKeyStatus]);
 
   useEffect(() => {
     if (!backend) return;
@@ -240,11 +254,17 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
       const cur = (await bridge.getSettings()) || {};
       const next = { ...cur, llm };
       await bridge.saveSettings(next);
-      if (preset.needsKey && apiKey.trim()) { await bridge.setSecret(provider + "_key", apiKey.trim()); setApiKey(""); }
-      pushToast && pushToast(backend ? "已保存大模型设置" : "（原型）未接后端，设置未持久化");
+      const wroteKey = preset.needsKey && !!apiKey.trim();
+      if (wroteKey) {
+        await bridge.setSecret(provider + "_key", apiKey.trim());
+        setApiKey("");
+        setLlmKeySaved(true);
+      }
+      await refreshLlmKeyStatus();
+      pushToast && pushToast(backend ? (wroteKey ? "已保存大模型设置，密钥已写入钥匙串" : "已保存大模型设置") : "（原型）未接后端，设置未持久化");
     } catch (e) { pushToast && pushToast("保存失败"); }
     finally { setSavingLlm(false); }
-  }, [provider, model, baseUrl, apiKey, preset, backend, pushToast, visionConsent]);
+  }, [provider, model, baseUrl, apiKey, preset, backend, pushToast, visionConsent, refreshLlmKeyStatus]);
 
   const onTestLlm = useCallback(async () => {
     setTesting(true); setTestResult(null);
@@ -364,13 +384,15 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                 )}
                 {preset.needsKey && (
                   <div className="set-row">
-                    <span className="set-lbl">API Key</span>
+                    <span className="set-lbl">API Key{llmKeySaved ? <span className="set-key-st ok" style={{ display: "inline", marginLeft: 8 }}>✓ 已写入钥匙串</span> : null}</span>
                     <div className="set-key">
                       <KeyRound size={16} />
-                      <input className="set-in set-mono" type={showKey ? "text" : "password"} value={apiKey} placeholder="粘贴密钥（保存后写入系统钥匙串，不回显）" onChange={(e) => setApiKey(e.target.value)} />
+                      <input className="set-in set-mono" type={showKey ? "text" : "password"} value={apiKey}
+                        placeholder={llmKeySaved ? "已保存（输入新值可覆盖；不回显明文）" : "粘贴密钥（保存后写入系统钥匙串，不回显）"}
+                        onChange={(e) => setApiKey(e.target.value)} />
                       <button type="button" className="set-key-eye" onClick={() => setShowKey((v) => !v)} aria-label={showKey ? "隐藏密钥" : "显示密钥"} title={showKey ? "隐藏" : "显示"}>{showKey ? <EyeOff size={15} /> : <Eye size={15} />}</button>
                     </div>
-                    <span className="set-hint">留空＝保持现有密钥不变；填入＝更新。密钥不会回显、不写入任何配置文件（红线3）。</span>
+                    <span className="set-hint">留空＝保持现有密钥不变；填入新值并保存＝更新。密钥不会回显、不写入任何配置文件（红线3）。</span>
                   </div>
                 )}
                 <div className="set-btnrow">
