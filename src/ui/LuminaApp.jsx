@@ -1,6 +1,6 @@
 // Lumina Feed · 模块化壳（find_fetch 前置 · 检索取文接线）
 import React, { useState, useCallback, useEffect } from "react";
-import { bridge, hasBackend } from "./lumina-bridge.js";
+import { bridge, hasBackend, countSubsBadge } from "./lumina-bridge.js";
 import { DEFAULT_THEME, THEME_CSS, isLight, THEMES } from "./themes.js";
 import { LOGO_DATA_URI } from "./brand-logo.js";
 import { Telescope, BookOpen, BookMarked, Rss, Settings as SettingsIcon, Palette, Check } from "lucide-react";
@@ -9,8 +9,9 @@ import ReaderModule from "./modules/ReadHub.jsx";
 import Settings from "./modules/Settings.jsx";
 import Library from "./modules/Library.jsx";
 import Subscriptions from "./modules/Subscriptions.jsx";
-import { buildFetchedMeta, isFetched, fetchProgressUi } from "./fetch-meta.js";
+import { buildFetchedMeta, isFetched, fetchProgressUi, metaFromAsset } from "./fetch-meta.js";
 import EmailPrompt from "./components/EmailPrompt.jsx";
+import ConfirmDialog from "./components/ConfirmDialog.jsx";
 
 const BASE_CSS = `
 html,body,#root{height:100%;margin:0}
@@ -101,12 +102,47 @@ export default function LuminaApp() {
   const [lib, setLib] = useState([]);
   const [lists, setLists] = useState([]); // 单层清单 [{id,name,ids}]
   const [toasts, setToasts] = useState([]);
+  const [pdfDeleteConfirm, setPdfDeleteConfirm] = useState(null);
   const [theme, setTheme] = useState(DEFAULT_THEME);
   const [themeOpen, setThemeOpen] = useState(false);
   const [incomingPdf, setIncomingPdf] = useState(null);
   const [subsNew, setSubsNew] = useState(0);
   const [showOnboardingEmail, setShowOnboardingEmail] = useState(false);
   const [settingsCat, setSettingsCat] = useState("llm");
+
+  const refreshSubsBadge = useCallback(async () => {
+    try {
+      const subs = await bridge.subsList();
+      setSubsNew(countSubsBadge(subs));
+    } catch { setSubsNew(0); }
+  }, []);
+
+  const refreshLib = useCallback(async () => {
+    try {
+      const rows = await bridge.libraryList();
+      if (Array.isArray(rows)) setLib(rows);
+    } catch { /* ignore */ }
+  }, []);
+
+  const hydrateFetchedMeta = useCallback(async () => {
+    if (!hasBackend()) return;
+    try {
+      await bridge.reconcileOrphans();
+      const assets = await bridge.hydratePaperAssets();
+      if (!assets || typeof assets !== "object") return;
+      setFetchedMeta((prev) => {
+        const next = { ...prev };
+        for (const [id, asset] of Object.entries(assets)) {
+          if (asset && asset.hasPdf && !next[id]) {
+            const m = metaFromAsset(asset);
+            if (m) next[id] = m;
+          }
+        }
+        return next;
+      });
+      await refreshLib();
+    } catch { /* ignore */ }
+  }, [refreshLib]);
 
   useEffect(() => {
     let alive = true;
@@ -117,11 +153,23 @@ export default function LuminaApp() {
         setShowOnboardingEmail(true);
       }
     }).catch(() => {});
-    bridge.libraryList().then((rows) => { if (alive && Array.isArray(rows)) setLib(rows); }).catch(() => {}); // 工作集持久化载入
-    bridge.listsGet().then((ls) => { if (alive && Array.isArray(ls)) setLists(ls); }).catch(() => {}); // 清单持久化载入
-    if (typeof bridge.subsList === "function") bridge.subsList().then((subs) => { if (alive && Array.isArray(subs)) setSubsNew(subs.reduce((n, sub) => n + ((sub && sub.enabled && Array.isArray(sub.today)) ? sub.today.length : 0), 0)); }).catch(() => {});
-    return () => { alive = false; };
-  }, []);
+    bridge.libraryList().then((rows) => { if (alive && Array.isArray(rows)) setLib(rows); }).catch(() => {});
+    bridge.listsGet().then((ls) => { if (alive && Array.isArray(ls)) setLists(ls); }).catch(() => {});
+    refreshSubsBadge();
+    hydrateFetchedMeta();
+    const stopSubs = bridge.onSubsUpdated?.(() => { if (alive) refreshSubsBadge(); });
+    const stopPapers = bridge.onPapersChanged?.(() => {
+      if (!alive) return;
+      hydrateFetchedMeta();
+    });
+    return () => { alive = false; stopSubs?.(); stopPapers?.(); };
+  }, [refreshSubsBadge, hydrateFetchedMeta]);
+
+  useEffect(() => {
+    if (mode !== "library") return;
+    refreshLib();
+    bridge.listsGet().then((ls) => { if (Array.isArray(ls)) setLists(ls); }).catch(() => {});
+  }, [mode, refreshLib]);
 
   const onTheme = useCallback(async (id) => {
     setTheme(id);
@@ -158,7 +206,8 @@ export default function LuminaApp() {
       const meta = buildFetchedMeta(result, { prefetched: !result?.cached });
       if (meta) {
         setFetchedMeta((m) => ({ ...m, [paperId]: meta }));
-        pushToast(result?.cached ? "全文已在本地" : "全文已就绪（后台预取）");
+        refreshLib();
+        pushToast(result?.cached ? "全文已在本地" : "全文已就绪（后台预取）· 已加入我的文献");
       }
     });
     const offFail = bridge.onPrefetchFail?.(({ paperId, result }) => {
@@ -169,7 +218,7 @@ export default function LuminaApp() {
       }
     });
     return () => { offStart && offStart(); offDone && offDone(); offFail && offFail(); };
-  }, [pushToast]);
+  }, [pushToast, refreshLib]);
 
   useEffect(() => {
     if (!Object.keys(fetchingMeta).length) return;
@@ -177,9 +226,26 @@ export default function LuminaApp() {
     return () => clearInterval(t);
   }, [fetchingMeta]);
 
-  const inLibFn = useCallback((id) => lib.some((x) => x.id === id), [lib]);
+  useEffect(() => {
+    if (!hasBackend() || !bridge.onFetchQueue) return;
+    const stop = bridge.onFetchQueue((ev) => {
+      if (!ev || !ev.paperId) return;
+      if (ev.status === "done" && ev.result && ev.result.ok) {
+        const meta = buildFetchedMeta(ev.result);
+        if (meta) setFetchedMeta((m) => ({ ...m, [ev.paperId]: meta }));
+      }
+      if (ev.status === "done" || ev.status === "failed") {
+        setFetchingMeta((m) => { const n = { ...m }; delete n[ev.paperId]; return n; });
+      } else if (ev.status === "running") {
+        setFetchingMeta((m) => ({ ...m, [ev.paperId]: { startedAt: Date.now(), trace: ev.trace || null, queued: true } }));
+      }
+    });
+    return () => stop?.();
+  }, []);
 
-  const onFetch = useCallback(async (p) => {
+  const onFetch = useCallback(async (p, opts = {}) => {
+    const provenance = opts.provenance || "find_fetch";
+    const channel = opts.channel || "manual";
     setFetchingMeta((m) => ({ ...m, [p.id]: { startedAt: Date.now(), trace: null } }));
     try {
       if (hasBackend()) {
@@ -190,11 +256,12 @@ export default function LuminaApp() {
               [p.id]: { startedAt: m[p.id]?.startedAt ?? Date.now(), trace: ev.steps },
             }));
           }
-        });
+        }, { provenance, channel });
         const meta = buildFetchedMeta(r);
         if (meta) {
           setFetchedMeta((m) => ({ ...m, [p.id]: meta }));
-          pushToast("已获取全文 · " + meta.label);
+          await refreshLib();
+          pushToast("已获取全文 · " + meta.label + " · 已保存到本机，可在阅读或我的文献打开");
         } else {
           const why = r && r.reason;
           if (why === "missing_email") {
@@ -217,7 +284,24 @@ export default function LuminaApp() {
     } finally {
       setFetchingMeta((m) => { const n = { ...m }; delete n[p.id]; return n; });
     }
-  }, [pushToast]);
+  }, [pushToast, refreshLib]);
+
+  const onFetchBatch = useCallback(async (papers, opts = {}) => {
+    if (!hasBackend() || !papers.length) {
+      papers.forEach((p) => onFetch(p, opts));
+      return;
+    }
+    const provenance = opts.provenance || "subscription";
+    const jobs = papers.map((p) => ({
+      paperId: p.id,
+      provenance,
+      channel: opts.channel || "batch",
+    }));
+    pushToast("已加入取文队列 · " + jobs.length + " 篇（最多 2 篇并行）");
+    await bridge.enqueueFetch(jobs);
+  }, [pushToast, onFetch]);
+
+  const inLibFn = useCallback((id) => lib.some((x) => x.id === id), [lib]);
 
   const saveOnboardingEmail = useCallback(async (email) => {
     const cur = (await bridge.getSettings()) || {};
@@ -238,14 +322,35 @@ export default function LuminaApp() {
     setMode("settings");
   }, [mode]);
 
+  const paperHasFull = useCallback(async (id, p) => {
+    if (isFetched(fetchedMeta[id])) return true;
+    if (p && p._fetched) return true;
+    if (!hasBackend()) return false;
+    try {
+      const bytes = await bridge.readPdf(id);
+      if (bytes && bytes.byteLength) {
+        setFetchedMeta((m) => {
+          if (m[id]) return m;
+          const meta = buildFetchedMeta({ ok: true, source: (p && p.fetchSource) || "cached", cached: true });
+          return meta ? { ...m, [id]: meta } : m;
+        });
+        return true;
+      }
+    } catch { /* ignore */ }
+    return false;
+  }, [fetchedMeta]);
+
   const onReadPaper = useCallback(async (p) => {
     const id = typeof p === "string" ? p : p.id;
     const title = typeof p === "string" ? id : (p.title || id);
-    if (!isFetched(fetchedMeta[id])) { pushToast("请先获取全文"); return; }
+    if (!(await paperHasFull(id, typeof p === "object" ? p : null))) {
+      pushToast("请先获取全文");
+      return;
+    }
     if (!hasBackend()) { pushToast("原型模式无法打开已下载 PDF"); return; }
     setReadTarget({ paperId: id, title, _t: Date.now() });
     setMode("read");
-  }, [fetchedMeta, pushToast]);
+  }, [paperHasFull, pushToast]);
 
   const onSave = useCallback((p) => {
     if (lib.some((x) => x.id === p.id)) {
@@ -257,19 +362,53 @@ export default function LuminaApp() {
     } else {
       bridge.libraryAdd(p, "find_fetch");
       setLib((l) => [...l, { ...p, provenance: "find_fetch" }]);
-      pushToast("已收藏");
+      pushToast("已收藏 · 可在「我的文献 → 分组」整理");
     }
   }, [lib, lists, pushToast]);
 
-  const onRemoveLib = useCallback((id) => {
-    bridge.libraryRemove(id);
+  const onRemoveLib = useCallback(async (id, opts = {}) => {
+    if (opts.deletePdf) {
+      setPdfDeleteConfirm({ id });
+      return;
+    }
+    await bridge.libraryRemove(id);
     setLib((l) => l.filter((x) => x.id !== id));
-    const next = lists.map((L) => ({ ...L, ids: L.ids.filter((x) => x !== id) })); // 同步清出清单
+    const next = lists.map((L) => ({ ...L, ids: L.ids.filter((x) => x !== id) }));
+    setLists(next); bridge.listsSave(next);
+    pushToast("已从工作集移除（PDF 仍保留在阅读·已下载）");
+  }, [lists, pushToast]);
+
+  const confirmPdfDelete = useCallback(async () => {
+    const id = pdfDeleteConfirm?.id;
+    if (!id) return;
+    setPdfDeleteConfirm(null);
+    await bridge.pdfDelete(id, { removeFromLibrary: true });
+    setFetchedMeta((m) => { const n = { ...m }; delete n[id]; return n; });
+    setLib((l) => l.filter((x) => x.id !== id));
+    const next = lists.map((L) => ({ ...L, ids: L.ids.filter((x) => x !== id) }));
+    setLists(next); bridge.listsSave(next);
+    pushToast("已删除本地 PDF");
+  }, [pdfDeleteConfirm, lists, pushToast]);
+  const onReadFromLib = useCallback((p) => { if (p) onReadPaper(p); else setMode("read"); }, [onReadPaper]);
+  const createList = useCallback((name, firstId) => {
+    const id = "L" + Date.now();
+    const next = [...lists, { id, name, ids: firstId ? [firstId] : [] }];
+    setLists(next); bridge.listsSave(next);
+    return id;
+  }, [lists]);
+  const toggleInList = useCallback((lid, pid) => { const next = lists.map((L) => (L.id === lid ? { ...L, ids: L.ids.includes(pid) ? L.ids.filter((x) => x !== pid) : [...L.ids, pid] } : L)); setLists(next); bridge.listsSave(next); }, [lists]);
+  const renameList = useCallback((lid, name) => {
+    const trimmed = String(name || "").trim();
+    if (!trimmed) return;
+    const next = lists.map((L) => (L.id === lid ? { ...L, name: trimmed } : L));
     setLists(next); bridge.listsSave(next);
   }, [lists]);
-  const onReadFromLib = useCallback((p) => { if (p) onReadPaper(p); else setMode("read"); }, [onReadPaper]);
-  const createList = useCallback((name, firstId) => { const next = [...lists, { id: "L" + Date.now(), name, ids: firstId ? [firstId] : [] }]; setLists(next); bridge.listsSave(next); }, [lists]);
-  const toggleInList = useCallback((lid, pid) => { const next = lists.map((L) => (L.id === lid ? { ...L, ids: L.ids.includes(pid) ? L.ids.filter((x) => x !== pid) : [...L.ids, pid] } : L)); setLists(next); bridge.listsSave(next); }, [lists]);
+  const addManyToList = useCallback((lid, ids) => {
+    const set = new Set(Array.isArray(ids) ? ids : []);
+    if (!set.size) return;
+    const next = lists.map((L) => (L.id === lid ? { ...L, ids: [...new Set([...L.ids, ...set])] } : L));
+    setLists(next); bridge.listsSave(next);
+  }, [lists]);
   const deleteList = useCallback((lid) => { const next = lists.filter((L) => L.id !== lid); setLists(next); bridge.listsSave(next); }, [lists]);
 
   const view = mode === "settings" ? prevMode : mode; // 设置弹窗时底层视图保持不变
@@ -329,7 +468,10 @@ export default function LuminaApp() {
               fetchingMeta={fetchingMeta}
               fetchTick={fetchTick}
               onFetch={onFetch}
+              onFetchBatch={onFetchBatch}
               onReadPaper={onReadPaper}
+              onSubsChange={refreshSubsBadge}
+              inLibFn={inLibFn}
             />
           ) : view === "read" ? (
             <ReaderModule
@@ -338,9 +480,11 @@ export default function LuminaApp() {
               onIncomingHandled={() => setIncomingPdf(null)}
               readTarget={readTarget}
               onReadTargetHandled={() => setReadTarget(null)}
+              inLibFn={inLibFn}
+              onAddToLibrary={(p) => onSave(p)}
             />
           ) : view === "library" ? (
-            <Library lib={lib} lists={lists} onCreateList={createList} onToggleInList={toggleInList} onDeleteList={deleteList} onRemove={onRemoveLib} onRead={onReadFromLib} fetchedMeta={fetchedMeta} pushToast={pushToast} />
+            <Library lib={lib} lists={lists} onCreateList={createList} onToggleInList={toggleInList} onDeleteList={deleteList} onRenameList={renameList} onAddManyToList={addManyToList} onRemove={onRemoveLib} onRead={onReadFromLib} onFetch={onFetch} fetchedMeta={fetchedMeta} fetchingMeta={fetchingMeta} fetchTick={fetchTick} pushToast={pushToast} />
           ) : (
             <FindFetch fetchedMeta={fetchedMeta} fetchingMeta={fetchingMeta} fetchTick={fetchTick} onFetch={onFetch} onReadPaper={onReadPaper} onSave={onSave} inLibFn={inLibFn} pushToast={pushToast} onOpenSettings={openSettings} />
           )}
@@ -356,6 +500,16 @@ export default function LuminaApp() {
         {toasts.map((t) => (
           <div key={t.id} className="lf-toast">{t.msg}</div>
         ))}
+        <ConfirmDialog
+          open={!!pdfDeleteConfirm}
+          title="删除本地 PDF？"
+          detail="将同时删除本机 PDF 文件与全文索引；工作集条目也会移除。此操作不可恢复。"
+          confirmLabel="删除"
+          cancelLabel="取消"
+          danger
+          onConfirm={confirmPdfDelete}
+          onCancel={() => setPdfDeleteConfirm(null)}
+        />
       </div>
     </>
   );

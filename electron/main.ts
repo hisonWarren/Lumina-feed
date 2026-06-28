@@ -11,8 +11,9 @@ import { registerIpc, startSubsScheduler } from "./ipc.ts";
 import { loadAppSettings } from "./settings.ts";
 import { installDefaultLimiters } from "../src/core/sources/rate-limit.ts";
 
-// 统一 userData 目录（与 npm 包名 lumina-feed 解耦，避免旧测试数据被安装版误读）
-app.setPath("userData", path.join(app.getPath("appData"), "Lumina Feed"));
+// 开发版与安装版隔离 userData，避免 npm start / 烟测数据污染正式安装包
+const userDataDir = app.isPackaged ? "Lumina Feed" : "Lumina Feed Dev";
+app.setPath("userData", path.join(app.getPath("appData"), userDataDir));
 
 let win: BrowserWindow | null = null;
 let store: Store;
@@ -92,12 +93,11 @@ app.whenReady().then(async () => {
   } catch {
     setPoliteIdentity({ tool: "lumina-feed", email: process.env.LUMINA_CONTACT_EMAIL });
   }
-  await createWindow();
-  // oa:fetchPdf 由 reader_engine 在 ipc.ts 注册（含落盘）；不再用 electron-bridge 重复注册
+  registerIpc({ store, secrets });
   ipcMain.handle("shell:openExternal", (_e, url: string) => {
     if (typeof url === "string" && /^https?:\/\//.test(url)) return shell.openExternal(url);
   });
-  registerIpc({ store, secrets });
+  await createWindow();
   // 后台/启动设置：启动时读取并应用（关窗行为 + 开机自启）
   try {
     const appCfg = ((await loadAppSettings(store)) as { app?: { minimizeToTray?: boolean; openAtLogin?: boolean } }).app || {};

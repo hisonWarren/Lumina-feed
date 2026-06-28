@@ -10,6 +10,15 @@ const _listsMem = []; // 无后端时的会话内清单
 
 export const hasBackend = () => !!A();
 
+/** 顶栏「订阅简报」徽标：各订阅 today 待展示条数之和 */
+export function countSubsBadge(subs) {
+  return (Array.isArray(subs) ? subs : []).reduce((n, sub) => {
+    if (!sub || sub.enabled === false) return n;
+    const today = Array.isArray(sub.today) ? sub.today.filter((p) => p && typeof p === "object") : [];
+    return n + today.length;
+  }, 0);
+}
+
 const TYPE_MAP = {
   "meta-analysis": "meta", "systematic-review": "review", "rct": "rct",
   "cohort": "cohort", "case-control": "case", "cross-sectional": "cohort",
@@ -134,8 +143,12 @@ export const bridge = {
       return await api.getCachedSummary(paperId, depth, uiOpts.language || "zh");
     } catch { return null; }
   },
-  async fetchFullText(card, onProgress) {
+  async fetchFullText(card, onProgress, ctx = {}) {
     const oa = O(); if (!oa) return null;
+    const fetchCtx = {
+      provenance: ctx.provenance || "find_fetch",
+      channel: ctx.channel || "manual",
+    };
     if (oa.fetchPaperStream && card.id) {
       const reqId = Date.now();
       return new Promise((resolve) => {
@@ -144,19 +157,19 @@ export const bridge = {
           if (settled) return;
           settled = true;
           stop && stop();
-          if (r && r.ok) resolve({ ok: true, url: r.url, bytes: r.bytes, source: r.source });
+          if (r && r.ok) resolve({ ok: true, url: r.url, bytes: r.bytes, source: r.source, cached: !!r.cached });
           else resolve({ ok: false, reason: (r && r.reason) || "no_pdf" });
         };
         const stop = oa.fetchPaperStream(card.id, reqId, (ev) => {
           if (ev && ev.steps && onProgress) onProgress(ev);
           if (ev && ev.type === "final" && ev.result) finish(ev.result);
-        });
+        }, fetchCtx);
       });
     }
     if (oa.fetchPaper && card.id) {
       try {
-        const r = await oa.fetchPaper(card.id);
-        if (r && r.ok) return { ok: true, url: r.url, bytes: r.bytes, source: r.source };
+        const r = await oa.fetchPaper(card.id, fetchCtx);
+        if (r && r.ok) return { ok: true, url: r.url, bytes: r.bytes, source: r.source, cached: !!r.cached };
         return { ok: false, reason: (r && r.reason) || "no_pdf" };
       } catch (e) {
         return { ok: false, reason: (e && e.message) || "fetch_failed" };
@@ -286,6 +299,10 @@ export const bridge = {
     if (!api || !api.subsRemove) { const i = _subsMem.findIndex((x) => x.id === id); if (i >= 0) _subsMem.splice(i, 1); return true; }
     try { return await api.subsRemove(id); } catch (e) { return false; }
   },
+  onSubsUpdated(cb) {
+    const api = A(); if (!api || !api.onSubsUpdated) return () => {};
+    return api.onSubsUpdated(() => { try { cb(); } catch { /* ignore */ } });
+  },
   async subsRunNow(sub, opts = {}) {
     const api = A(); if (!api || !api.subsRunNow) return { ok: false, mock: true, hits: [] };
     const q = (sub && sub.q) || "";
@@ -318,7 +335,17 @@ export const bridge = {
     const api = A(); if (!api || !api.libraryList) return _libMem.slice();
     try {
       const rows = (await api.libraryList()) || [];
-      return rows.map((r) => ({ ...toCardModel(r.paper, ""), provenance: r.provenance, _fetched: !!r.hasFull, hasSummary: !!r.hasSummary, summary: r.summaryText || "", annoCount: r.annoCount || 0, annoText: r.annoText || "" }));
+      return rows.map((r) => ({
+        ...toCardModel(r.paper, ""),
+        provenance: r.provenance,
+        _fetched: !!r.hasFull,
+        fetchSource: r.fetchSource || null,
+        fetchedAt: r.fetchedAt || null,
+        hasSummary: !!r.hasSummary,
+        summary: r.summaryText || "",
+        annoCount: r.annoCount || 0,
+        annoText: r.annoText || "",
+      }));
     } catch (e) { return _libMem.slice(); }
   },
   async libraryAdd(paper, provenance) {
@@ -328,6 +355,30 @@ export const bridge = {
   async libraryRemove(paperId) {
     const api = A(); if (!api || !api.libraryRemove) { const i = _libMem.findIndex((x) => x.id === paperId); if (i >= 0) _libMem.splice(i, 1); return true; }
     try { return await api.libraryRemove(paperId); } catch (e) { return false; }
+  },
+  async pdfDelete(paperId, opts = {}) {
+    const api = A(); if (!api || !api.pdfDelete) return false;
+    try { return await api.pdfDelete(paperId, opts); } catch { return false; }
+  },
+  async hydratePaperAssets() {
+    const api = A(); if (!api || !api.papersHydrate) return {};
+    try { return (await api.papersHydrate()) || {}; } catch { return {}; }
+  },
+  async reconcileOrphans() {
+    const api = A(); if (!api || !api.papersReconcile) return { added: 0 };
+    try { return (await api.papersReconcile()) || { added: 0 }; } catch { return { added: 0 }; }
+  },
+  async enqueueFetch(jobs) {
+    const api = A(); if (!api || !api.papersEnqueueFetch) return { queued: 0 };
+    try { return (await api.papersEnqueueFetch(jobs)) || { queued: 0 }; } catch { return { queued: 0 }; }
+  },
+  onPapersChanged(cb) {
+    const api = A(); if (!api || !api.onPapersChanged) return () => {};
+    return api.onPapersChanged(() => { try { cb(); } catch { /* ignore */ } });
+  },
+  onFetchQueue(cb) {
+    const api = A(); if (!api || !api.onFetchQueue) return () => {};
+    return api.onFetchQueue((p) => { try { cb(p); } catch { /* ignore */ } });
   },
   async listsGet() {
     const api = A(); if (!api || !api.listsGet) return _listsMem.slice();

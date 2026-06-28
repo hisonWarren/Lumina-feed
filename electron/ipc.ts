@@ -1,5 +1,5 @@
 // lumina-feed · IPC（干净基线：检索 · 总结 · OA · 设置）+ reader_engine（OA 取/存/读回 · 阅读器接地 AI）
-import { ipcMain, app, Notification, type WebContents } from "electron";
+import { ipcMain, app, Notification, BrowserWindow, type WebContents } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import type { Store } from "../src/core/store/index.ts";
@@ -31,6 +31,23 @@ import {
   applyDigestSearchOpts, buildDigestSpec, normalizeSubscription, freshHits, type DigestRunMeta,
 } from "../src/core/subs/digest-search.ts";
 import {
+  type FetchContext,
+  getFetchLog,
+} from "../src/core/store/paper-asset.ts";
+import {
+  broadcastPapersChanged,
+  buildAssetSnapshot,
+  deleteLocalPdf,
+  enqueueFetch,
+  ensureStubPaper,
+  fetchQueueStatus,
+  hydrateAssets,
+  postFetchSuccess,
+  reconcileOrphans,
+  assertSafePaperId,
+  type PaperAssetDeps,
+} from "./paper-asset-ipc.ts";
+import {
   type DigestAiMeta, type DigestAiProgressFn, DIGEST_PREVIEW_BLURB_SAMPLES,
   digestSummarizeOpts, generateDigestBlurb, mergeAiOntoToday,
   pickAbstractTargets, pickBlurbTargets, pickTopNTargets, readCachedSummary,
@@ -39,6 +56,12 @@ import {
 export interface IpcDeps {
   store: Store;
   secrets: SecretStore;
+}
+
+function broadcastSubsUpdated(payload: Record<string, unknown> = {}): void {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) try { w.webContents.send("subs:updated", payload); } catch { /* ignore */ }
+  }
 }
 
 /** 统一异常 → 拒绝信封（ISSUE-001/004）：分析类 IPC 失败时不返回 null，而给结构化拒绝原因，UI 可显示。 */
@@ -89,6 +112,8 @@ export function registerIpc(deps: IpcDeps): void {
   const pdfDir = (): string => { const d = path.join(app.getPath("userData"), "pdfs"); fs.mkdirSync(d, { recursive: true }); return d; };
   const pdfPath = (id: string): string => path.join(pdfDir(), encodeURIComponent(id) + ".pdf");
   const prefetchInflight = new Set<string>();
+  let paperAssetDepsRef: PaperAssetDeps | null = null;
+  const getPaperAssetDeps = (): PaperAssetDeps | null => paperAssetDepsRef;
 
   ipcMain.handle("search:online", async (e, raw: string, filters) => {
     const opts = await buildSearchOpts();
@@ -222,10 +247,20 @@ export function registerIpc(deps: IpcDeps): void {
     return paper.oaUrl ?? null;
   });
 
-  // 统一候选链取文：OA → LibGen → Anna → Sci-Hub，成功则落盘。
-  async function runFetchPaper(paperId: string, onTrace?: import("../src/core/oa/fetch-trace.ts").FetchTraceCallback) {
+  // 统一候选链取文：OA → LibGen → Anna → Sci-Hub，成功则落盘 + fetch_log + 可选自动入库。
+  async function runFetchPaper(
+    paperId: string,
+    onTrace?: import("../src/core/oa/fetch-trace.ts").FetchTraceCallback,
+    ctx: FetchContext = {},
+  ) {
     const paper = store.papers.getById(paperId);
     if (!paper) return { ok: false as const, reason: "not_found" };
+    try {
+      if (fs.existsSync(pdfPath(paperId))) {
+        const log = getFetchLog(store.db, paperId);
+        return { ok: true as const, source: log?.source || "cached", cached: true };
+      }
+    } catch { /* ignore */ }
     const settings = await loadAppSettings(store);
     const email = settings.contactEmail ?? process.env.LUMINA_CONTACT_EMAIL;
     const coreKey = (await secrets.get("core_key")) ?? undefined;
@@ -245,6 +280,8 @@ export function registerIpc(deps: IpcDeps): void {
       }
       if (res.ok) {
         try { fs.writeFileSync(pdfPath(paperId), Buffer.from(res.bytes)); } catch { /* 落盘失败不阻断 */ }
+        const deps = getPaperAssetDeps();
+        if (deps) await postFetchSuccess(deps, paperId, res.source || "unknown", ctx);
       }
       return res;
     } finally {
@@ -272,7 +309,7 @@ export function registerIpc(deps: IpcDeps): void {
       prefetchInflight.add(paperId);
       try {
         try { sender.send("prefetch:start", { paperId }); } catch { /* 渲染层已关 */ }
-        const res = await runFetchPaper(paperId);
+        const res = await runFetchPaper(paperId, undefined, { channel: "prefetch", provenance: "find_fetch" });
         try {
           if (res.ok) sender.send("prefetch:done", { paperId, result: res });
           else sender.send("prefetch:fail", { paperId, result: res });
@@ -285,9 +322,9 @@ export function registerIpc(deps: IpcDeps): void {
     })();
   }
 
-  ipcMain.handle("oa:fetchPaper", async (_e, paperId: string) => {
+  ipcMain.handle("oa:fetchPaper", async (_e, paperId: string, ctx?: FetchContext) => {
     try {
-      return await runFetchPaper(paperId);
+      return await runFetchPaper(paperId, undefined, ctx || {});
     } catch (e: unknown) {
       const msg = (e && (e as { message?: unknown }).message) ? String((e as { message?: unknown }).message) : "取文失败";
       console.error("oa:fetchPaper 失败", paperId, msg);
@@ -301,12 +338,12 @@ export function registerIpc(deps: IpcDeps): void {
     }
   });
 
-  ipcMain.handle("oa:fetchPaper-stream", async (e, paperId: string, reqId: number) => {
+  ipcMain.handle("oa:fetchPaper-stream", async (e, paperId: string, reqId: number, ctx?: FetchContext) => {
     const send = (payload: unknown) => {
       try { e.sender.send("fetch:progress", { reqId, paperId, ...(payload as object) }); } catch { /* 渲染层已关 */ }
     };
     try {
-      const res = await runFetchPaper(paperId, (ev) => send(ev));
+      const res = await runFetchPaper(paperId, (ev) => send(ev), ctx || {});
       send({ type: "final", result: res });
       return res;
     } catch (err: unknown) {
@@ -425,7 +462,12 @@ export function registerIpc(deps: IpcDeps): void {
   });
   // 读回已存 PDF 字节（供「已下载全文」开读）；不存在返回 null。
   ipcMain.handle("oa:readPdf", async (_e, paperId: string) => {
-    try { const p = pdfPath(paperId); if (!fs.existsSync(p)) return null; return new Uint8Array(fs.readFileSync(p)); } catch { return null; }
+    try {
+      assertSafePaperId(paperId, pdfDir);
+      const p = pdfPath(paperId);
+      if (!fs.existsSync(p)) return null;
+      return new Uint8Array(fs.readFileSync(p));
+    } catch { return null; }
   });
   // 列出已下载全文（关联 store 取标题）。
   ipcMain.handle("oa:listPdfs", () => {
@@ -616,7 +658,12 @@ export function registerIpc(deps: IpcDeps): void {
     } catch { return sub; }
   });
   ipcMain.handle("subs:remove", (_e, id: string) => {
-    try { ensureSubs(); store.db.prepare("DELETE FROM subscriptions WHERE id=?").run(id); return true; } catch { return false; }
+    try {
+      ensureSubs();
+      store.db.prepare("DELETE FROM subscriptions WHERE id=?").run(id);
+      broadcastSubsUpdated({ removed: id });
+      return true;
+    } catch { return false; }
   });
   // 立即运行：构造检索式（关键词走 rawToSpec；期刊走 journal 字段，PubMed [Journal] 接受 ISSN/刊名，限非预印本源）→ 真检索 → 落库；
   // 成本闸 autoSummarize 限制自动总结范围（off/abstract/topN）。今日命中以引擎 Paper 返回，渲染层经 toCardModel 映射。
@@ -640,7 +687,12 @@ export function registerIpc(deps: IpcDeps): void {
       const rows = store.db.prepare("SELECT paper_id, provenance, added_at FROM library ORDER BY added_at DESC").all() as Array<{ paper_id: string; provenance: string; added_at: string }>;
       const out: Array<Record<string, unknown>> = [];
       for (const r of rows) {
-        const paper = store.papers.getById(r.paper_id);
+        let paper = store.papers.getById(r.paper_id);
+        if (!paper) {
+          const deps = getPaperAssetDeps();
+          if (deps) ensureStubPaper(deps, r.paper_id);
+          paper = store.papers.getById(r.paper_id);
+        }
         if (!paper) continue;
         const st = summaryOf(r.paper_id);
         let hasFull = false; try { hasFull = fs.existsSync(pdfPath(r.paper_id)); } catch { /* ignore */ }
@@ -649,7 +701,18 @@ export function registerIpc(deps: IpcDeps): void {
           const a = store.db.prepare("SELECT payload FROM sources_cache WHERE key=?").get("anno:paper:" + r.paper_id) as { payload?: string } | undefined;
           if (a && a.payload) { const al = JSON.parse(a.payload); if (Array.isArray(al)) { annoCount = al.length; annoText = al.map((x: any) => `${x.anchoredText || ""} ${x.note || ""}`).join(" ").trim(); } }
         } catch { /* ignore */ }
-        out.push({ paper, provenance: r.provenance, addedAt: r.added_at, hasFull, hasSummary: !!st, summaryText: st || "", annoCount, annoText });
+        out.push({
+          paper,
+          provenance: r.provenance,
+          addedAt: r.added_at,
+          hasFull,
+          hasSummary: !!st,
+          summaryText: st || "",
+          annoCount,
+          annoText,
+          fetchSource: getFetchLog(store.db, r.paper_id)?.source ?? null,
+          fetchedAt: getFetchLog(store.db, r.paper_id)?.fetched_at ?? null,
+        });
       }
       return out;
     } catch { return []; }
@@ -708,6 +771,47 @@ export function registerIpc(deps: IpcDeps): void {
       return rows.map((r) => r.id);
     } catch { return []; }
   });
+
+  paperAssetDepsRef = { store, pdfPath, pdfDir, ftsPrep, ensureLib, ensureFts };
+
+  ipcMain.handle("papers:hydrate", () => {
+    try {
+      const deps = getPaperAssetDeps();
+      if (!deps) return {};
+      return hydrateAssets(deps);
+    } catch { return {}; }
+  });
+  ipcMain.handle("papers:reconcile", async () => {
+    try {
+      const deps = getPaperAssetDeps();
+      if (!deps) return { added: 0 };
+      return await reconcileOrphans(deps);
+    } catch { return { added: 0 }; }
+  });
+  ipcMain.handle("papers:asset", (_e, paperId: string) => {
+    try {
+      const deps = getPaperAssetDeps();
+      if (!deps) return null;
+      return buildAssetSnapshot(deps, paperId);
+    } catch { return null; }
+  });
+  ipcMain.handle("pdf:delete", (_e, paperId: string, opts?: { removeFromLibrary?: boolean }) => {
+    try {
+      const deps = getPaperAssetDeps();
+      if (!deps) return false;
+      return deleteLocalPdf(deps, paperId, opts?.removeFromLibrary !== false);
+    } catch { return false; }
+  });
+  ipcMain.handle("papers:enqueueFetch", (e, jobs: Array<{ paperId: string; provenance?: string; channel?: string }>) => {
+    try {
+      return enqueueFetch(
+        (jobs || []).map((j) => ({ paperId: j.paperId, ctx: { provenance: j.provenance, channel: j.channel } })),
+        e.sender,
+        (paperId, onTrace, ctx) => runFetchPaper(paperId, onTrace as import("../src/core/oa/fetch-trace.ts").FetchTraceCallback, ctx),
+      );
+    } catch { return { queued: 0 }; }
+  });
+  ipcMain.handle("papers:fetchQueueStatus", () => fetchQueueStatus());
 
   // 清除本机文献数据（库 + 已下载 PDF + 缓存表）；设置与钥匙串密钥保留。完成后重启应用。
   ipcMain.handle("app:resetLocalData", () => {

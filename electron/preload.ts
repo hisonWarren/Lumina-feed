@@ -54,15 +54,31 @@ contextBridge.exposeInMainWorld("luminaApi", {
   listsSave: (lists: unknown) => invoke("lists:save", lists),
   fulltextSave: (paperId: string, text: string) => invoke("fulltext:save", paperId, text),
   searchLocal: (query: string) => invoke("search:local", query),
+  papersHydrate: () => invoke("papers:hydrate"),
+  papersReconcile: () => invoke("papers:reconcile"),
+  papersAsset: (paperId: string) => invoke("papers:asset", paperId),
+  pdfDelete: (paperId: string, opts?: unknown) => invoke("pdf:delete", paperId, opts),
+  papersEnqueueFetch: (jobs: unknown) => invoke("papers:enqueueFetch", jobs),
+  papersFetchQueueStatus: () => invoke("papers:fetchQueueStatus"),
+  onPapersChanged: (cb: (p: unknown) => void) => {
+    const handler = (_e: unknown, payload: unknown) => cb(payload);
+    ipcRenderer.on("papers:changed", handler);
+    return () => ipcRenderer.removeListener("papers:changed", handler);
+  },
+  onFetchQueue: (cb: (p: unknown) => void) => {
+    const handler = (_e: unknown, payload: unknown) => cb(payload);
+    ipcRenderer.on("fetch:queue", handler);
+    return () => ipcRenderer.removeListener("fetch:queue", handler);
+  },
 });
 
 contextBridge.exposeInMainWorld("luminaOa", {
   resolve: (paperId: string) => invoke("oa:resolve", paperId),
-  fetchPaper: (paperId: string) => invoke("oa:fetchPaper", paperId),
-  fetchPaperStream: (paperId: string, reqId: number, cb: (p: unknown) => void) => {
+  fetchPaper: (paperId: string, ctx?: unknown) => invoke("oa:fetchPaper", paperId, ctx),
+  fetchPaperStream: (paperId: string, reqId: number, cb: (p: unknown) => void, ctx?: unknown) => {
     const handler = (_e: unknown, payload: any) => { if (payload && payload.reqId === reqId) cb(payload); };
     ipcRenderer.on("fetch:progress", handler);
-    ipcRenderer.invoke("oa:fetchPaper-stream", paperId, reqId).catch(() => {});
+    ipcRenderer.invoke("oa:fetchPaper-stream", paperId, reqId, ctx).catch(() => {});
     return () => ipcRenderer.removeListener("fetch:progress", handler);
   },
   fetchPdf: (url: string, paperId?: string) => invoke("oa:fetchPdf", url, paperId),

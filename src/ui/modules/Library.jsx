@@ -1,15 +1,21 @@
 // Lumina Feed · 我的文献（工作集）—— patch: library
 // 渲染层：对"你收藏/取过的那批"做 易搜(客户端) / 易引(多样式 + 导出) / 易重开。
 // FTS5 全文索引（PDF 全文 + AI 总结 + 批注）属引擎层（doc 04 §4），需 electron/ 引擎；本模块对工作集元数据做客户端检索，
-// 并提供完整的引用与 .bib/.ris/CSL 导出（纯渲染层、喂 Zotero 不锁定）。定位为工作集；支持单层清单（list）归类——不做目录树 / 标签体系 / 云端账号 / Word 插件（红线/01-C）。
-import React, { useState, useMemo, useEffect } from "react";
+// 并提供完整的引用与 .bib/.ris/CSL 导出（纯渲染层、喂 Zotero 不锁定）。定位为工作集；支持单层自定义分组（list）——类似扁平文件夹，一篇可进多组；不做嵌套目录树 / 标签体系 / 云端账号 / Word 插件（红线/01-C）。
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { bridge } from "../lumina-bridge.js";
-import { BookMarked, Search, Copy, Download, Trash2, ChevronDown, BookOpen, Quote, Layers, FolderPlus, Check, X, Folder, Sparkles, Lightbulb } from "lucide-react";
+import { BookMarked, Search, Copy, Download, Trash2, ChevronDown, BookOpen, Quote, Layers, FolderPlus, Check, X, Folder, Sparkles, Lightbulb, FileDown, Loader, Pencil } from "lucide-react";
 import { STYLES, formatCitation, exportBib, exportRis, exportCslJson } from "../cite.js";
-import { isFetched, oaStatusBadge } from "../fetch-meta.js";
+import { isFetched, oaStatusBadge, fetchProgressUi } from "../fetch-meta.js";
+import ConfirmDialog from "../components/ConfirmDialog.jsx";
 
-const PROV_LABEL = { find_fetch: "检索结果", subscription: "订阅", "": "未分组" };
-const provName = (p) => PROV_LABEL[p] || p || "其他";
+const PROV_LABEL = { find_fetch: "检索结果", subscription: "订阅", recovered: "本机恢复", "": "未分组" };
+const provName = (p) => {
+  const raw = p || "";
+  if (PROV_LABEL[raw]) return PROV_LABEL[raw];
+  if (String(raw).startsWith("subscription:")) return "订阅";
+  return raw || "其他";
+};
 
 const LIB_CSS = `
 .lib{flex:1;min-height:0;display:flex;flex-direction:column}
@@ -50,6 +56,8 @@ const LIB_CSS = `
 .lib-act{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:9px;padding:6px 11px;font-size:12px;cursor:pointer;font-family:inherit}
 .lib-act:hover{border-color:var(--gold);color:var(--gold)}
 .lib-act-del:hover{border-color:#b42318;color:#b42318}
+.lib-spin{animation:libspin .8s linear infinite}
+@keyframes libspin{to{transform:rotate(360deg)}}
 .lib-cites{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line2)}
 .lib-cite{border:1px solid var(--line2);background:var(--surf2);color:var(--ink2);border-radius:8px;padding:5px 10px;font-size:11.5px;cursor:pointer;font-family:'Space Mono',monospace}
 .lib-cite:hover{border-color:var(--gold);color:var(--gold)}
@@ -57,7 +65,21 @@ const LIB_CSS = `
 .lib-empty h2{margin:0;font-size:18px;font-family:'Source Serif 4',Georgia,serif;color:var(--ink)}
 .lib-empty p{margin:0;font-size:13.5px;line-height:1.6;max-width:480px}
 .lib-act-on{background:rgba(14,124,111,.1);color:var(--gold);border-color:rgba(14,124,111,.3)}
-.lib-listbar{display:flex;flex-wrap:wrap;gap:7px;padding:2px 20px 8px;align-items:center}
+.lib-listbar{display:flex;flex-wrap:wrap;gap:7px;padding:0;align-items:center}
+.lib-groupbar{flex-shrink:0;padding:0 20px 10px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--line)}
+.lib-groupbar-h{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink2);flex-wrap:wrap}
+.lib-groupbar-h svg{color:var(--gold);flex-shrink:0}
+.lib-groupbar-hint{font-size:11px;font-weight:400;color:var(--ink4);margin-left:4px;flex:1;min-width:200px;line-height:1.45}
+.lib-lchip-new{border-style:dashed;color:var(--gold)}
+.lib-lchip-new:hover{background:rgba(14,124,111,.06)}
+.lib-grp-new-inp{border:1px solid var(--gold);border-radius:999px;padding:5px 12px;font-size:12px;font-family:inherit;background:var(--surf);color:var(--ink);outline:none;min-width:140px;max-width:220px}
+.lib-grp-badges{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.lib-grp-badge{font-size:10.5px;color:var(--gold);background:rgba(14,124,111,.08);border:1px solid rgba(14,124,111,.22);border-radius:6px;padding:2px 7px;cursor:pointer;font-family:inherit}
+.lib-grp-badge:hover{background:rgba(14,124,111,.14)}
+.lib-lc-edit,.lib-lc-del{display:inline-flex;margin-left:2px;border-radius:50%;padding:1px;opacity:.85}
+.lib-lc-edit:hover,.lib-lc-del:hover{background:rgba(255,255,255,.25);opacity:1}
+.lib-batch-grp{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink3)}
+.lib-batch-grp select{border:1px solid var(--line2);border-radius:8px;padding:6px 8px;font-size:12px;font-family:inherit;background:var(--surf);color:var(--ink);cursor:pointer;max-width:180px}
 .lib-lchip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:999px;padding:5px 12px;font-size:12px;cursor:pointer;font-family:inherit}
 .lib-lchip:hover{border-color:var(--gold);color:var(--gold)}
 .lib-lchip.on{background:var(--gold);color:#fff;border-color:var(--gold)}
@@ -122,7 +144,7 @@ function CorpusCard({ env }) {
   );
 }
 
-export default function Library({ lib, lists, onCreateList, onToggleInList, onDeleteList, onRemove, onRead, fetchedMeta, pushToast }) {
+export default function Library({ lib, lists, onCreateList, onToggleInList, onDeleteList, onRenameList, onAddManyToList, onRemove, onRead, onFetch, fetchedMeta, fetchingMeta = {}, fetchTick = 0, pushToast }) {
   const [query, setQuery] = useState("");
   const [fFulltext, setFFulltext] = useState(false);
   const [fPreprint, setFPreprint] = useState(false);
@@ -137,11 +159,58 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
   const [activeList, setActiveList] = useState(null);
   const [listFor, setListFor] = useState(null);
   const [newListName, setNewListName] = useState("");
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [topNewName, setTopNewName] = useState("");
+  const [editingGroup, setEditingGroup] = useState(null);
+  const [editGroupName, setEditGroupName] = useState("");
+  const topNewRef = useRef(null);
+  const skipCreateBlurRef = useRef(false);
+  const skipRenameBlurRef = useRef(false);
   const [selMode, setSelMode] = useState(false);
   const [sel, setSel] = useState(() => new Set());
   const [corpusEnv, setCorpusEnv] = useState(null);
   const [corpusRunning, setCorpusRunning] = useState("");
+  const [deleteGroupConfirm, setDeleteGroupConfirm] = useState(null);
   const LS = lists || [];
+
+  useEffect(() => {
+    if (creatingGroup && topNewRef.current) topNewRef.current.focus();
+  }, [creatingGroup]);
+
+  const submitCreateGroup = (name, firstId) => {
+    const trimmed = String(name || "").trim();
+    if (!trimmed || !onCreateList) return;
+    const newId = onCreateList(trimmed, firstId);
+    setNewListName("");
+    setTopNewName("");
+    setCreatingGroup(false);
+    setListFor(null);
+    if (newId && firstId) setActiveList(newId);
+    pushToast && pushToast(firstId ? `已建分组「${trimmed}」并加入` : `已建分组「${trimmed}」`);
+  };
+
+  const requestDeleteGroup = (L) => {
+    if (!L || !onDeleteList) return;
+    setDeleteGroupConfirm({ id: L.id, name: L.name });
+  };
+
+  const doDeleteGroup = () => {
+    if (!deleteGroupConfirm || !onDeleteList) return;
+    onDeleteList(deleteGroupConfirm.id);
+    if (activeList === deleteGroupConfirm.id) setActiveList(null);
+    pushToast && pushToast("分组已删除");
+    setDeleteGroupConfirm(null);
+  };
+
+  const submitRenameGroup = (lid) => {
+    const trimmed = String(editGroupName || "").trim();
+    if (!trimmed || !onRenameList) { setEditingGroup(null); return; }
+    onRenameList(lid, trimmed);
+    setEditingGroup(null);
+    pushToast && pushToast("分组已重命名");
+  };
+
+  const paperGroups = (pid) => LS.filter((L) => L.ids.includes(pid));
 
   useEffect(() => {
     const qq = query.trim();
@@ -204,7 +273,12 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
     finally { setCorpusRunning(""); }
   };
 
-  const Card = (p) => (
+  const Card = (p) => {
+    const got = has(p);
+    const fmeta = fetchingMeta[p.id];
+    const isFetching = !!(fmeta && fmeta.startedAt);
+    const prog = isFetching ? fetchProgressUi(fmeta, Date.now()) : null;
+    return (
     <div className={"lib-card" + (selMode && sel.has(p.id) ? " lib-card-sel" : "")} key={p.id}>
       {selMode && <button role="checkbox" aria-checked={sel.has(p.id)} className={"lib-cb" + (sel.has(p.id) ? " on" : "")} onClick={() => toggleSel(p.id)} aria-label="选择本篇做跨篇分析">{sel.has(p.id) ? <Check size={14} /> : null}</button>}
       <div className="lib-title">{p.title || "(无标题)"}</div>
@@ -224,11 +298,24 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
         {typeof p.annoCount === "number" && p.annoCount > 0 && <span className="lib-b">批注 {p.annoCount}</span>}
       </div>
       {p.doi && <div className="lib-doi"><Quote size={12} /> {p.doi}</div>}
+      {paperGroups(p.id).length > 0 && (
+        <div className="lib-grp-badges">
+          {paperGroups(p.id).map((L) => (
+            <button type="button" key={L.id} className="lib-grp-badge" title="筛选此分组" onClick={() => setActiveList(L.id)}>{L.name}</button>
+          ))}
+        </div>
+      )}
       <div className="lib-acts">
+        {!got && onFetch && (
+          <button className="lib-act" disabled={isFetching} onClick={() => onFetch(p, { provenance: p.provenance || "find_fetch", channel: "library" })}>
+            {isFetching ? <><Loader size={13} className="lib-spin" /> {prog && prog.stageText}</> : <><FileDown size={13} /> 获取全文</>}
+          </button>
+        )}
         <button className="lib-act" onClick={() => setCiteFor(citeFor === p.id ? null : p.id)}><Copy size={13} /> 复制引用 <ChevronDown size={12} /></button>
-        {onRead && <button className="lib-act" onClick={() => onRead(p)}><BookOpen size={13} /> 阅读</button>}
-        <button className={"lib-act" + (LS.some((L) => L.ids.includes(p.id)) ? " lib-act-on" : "")} onClick={() => setListFor(listFor === p.id ? null : p.id)}><Folder size={13} /> 清单 <ChevronDown size={12} /></button>
-        <button className="lib-act lib-act-del" onClick={() => onRemove && onRemove(p.id)}><Trash2 size={13} /> 移除</button>
+        {onRead && got && <button className="lib-act" onClick={() => onRead(p)}><BookOpen size={13} /> 阅读</button>}
+        <button className={"lib-act" + (LS.some((L) => L.ids.includes(p.id)) ? " lib-act-on" : "")} onClick={() => setListFor(listFor === p.id ? null : p.id)}><Folder size={13} /> 分组 <ChevronDown size={12} /></button>
+        <button className="lib-act lib-act-del" onClick={() => onRemove && onRemove(p.id)} title="从工作集移除，PDF 仍保留"><Trash2 size={13} /> 移除</button>
+        {got && onRemove && <button className="lib-act lib-act-del" onClick={() => onRemove(p.id, { deletePdf: true })} title="删除本机 PDF"><Trash2 size={13} /> 删 PDF</button>}
       </div>
       {citeFor === p.id && (
         <div className="lib-cites">
@@ -237,8 +324,8 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
       )}
       {listFor === p.id && (
         <div className="lib-lists">
-          <div className="lib-lists-h">加入清单（单层）</div>
-          {LS.length === 0 ? <div className="lib-lists-empty">还没有清单。下方新建后即加入。</div> : (
+          <div className="lib-lists-h">加入自定义分组（单层 · 一篇可进多组）</div>
+          {LS.length === 0 ? <div className="lib-lists-empty">还没有分组。输入名称回车即可新建并加入本篇。</div> : (
             <div className="lib-lists-row">
               {LS.map((L) => (
                 <button key={L.id} className={"lib-lchip2" + (L.ids.includes(p.id) ? " on" : "")} onClick={() => onToggleInList && onToggleInList(L.id, p.id)}>
@@ -247,13 +334,14 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
               ))}
             </div>
           )}
-          <input className="lib-lists-new" value={newListName} placeholder="新建清单后回车…"
+          <input className="lib-lists-new" value={newListName} placeholder="新建分组名称，回车加入…"
             onChange={(e) => setNewListName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && newListName.trim()) { onCreateList && onCreateList(newListName.trim(), p.id); setNewListName(""); setListFor(null); pushToast && pushToast("已建清单并加入"); } }} />
+            onKeyDown={(e) => { if (e.key === "Enter") submitCreateGroup(newListName, p.id); }} />
         </div>
       )}
     </div>
-  );
+    );
+  };
 
   return (
     <div className="lib">
@@ -296,17 +384,51 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
         </div>
       </div>
 
-      {LS.length > 0 && (
+      <div className="lib-groupbar">
+        <div className="lib-groupbar-h"><Folder size={14} /> 自定义分组<span className="lib-groupbar-hint">单层集合 · 类似文件夹 · 一篇可进多组</span></div>
         <div className="lib-listbar">
-          <button className={"lib-lchip" + (!activeList ? " on" : "")} onClick={() => setActiveList(null)}>全部</button>
+          <button type="button" className={"lib-lchip" + (!activeList ? " on" : "")} onClick={() => setActiveList(null)}>全部 <span className="lib-lc-n">{(lib || []).length}</span></button>
           {LS.map((L) => (
-            <button key={L.id} className={"lib-lchip" + (activeList === L.id ? " on" : "")} onClick={() => setActiveList(activeList === L.id ? null : L.id)}>
-              {L.name} <span className="lib-lc-n">{L.ids.length}</span>
-              {activeList === L.id && <span className="lib-lc-del" onClick={(e) => { e.stopPropagation(); onDeleteList && onDeleteList(L.id); setActiveList(null); pushToast && pushToast("清单已删除"); }}><X size={11} /></span>}
-            </button>
+            editingGroup === L.id ? (
+              <input key={L.id} className="lib-grp-new-inp" value={editGroupName}
+                onChange={(e) => setEditGroupName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); skipRenameBlurRef.current = true; submitRenameGroup(L.id); }
+                  if (e.key === "Escape") { skipRenameBlurRef.current = true; setEditingGroup(null); }
+                }}
+                onBlur={() => {
+                  if (skipRenameBlurRef.current) { skipRenameBlurRef.current = false; return; }
+                  submitRenameGroup(L.id);
+                }} />
+            ) : (
+              <button type="button" key={L.id} className={"lib-lchip" + (activeList === L.id ? " on" : "")} onClick={() => setActiveList(activeList === L.id ? null : L.id)}>
+                {L.name} <span className="lib-lc-n">{L.ids.length}</span>
+                {activeList === L.id && onRenameList && (
+                  <span className="lib-lc-edit" role="button" tabIndex={0} title="重命名" onClick={(e) => { e.stopPropagation(); setEditingGroup(L.id); setEditGroupName(L.name); }}><Pencil size={11} /></span>
+                )}
+                {activeList === L.id && (
+                  <span className="lib-lc-del" role="button" tabIndex={0} title="删除分组" onClick={(e) => { e.stopPropagation(); requestDeleteGroup(L); }}><X size={11} /></span>
+                )}
+              </button>
+            )
           ))}
+          {creatingGroup ? (
+            <input ref={topNewRef} className="lib-grp-new-inp" value={topNewName} placeholder="分组名称，回车创建…"
+              onChange={(e) => setTopNewName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); skipCreateBlurRef.current = true; submitCreateGroup(topNewName, null); }
+                if (e.key === "Escape") { skipCreateBlurRef.current = true; setCreatingGroup(false); setTopNewName(""); }
+              }}
+              onBlur={() => {
+                if (skipCreateBlurRef.current) { skipCreateBlurRef.current = false; return; }
+                if (topNewName.trim()) submitCreateGroup(topNewName, null);
+                else setCreatingGroup(false);
+              }} />
+          ) : (
+            <button type="button" className="lib-lchip lib-lchip-new" onClick={() => setCreatingGroup(true)}><FolderPlus size={12} /> 新建分组</button>
+          )}
         </div>
-      )}
+      </div>
 
       {selMode && (
         <div className="lib-corpus-bar">
@@ -316,6 +438,22 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
             <button disabled={sel.size < 2 || !!corpusRunning} onClick={() => runCorpus("corpus_contradiction")}>{corpusRunning === "corpus_contradiction" ? "分析中…" : "矛盾发现"}</button>
             <button disabled={sel.size < 2 || !!corpusRunning} onClick={() => runCorpus("corpus_recipe")}>{corpusRunning === "corpus_recipe" ? "分析中…" : "方法配方汇编"}</button>
             {sel.size > 0 && <button className="lib-corpus-clear" onClick={() => setSel(new Set())}>清空</button>}
+            {sel.size > 0 && LS.length > 0 && onAddManyToList && (
+              <label className="lib-batch-grp">
+                批量加入
+                <select defaultValue="" onChange={(e) => {
+                  const lid = e.target.value;
+                  if (!lid) return;
+                  onAddManyToList(lid, Array.from(sel));
+                  const L = LS.find((x) => x.id === lid);
+                  pushToast && pushToast(`已将 ${sel.size} 篇加入「${L ? L.name : "分组"}」`);
+                  e.target.value = "";
+                }}>
+                  <option value="">选择分组…</option>
+                  {LS.map((L) => <option key={L.id} value={L.id}>{L.name} ({L.ids.length})</option>)}
+                </select>
+              </label>
+            )}
           </div>
           <div className="lib-corpus-note">仅就你选中的文献做跨篇归纳（限工作集、非全库问答）；基于各篇摘要/缓存总结，结果带出处文献、需回原文核对。建议先给这些文献生成总结，归纳更准。</div>
           {corpusEnv && <CorpusCard env={corpusEnv} />}
@@ -326,10 +464,13 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
           <div className="lib-empty">
             <BookMarked size={30} strokeWidth={1.6} />
             <h2>还没有收藏的文献</h2>
-            <p>在「检索取文」里把找到的论文收藏，它们会进入这里——可搜索、可多样式引用、可导出 .bib/.ris/CSL 喂给 Zotero。</p>
+            <p>在「检索取文」或「阅读·已下载全文」里收藏论文，它们会进入这里。之后可用<strong>自定义分组</strong>按课题整理。</p>
           </div>
         ) : view.length === 0 ? (
-          <div className="lib-empty"><h2>没有匹配的条目</h2><p>调整搜索或筛选试试。</p></div>
+          <div className="lib-empty">
+            <h2>{activeList ? "此分组暂无文献" : "没有匹配的条目"}</h2>
+            <p>{activeList ? "在卡片上点「分组」把文献加入此集合，或切换「全部」查看工作集。" : "调整搜索或筛选试试。"}</p>
+          </div>
         ) : (
           groups.map((g) => (
             <div key={g.key}>
@@ -339,6 +480,16 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
           ))
         )}
       </div>
+      <ConfirmDialog
+        open={!!deleteGroupConfirm}
+        title={deleteGroupConfirm ? `删除分组「${deleteGroupConfirm.name}」？` : ""}
+        detail="文献仍保留在工作集，仅移除分组标签。"
+        confirmLabel="删除"
+        cancelLabel="取消"
+        danger
+        onConfirm={doDeleteGroup}
+        onCancel={() => setDeleteGroupConfirm(null)}
+      />
     </div>
   );
 }

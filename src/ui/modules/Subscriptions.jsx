@@ -91,7 +91,7 @@ const SUBS_CSS = `
 .subkind{font-size:10px;font-family:'Space Mono',monospace;background:rgba(14,124,111,.1);color:var(--gold);border-radius:5px;padding:1px 5px;margin-right:5px}
 `;
 
-function DigestItem({ p, query, subLabels, fetchedMeta, fetchingMeta, onFetch, onReadPaper, onRead, pushToast }) {
+function DigestItem({ p, query, subLabels, fetchedMeta, fetchingMeta, onFetch, onReadPaper, onRead, pushToast, fetchOpts }) {
   const [sum, setSum] = useState(null);
   const [summing, setSumming] = useState(false);
   const got = isFetched(fetchedMeta);
@@ -128,7 +128,7 @@ function DigestItem({ p, query, subLabels, fetchedMeta, fetchingMeta, onFetch, o
         <div className="dg-sum"><span className="dg-basis">● {sum.sourceBasis === "fulltext" || sum.sourceBasis === "full" ? "基于全文" : "基于摘要"}{hasAutoSum ? " · 自动" : ""}</span><div>{sum.summaryText || sum.text}</div></div>
       )}
       <div className="dg-acts">
-        <button className="dg-act" onClick={() => onFetch(p)} disabled={isFetching || got}>
+        <button className="dg-act" onClick={() => onFetch(p, fetchOpts || { provenance: "subscription", channel: "digest" })} disabled={isFetching || got}>
           {isFetching ? <><Loader size={13} className="rd-spin" /> {prog && prog.stageText}</> : got ? <><Check size={13} /> 已取全文</> : <><Download size={13} /> 获取全文</>}
         </button>
         {got && onReadPaper && <button className="dg-act" onClick={() => onReadPaper(p)}><BookOpen size={13} /> 阅读</button>}
@@ -222,7 +222,7 @@ function SubDialog({ initial, onClose, onSave }) {
   );
 }
 
-export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMeta = {}, fetchTick = 0, onFetch: onFetchProp, onReadPaper }) {
+export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMeta = {}, fetchTick = 0, onFetch: onFetchProp, onFetchBatch, onReadPaper, onSubsChange, inLibFn }) {
   const [subs, setSubs] = useState([]);
   const [activeSub, setActiveSub] = useState("all");
   const [seen, setSeen] = useState({});
@@ -245,8 +245,20 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
 
   const persist = useCallback(async (sub) => { await bridge.subsSave(sub); }, []);
   const subPatch = useCallback((id, patch) => { setSubs((s) => s.map((x) => { if (x.id !== id) return x; const u = { ...x, ...patch }; persist(u); return u; })); }, [persist]);
-  const subRemove = useCallback(async (id) => { await bridge.subsRemove(id); setSubs((s) => s.filter((x) => x.id !== id)); if (activeSub === id) setActiveSub("all"); pushToast && pushToast("订阅已删除"); }, [activeSub, pushToast]);
-  const onSaveSub = useCallback(async (sub) => { const saved = (await bridge.subsSave(sub)) || sub; setSubs((s) => { const i = s.findIndex((x) => x.id === saved.id); if (i >= 0) { const n = s.slice(); n[i] = saved; return n; } return [...s, saved]; }); setDlgOpen(false); setEditSub(null); pushToast && pushToast(sub.name || sub.q ? "订阅已保存" : "订阅已保存"); }, [pushToast]);
+  const subRemove = useCallback(async (id) => {
+    await bridge.subsRemove(id);
+    setSubs((s) => s.filter((x) => x.id !== id));
+    if (activeSub === id) setActiveSub("all");
+    onSubsChange?.();
+    pushToast && pushToast("订阅已删除");
+  }, [activeSub, pushToast, onSubsChange]);
+  const onSaveSub = useCallback(async (sub) => {
+    const saved = (await bridge.subsSave(sub)) || sub;
+    setSubs((s) => { const i = s.findIndex((x) => x.id === saved.id); if (i >= 0) { const n = s.slice(); n[i] = saved; return n; } return [...s, saved]; });
+    setDlgOpen(false); setEditSub(null);
+    onSubsChange?.();
+    pushToast && pushToast(sub.name || sub.q ? "订阅已保存" : "订阅已保存");
+  }, [pushToast, onSubsChange]);
   const subRunNow = useCallback(async (sub) => {
     setRunProgress({ label: "检索中…", current: 0, total: 0 });
     const r = await bridge.subsRunNow(sub, {
@@ -256,6 +268,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
         const updated = list.find((x) => x.id === subId);
         if (updated) setSubs((s) => s.map((x) => (x.id === subId ? updated : x)));
         setRunProgress(null);
+        onSubsChange?.();
         pushToast && pushToast("简报 AI 内容已更新");
       },
     });
@@ -268,6 +281,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
       if (Array.isArray(r.hits)) {
         setSubs((s) => s.map((x) => (x.id === sub.id ? { ...x, today: r.hits } : x)));
       }
+      onSubsChange?.();
       const n = typeof r.newCount === "number" ? r.newCount : (r.hits || []).length;
       if (r.aiSkippedReason === "llm_not_configured") {
         pushToast && pushToast("未配置 LLM · 请在设置中填写 API Key 后重试");
@@ -280,7 +294,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
       setRunProgress(null);
       pushToast && pushToast(backend ? "本次没有新命中" : "需引擎调度真实检索（原型未接后端）");
     }
-  }, [backend, pushToast]);
+  }, [backend, pushToast, onSubsChange]);
   const markRead = useCallback((id) => setSeen((p) => ({ ...p, [id]: true })), []);
 
   const today = new Date();
@@ -291,6 +305,9 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
   const preprintCount = shown.reduce((n, s) => n + unread(s).filter((p) => p.preprint).length, 0);
   const allPending = [];
   shown.forEach((s) => { if (s.enabled !== false) unread(s).forEach((p) => { if (!isFetched(fetchedMeta[p.id]) && !fetchingMeta[p.id]) allPending.push(p); }); });
+
+  const batchProvenance = activeSub === "all" ? "subscription" : `subscription:${activeSub}`;
+  const batchFetchOpts = { provenance: batchProvenance, channel: "batch" };
 
   const buildGroups = () => {
     if (activeSub === "all") {
@@ -306,6 +323,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
         query: d.query,
         papers: [d.paper],
         isMerged: d.subLabels.length > 1,
+        fetchOpts: { provenance: "subscription", channel: "digest" },
       }));
     }
     return shown.filter((s) => s.enabled !== false && unread(s).length).map((s) => ({
@@ -315,6 +333,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
       query: s.q || subLabel(s),
       papers: unread(s),
       isMerged: false,
+      fetchOpts: { provenance: `subscription:${s.id}`, channel: "digest" },
     }));
   };
   const groups = buildGroups();
@@ -354,7 +373,12 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
               <h1>今日证据简报</h1>
               <div className="dg-date">{today.getMonth() + 1} 月 {today.getDate()} 日 · 本机生成</div>
             </div>
-            {allPending.length > 0 && onFetchProp && <button className="dg-batch" onClick={() => { allPending.forEach((p) => onFetchProp(p)); pushToast && pushToast("正在获取本批 " + allPending.length + " 篇全文"); }}><Download size={14} /> 取本批全部（{allPending.length}）</button>}
+            {allPending.length > 0 && (onFetchBatch || onFetchProp) && (
+              <button className="dg-batch" onClick={() => {
+                if (onFetchBatch) onFetchBatch(allPending, batchFetchOpts);
+                else allPending.forEach((p) => onFetchProp(p, batchFetchOpts));
+              }}><Download size={14} /> 取本批全部（{allPending.length}）</button>
+            )}
           </div>
           <p>你订阅的主题共有 <b>{total} 篇</b> 待读新发表。每条都标了证据来源，可直接取全文或让 AI 总结——<b>是否纳入你的研究，由你判断</b>。</p>
           {total > 0 && (
@@ -400,6 +424,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
                     onReadPaper={onReadPaper}
                     onRead={markRead}
                     pushToast={pushToast}
+                    fetchOpts={g.fetchOpts}
                   />
                 ))}
                 {g.papers.length > lim && (

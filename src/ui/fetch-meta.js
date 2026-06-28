@@ -2,8 +2,8 @@
 /** @typedef {{ short: string; badgeClass: string; tip: string }} SourceLabel */
 
 export const FETCH_STAGES = [
-  "正在检索来源…",
-  "正在尝试镜像…",
+  "正在检索开放获取来源…",
+  "正在尝试备用库镜像…",
   "正在获取 PDF…",
 ];
 
@@ -23,9 +23,9 @@ const SOURCE_NAMES = {
 export function sourceLabel(raw) {
   const s = String(raw || "").toLowerCase();
   if (!s) return { short: "全文", badgeClass: "ff-b-ft", tip: "" };
-  if (s === "scihub" || /sci-?hub/.test(s)) return { short: "Sci-Hub", badgeClass: "ff-b-ft", tip: "经 Sci-Hub 获取" };
-  if (s === "libgen" || /^libgen/.test(s)) return { short: "LibGen", badgeClass: "ff-b-ft", tip: "经 LibGen 获取" };
-  if (s === "annas" || /annas/.test(s)) return { short: "Anna's Archive", badgeClass: "ff-b-ft", tip: "经 Anna's Archive 获取" };
+  if (s === "scihub" || /sci-?hub/.test(s)) return { short: "Sci-Hub", badgeClass: "ff-b-alt", tip: "经 Sci-Hub 获取（备用库）" };
+  if (s === "libgen" || /^libgen/.test(s)) return { short: "LibGen", badgeClass: "ff-b-alt", tip: "经 LibGen 获取（备用库）" };
+  if (s === "annas" || /annas/.test(s)) return { short: "Anna's Archive", badgeClass: "ff-b-alt", tip: "经 Anna's Archive 获取（备用库）" };
   for (const [key, label] of Object.entries(SOURCE_NAMES)) {
     if (s === key || s.includes(key)) return { short: label, badgeClass: "ff-b-ft", tip: `经 ${label} 获取` };
   }
@@ -45,7 +45,14 @@ export function buildFetchedMeta(fetchResult, opts = {}) {
     tip: label.tip,
     at: Date.now(),
     prefetched: !!opts.prefetched,
+    cached: !!fetchResult.cached,
   };
+}
+
+/** 从引擎 papers:hydrate 快照重建 UI 取文徽章 */
+export function metaFromAsset(asset) {
+  if (!asset || !asset.hasPdf) return null;
+  return buildFetchedMeta({ ok: true, source: asset.fetchSource || "cached", cached: true });
 }
 
 /** @param {{ stageIndex?: number; startedAt?: number }|null|undefined} meta */

@@ -10,6 +10,8 @@ export interface AppSettings {
   searchDepth?: "standard" | "full";   // 检索深度（非密钥）
   /** 全文库镜像覆盖（LibGen / Anna / Sci-Hub URL 列表，非密钥） */
   altMirrors?: { libgen?: string[]; annas?: string[]; scihub?: string[] };
+  /** 取文后自动加入我的文献（工作集）；关则仅落盘，需手动收藏 */
+  autoIngestOnFetch?: boolean;
   /** P10 · 标识符直达成功后后台预取全文（默认关） */
   prefetchOnIdentifier?: boolean;
   /** P8 · 用户禁用的检索源 id 列表（如 ["zenodo","openaire"]） */
@@ -35,7 +37,7 @@ export interface AppSettingsView extends AppSettings {
   emailFromEnv: boolean;
 }
 
-const DEFAULTS: AppSettings = { searchDepth: "standard", digestNotifyTier: "regular" };
+const DEFAULTS: AppSettings = { searchDepth: "standard", digestNotifyTier: "regular", autoIngestOnFetch: true };
 const KEY = "app_settings";
 
 export async function loadAppSettings(store: Store): Promise<AppSettings> {

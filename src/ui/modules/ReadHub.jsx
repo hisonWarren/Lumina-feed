@@ -32,6 +32,8 @@ const HUB_CSS = `
 .rh-row:hover{border-color:var(--gold)}
 .rh-row svg{color:var(--ink3);flex-shrink:0}
 .rh-row .nm{flex:1;min-width:0;font-size:13.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rh-addlib{flex-shrink:0;border:1px solid var(--line2);background:var(--surf2);color:var(--gold);border-radius:7px;padding:4px 8px;font-size:11px;cursor:pointer;font-family:inherit}
+.rh-addlib:hover{border-color:var(--gold);background:var(--gold-tint)}
 .rh-empty{font-size:12.5px;color:var(--ink4);border:1px dashed var(--line2);border-radius:10px;padding:13px 15px;line-height:1.6}
 .rh-spin{animation:rhspin .8s linear infinite;vertical-align:-2px}
 @keyframes rhspin{to{transform:rotate(360deg)}}
@@ -51,7 +53,7 @@ const RHX_CSS = `
 .rhx-pane{flex:1;min-height:0;flex-direction:column}
 `;
 
-function ReadHub({ recent, onOpen, downloaded, loadingDl, onOpenDownloaded }) {
+function ReadHub({ recent, onOpen, downloaded, loadingDl, onOpenDownloaded, inLibFn, onAddToLibrary, pushToast }) {
   const [drag, setDrag] = useState(false);
   const inputRef = useRef(null);
 
@@ -111,7 +113,15 @@ function ReadHub({ recent, onOpen, downloaded, loadingDl, onOpenDownloaded }) {
           ) : (
             downloaded.map((it, i) => (
               <div className="rh-row" key={(it.paperId || "") + i} onClick={() => onOpenDownloaded(it)}>
-                <FileText size={16} /><span className="nm">{it.title || it.paperId}</span><BookOpen size={15} />
+                <FileText size={16} /><span className="nm">{it.title || it.paperId}</span>
+                {inLibFn && it.paperId && !inLibFn(it.paperId) && onAddToLibrary && (
+                  <button type="button" className="rh-addlib" title="加入我的文献工作集（可在「我的文献」分组整理）" onClick={(e) => {
+                    e.stopPropagation();
+                    onAddToLibrary({ id: it.paperId, title: it.title || it.paperId });
+                    pushToast && pushToast("已加入工作集 · 可在「我的文献 → 分组」整理");
+                  }}>＋工作集</button>
+                )}
+                <BookOpen size={15} />
               </div>
             ))
           )}
@@ -128,7 +138,7 @@ const tabKey = (t) => (t.paperId ? "p:" + t.paperId : "n:" + t.name);
 
 // 多标签阅读：可同时打开 ≤6 篇，仅活跃标签可见（其余 display:none 保留各自状态）。
 // 不做跨标签 AI（每个 Reader 各自单篇接地，红线：阅读器只读单篇）。incoming = 外部（右键/命令行）传入的本地 PDF。
-export default function ReaderModule({ pushToast, incoming, onIncomingHandled, readTarget, onReadTargetHandled }) {
+export default function ReaderModule({ pushToast, incoming, onIncomingHandled, readTarget, onReadTargetHandled, inLibFn, onAddToLibrary }) {
   const [st, setSt] = useState({ tabs: [], activeId: null }); // activeId=null → 落地页(hub)
   const [recent, setRecent] = useState([]); // {name,data} 内存，会话内有效
   const [downloaded, setDownloaded] = useState([]);
@@ -211,7 +221,7 @@ export default function ReaderModule({ pushToast, incoming, onIncomingHandled, r
       )}
       <div className="rhx-stage">
         <div className="rhx-pane" style={{ display: showHub ? "flex" : "none" }}>
-          <ReadHub recent={recent} onOpen={open} downloaded={downloaded} loadingDl={loadingDl} onOpenDownloaded={openDownloaded} />
+          <ReadHub recent={recent} onOpen={open} downloaded={downloaded} loadingDl={loadingDl} onOpenDownloaded={openDownloaded} inLibFn={inLibFn} onAddToLibrary={onAddToLibrary} pushToast={pushToast} />
         </div>
         {st.tabs.map((t) => (
           <div key={t.id} className="rhx-pane" style={{ display: t.id === st.activeId ? "flex" : "none" }}>

@@ -9,6 +9,7 @@ import { CURATED_MODELS, PROVIDER_DEFAULT_MODEL, OLLAMA_MODEL_PRESETS } from "..
 import SourceKeysPanel from "../components/SourceKeysPanel.jsx";
 import MirrorSettingsPanel from "../components/MirrorSettingsPanel.jsx";
 import SourceTogglesPanel, { PrefetchToggleRow } from "../components/SourceTogglesPanel.jsx";
+import ConfirmDialog from "../components/ConfirmDialog.jsx";
 
 // provider 预设：id 即引擎 LlmConfig.provider；密钥名 = `${id}_key`；ollama 无需 key；自定义需 baseUrl。
 const PROVIDERS = [
@@ -154,6 +155,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
   const [digestNotifyTier, setDigestNotifyTier] = useState("regular");
   const [bgTray, setBgTray] = useState(false);
   const [bgLogin, setBgLogin] = useState(false);
+  const [autoIngest, setAutoIngest] = useState(true);
   const [savingLlm, setSavingLlm] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
@@ -165,6 +167,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
   const [nightInvert, setNightInvert] = useState(false);     // 夜读反色默认
   const [savingReader, setSavingReader] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [userDataPath, setUserDataPath] = useState("");
   const [searchDepth, setSearchDepth] = useState("standard");
   const [altMirrors, setAltMirrors] = useState({});
@@ -189,6 +192,8 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
       if (typeof s.notifications === "boolean") setNotifications(s.notifications);
       if (s.digestNotifyTier === "calm" || s.digestNotifyTier === "regular" || s.digestNotifyTier === "power") setDigestNotifyTier(s.digestNotifyTier);
       if (s.app) { setBgTray(!!s.app.minimizeToTray); setBgLogin(!!s.app.openAtLogin); }
+      if (typeof s.autoIngestOnFetch === "boolean") setAutoIngest(s.autoIngestOnFetch);
+      else setAutoIngest(true);
       if (s.reader) { if (typeof s.reader.rememberPos === "boolean") setRememberPos(s.reader.rememberPos); if (typeof s.reader.defaultZoom === "number") setDefaultZoom(s.reader.defaultZoom); if (typeof s.reader.nightInvert === "boolean") setNightInvert(s.reader.nightInvert); }
       bridge.setBackground && bridge.setBackground(!!(s.app && s.app.minimizeToTray), !!(s.app && s.app.openAtLogin)); // 启动同步主进程
     }).catch(() => {});
@@ -273,25 +278,28 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
     setSavingGen(true);
     try {
       const cur = (await bridge.getSettings()) || {};
-      const next = { ...cur, contactEmail: contactEmail.trim() || undefined, notifications, digestNotifyTier, app: { minimizeToTray: bgTray, openAtLogin: bgLogin } };
+      const next = { ...cur, contactEmail: contactEmail.trim() || undefined, notifications, digestNotifyTier, autoIngestOnFetch: autoIngest, app: { minimizeToTray: bgTray, openAtLogin: bgLogin } };
       await bridge.saveSettings(next);
       bridge.setBackground && bridge.setBackground(bgTray, bgLogin);
       pushToast && pushToast(backend ? "已保存通用设置" : "（原型）未接后端，设置未持久化");
     } catch (e) { pushToast && pushToast("保存失败"); }
     finally { setSavingGen(false); }
-  }, [contactEmail, notifications, digestNotifyTier, bgTray, bgLogin, backend, pushToast]);
+  }, [contactEmail, notifications, digestNotifyTier, autoIngest, bgTray, bgLogin, backend, pushToast]);
 
   const onResetLocalData = useCallback(async () => {
     if (!backend) { pushToast && pushToast("需 Electron 引擎"); return; }
-    const ok = window.confirm("将删除本机文献库、订阅、收藏、已下载 PDF 与阅读缓存，并重启应用。大模型密钥与通用设置保留。此操作不可恢复。");
-    if (!ok) return;
+    setResetConfirmOpen(true);
+  }, [backend, pushToast]);
+
+  const confirmResetLocalData = useCallback(async () => {
+    setResetConfirmOpen(false);
     setResetting(true);
     try {
       const r = await bridge.resetLocalData();
       if (!r || !r.ok) pushToast && pushToast("清除失败：" + ((r && r.error) || "未知错误"));
     } catch (e) { pushToast && pushToast("清除失败"); }
     finally { setResetting(false); }
-  }, [backend, pushToast]);
+  }, [pushToast]);
 
   return (
     <div className="set-backdrop" onClick={onClose}>
@@ -501,6 +509,11 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
               <>
                 <h2 className="set-pane-h"><Bell size={18} /> 通用</h2>
                 <div className="set-toggle">
+                  <span className="set-lbl">取文后自动加入「我的文献」工作集</span>
+                  <button role="switch" aria-checked={autoIngest} className={"set-switch" + (autoIngest ? " on" : "")} onClick={() => setAutoIngest((v) => !v)} aria-label="自动入库开关"><i /></button>
+                </div>
+                <span className="set-hint">开启后，获取全文成功时会自动写入工作集并记录来源；关闭则仅保存 PDF 到本机，需手动收藏。</span>
+                <div className="set-toggle">
                   <span className="set-lbl">桌面通知（订阅简报等）</span>
                   <button role="switch" aria-checked={notifications} className={"set-switch" + (notifications ? " on" : "")} onClick={() => setNotifications((v) => !v)} aria-label="通知开关"><i /></button>
                 </div>
@@ -547,6 +560,16 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
           </div>
         </div>
       </div>
+      <ConfirmDialog
+        open={resetConfirmOpen}
+        title="清除本机文献数据？"
+        detail="将删除本机文献库、订阅、收藏、已下载 PDF 与阅读缓存，并重启应用。大模型密钥与通用设置保留。此操作不可恢复。"
+        confirmLabel="清除"
+        cancelLabel="取消"
+        danger
+        onConfirm={confirmResetLocalData}
+        onCancel={() => setResetConfirmOpen(false)}
+      />
     </div>
   );
 }
