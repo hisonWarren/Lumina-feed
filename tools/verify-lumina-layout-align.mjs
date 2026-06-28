@@ -25,18 +25,17 @@ ok(!/\.ff-head\{[^}]*max-width:920px/.test(lf) && !/\.ff-track\{[^}]*max-width:9
 ok(/\.ff-card\{[^}]*padding:16px 18px[^}]*max-width:920px/.test(lf), "ff-card 仍为 max-width:920 + padding:18 + border:1（锚，不改 → border-box 958）");
 ok(/\.ff-card\{[^}]*margin:0 auto 12px/.test(lf), "ff-card 仍居中（margin:0 auto）");
 
-console.log("\n[2] 阅读首页空态 · 居中消除空当与底部空白");
-ok(/\.rh-inner\{[^}]*justify-content:center/.test(hub), "rh-inner 横向居中（左栏+主区 这一组，消除右侧空当）");
-ok(/\.rh-inner\{[^}]*margin-block:auto/.test(hub), "rh-inner 纵向居中（margin-block:auto，消除底部大片空白）");
-ok(/\.rh-inner\{[^}]*max-width:1280px/.test(hub), "rh-inner 保留 max-width:1280（reader_settings_shell 不回退）");
-ok(/\.rh\{[^}]*overflow-y:auto/.test(hub) && /\.rh\{[^}]*align-items:center/.test(hub), "rh 仍可滚动 + 横向居中容器（margin-block:auto 溢出时回落顶对齐）");
+console.log("\n[2] 阅读首页空态 · 居中单列上下布局");
+ok(/\.rh-inner\{[^}]*flex-direction:column/.test(hub), "rh-inner 上下布局（column）");
+ok(/\.rh-inner\{[^}]*margin-block:auto/.test(hub), "rh-inner 纵向居中（margin-block:auto，溢出可滚动）");
+ok(/\.rh-inner\{[^}]*max-width:760px/.test(hub), "rh-inner 单列宽 max-width:760");
+ok(/\.rh\{[^}]*overflow-y:auto/.test(hub) && /\.rh\{[^}]*align-items:center/.test(hub), "rh 可滚动 + 横向居中");
 
-console.log("\n[3] 防回归 · 保留 reader_settings_shell / search_settings / shell_polish 既有 token");
-ok(/\.rh-rail\{[^}]*background:var\(--surf2\)[^}]*border:1px solid var\(--line\)/.test(hub), "左栏独立面板（底色+边框）保留");
+console.log("\n[3] 防回归 · 保留列表面板样式与主结构");
+ok(/\.rh-rail\{[^}]*background:var\(--surf2\)[^}]*border:1px solid var\(--line\)/.test(hub), "列表区独立面板（底色+边框）保留");
 ok(/\.rh-rail \.rh-sec \+ \.rh-sec\{border-top/.test(hub), "面板内分区分隔线保留");
-ok(/\.rh-rail\{[^}]*position:sticky/.test(hub) && has(hub, "order:-1"), "左栏 sticky + order:-1 保留");
-ok(has(hub, "@media (max-width:820px)") && has(hub, "order:0"), "窄屏回落为上下（820px/order:0）保留");
-ok(has(hub, 'className="rh-main"') && has(hub, 'className="rh-rail"'), "两栏容器 rh-main + rh-rail 保留");
+ok(!has(hub, "order:-1") && !/\.rh-rail\{[^}]*position:sticky/.test(hub), "已移除左栏 sticky/order（回归上下）");
+ok(has(hub, 'className="rh-main"') && has(hub, 'className="rh-rail"'), "rh-main + rh-rail 保留");
 ok(/\.ff-card\{[^}]*transition:box-shadow/.test(lf), "ff-card hover 过渡保留（shell-polish 断言 token）");
 ok(sp === null || /max-width:958px;margin:0 auto/.test(sp), "shell-polish 验证器已同步为 958（自身不回归）");
 

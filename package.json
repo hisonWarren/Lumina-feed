@@ -1,6 +1,6 @@
 {
   "name": "lumina-feed",
-  "version": "0.3.0-minimal",
+  "version": "0.3.0",
   "description": "Lumina Feed · 干净基线（检索取文 + 接地总结）",
   "author": "hisonWarren",
   "main": "build/main.cjs",
@@ -110,7 +110,8 @@
     "nsis": {
       "oneClick": false,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": true
     },
     "mac": {
       "target": [

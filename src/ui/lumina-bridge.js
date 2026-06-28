@@ -273,6 +273,8 @@ export const bridge = {
     try { return await r.testLlm(cfg); } catch (e) { return { ok: false, error: "测试失败" }; }
   },
   async saveSettings(s) { const api = A(); if (!api) return null; return api.saveSettings(s); },
+  async resetLocalData() { const api = A(); if (!api || !api.resetLocalData) return { ok: false, error: "no_backend" }; return api.resetLocalData(); },
+  async getUserDataPath() { const api = A(); if (!api || !api.getUserDataPath) return null; try { return await api.getUserDataPath(); } catch { return null; } },
   async setSecret(k, v) { const api = A(); if (!api) return null; return api.setSecret(k, v); },
   onOpenLocalPdf(cb) {
     const api = A(); if (!api || !api.onOpenLocalPdf) return;

@@ -405,6 +405,28 @@ export function registerIpc(deps: IpcDeps): void {
       return rows.map((r) => r.id);
     } catch { return []; }
   });
+
+  // 清除本机文献数据（库 + 已下载 PDF + 缓存表）；设置与钥匙串密钥保留。完成后重启应用。
+  ipcMain.handle("app:resetLocalData", () => {
+    try {
+      const ud = app.getPath("userData");
+      try { store.db.close(); } catch { /* ignore */ }
+      for (const f of ["lumina.db", "lumina.db-wal", "lumina.db-shm"]) {
+        try { fs.unlinkSync(path.join(ud, f)); } catch { /* ignore */ }
+      }
+      const pd = path.join(ud, "pdfs");
+      try {
+        for (const name of fs.readdirSync(pd)) {
+          try { fs.unlinkSync(path.join(pd, name)); } catch { /* ignore */ }
+        }
+      } catch { /* ignore */ }
+      app.relaunch();
+      app.quit();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: (e && (e as Error).message) || "reset_failed" };
+    }
+  });
 }
 
 // ── 订阅运行核心（手动 runNow 与调度器共用）+ 调度器 ──

@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld("luminaApi", {
   listModels: (cfg) => invoke("llm:listModels", cfg),
   onOpenLocalPdf: (cb: (payload: { name: string; data: ArrayBuffer }) => void) => { ipcRenderer.on("open-local-pdf", (_e, payload) => cb(payload)); },
   setBackground: (opts: { minimizeToTray?: boolean; openAtLogin?: boolean }) => invoke("app:setBackground", opts),
+  resetLocalData: () => invoke("app:resetLocalData"),
+  getUserDataPath: () => invoke("app:getUserDataPath"),
   searchOnlineStream: (raw: string, filters: unknown, reqId: number, cb: (p: unknown) => void) => {
     const handler = (_e: unknown, payload: any) => { if (payload && payload.reqId === reqId) cb(payload); };
     ipcRenderer.on("search:stream", handler);

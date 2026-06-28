@@ -25,6 +25,15 @@ function hi(text, terms) {
   return text.split(re).map((part, i) => (low.includes(part.toLowerCase()) ? <mark key={i}>{part}</mark> : <span key={i}>{part}</span>));
 }
 
+const FIELD_OPTS = [
+  { id: "all", label: "不限" },
+  { id: "title", label: "标题" },
+  { id: "abstract", label: "摘要" },
+  { id: "tiab", label: "标题+摘要" },
+  { id: "author", label: "作者" },
+  { id: "journal", label: "期刊" },
+];
+
 const FF_CSS = `
 .ff-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:9px}
 .ff-tool{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:8px;padding:5px 10px;font-size:12px;cursor:pointer;font-family:inherit}
@@ -34,8 +43,13 @@ const FF_CSS = `
 .ff-sx-pop{position:absolute;top:calc(100% + 6px);left:0;z-index:20;width:300px;max-width:calc(100vw - 40px);background:var(--raise,var(--surf));border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow-lg,0 8px 24px rgba(0,0,0,.16));padding:11px 12px;font-size:11.5px;line-height:1.7;color:var(--ink2)}
 .ff-sx-pop code{font-family:'Space Mono',monospace;font-size:10.5px;background:var(--surf2);border:1px solid var(--line2);border-radius:4px;padding:1px 5px;color:var(--ink)}
 .ff-sort{display:inline-flex;align-items:center;gap:6px;margin-left:auto;font-size:12px;color:var(--ink3)}
-.ff-field{flex-shrink:0;border:none;border-right:1px solid var(--line2);background:transparent;color:var(--ink2);font-family:inherit;font-size:12.5px;padding:2px 9px 2px 2px;margin-right:6px;cursor:pointer;outline:none}
-.ff-field:focus{color:var(--gold)}
+.ff-field-wrap{position:relative;flex-shrink:0;border-right:1px solid var(--line2);margin-right:6px;padding-right:4px}
+.ff-field-btn{display:inline-flex;align-items:center;gap:4px;border:none;background:transparent;color:var(--ink2);font-family:inherit;font-size:12.5px;padding:5px 8px 5px 4px;cursor:pointer;outline:none;min-width:76px;line-height:1.35}
+.ff-field-btn:hover,.ff-field-btn.on{color:var(--gold)}
+.ff-field-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:25;min-width:156px;background:var(--raise,var(--surf));border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow-lg,0 8px 24px rgba(0,0,0,.16));padding:6px;display:flex;flex-direction:column;gap:3px}
+.ff-field-opt{display:flex;align-items:center;justify-content:space-between;gap:8px;border:none;background:transparent;color:var(--ink2);text-align:left;padding:9px 12px;border-radius:8px;cursor:pointer;font-size:13px;font-family:inherit;line-height:1.4}
+.ff-field-opt:hover{background:var(--surf2);color:var(--gold)}
+.ff-field-opt.on{color:var(--gold);background:color-mix(in srgb,var(--gold) 10%,transparent)}
 .ff-track{max-width:958px;margin:0 auto;width:100%}
 .ff-sources{display:inline-flex;align-items:center;flex-wrap:wrap;gap:7px;margin:0 0 16px;padding:9px 13px;width:fit-content;max-width:100%;background:var(--surf2);border:1px solid var(--line);border-radius:11px}
 .ff-src-label{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--ink3);font-weight:600;margin-right:3px}
@@ -81,6 +95,7 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
   const [yearTo, setYearTo] = useState("");
   const [sortBy, setSortBy] = useState("newest");
   const [field, setField] = useState("all");
+  const [fieldMenuOpen, setFieldMenuOpen] = useState(false);
   const [perSource, setPerSource] = useState(null);
   const curReq = useRef(0);
   const [citeFor, setCiteFor] = useState(null);
@@ -91,6 +106,15 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  useEffect(() => {
+    if (!fieldMenuOpen) return;
+    const onKey = (e) => { if (e.key === "Escape") setFieldMenuOpen(false); };
+    const onDown = (e) => { if (!(e.target && e.target.closest && e.target.closest(".ff-field-wrap"))) setFieldMenuOpen(false); };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onDown);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("mousedown", onDown); };
+  }, [fieldMenuOpen]);
 
   const run = async (val) => {
     const term = (val !== undefined ? val : q).trim();
@@ -150,6 +174,7 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
   const openDoi = (doi) => { if (hasBackend() && window.luminaApi && window.luminaApi.openExternal) window.luminaApi.openExternal("https://doi.org/" + doi); else window.open("https://doi.org/" + doi, "_blank"); };
   const doi = isDoi(q);
   const shown = useMemo(() => sortResults(results, sortBy), [results, sortBy]);
+  const fieldLabel = (FIELD_OPTS.find((o) => o.id === field) || FIELD_OPTS[0]).label;
 
   return (
     <div className="ff">
@@ -157,14 +182,21 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
       <div className="ff-head">
         <div className="ff-bar">
           <Search size={16} />
-          <select className="ff-field" value={field} onChange={(e) => setField(e.target.value)} aria-label="检索字段" title="检索范围（标题/摘要/作者…）">
-            <option value="all">不限</option>
-            <option value="title">标题</option>
-            <option value="abstract">摘要</option>
-            <option value="tiab">标题+摘要</option>
-            <option value="author">作者</option>
-            <option value="journal">期刊</option>
-          </select>
+          <div className="ff-field-wrap">
+            <button type="button" className={"ff-field-btn" + (fieldMenuOpen ? " on" : "")} aria-label="检索字段" aria-haspopup="listbox" aria-expanded={fieldMenuOpen} onClick={() => setFieldMenuOpen((v) => !v)}>
+              {fieldLabel}<ChevronDown size={13} />
+            </button>
+            {fieldMenuOpen && (
+              <div className="ff-field-menu" role="listbox" aria-label="检索范围">
+                {FIELD_OPTS.map((o) => (
+                  <button key={o.id} type="button" role="option" aria-selected={field === o.id} className={"ff-field-opt" + (field === o.id ? " on" : "")}
+                    onClick={() => { setField(o.id); setFieldMenuOpen(false); }}>
+                    {o.label}{field === o.id ? <Check size={14} /> : null}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <input ref={ref} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") run(); else if (e.key === "Escape") clear(); }}
             placeholder={doi ? "已识别 DOI — 回车直达原文" : "粘贴 DOI，或输入标题 / 作者 / 关键词找到那一篇"} />
           {doi && <span className="ff-doitag">DOI</span>}
@@ -229,8 +261,8 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
             <h2>找到那篇，然后拿来用</h2>
             <p>这不是数据库检索——它帮你<b>定位某一篇</b>并取来全文。粘贴 DOI 直达原文，或用标题、作者、关键词找到它。命中后一键获取 PDF（多源自动尝试）。</p>
             <div className="ff-hint">
-              <button className="ff-chip" onClick={() => run("10.1056/NEJMoa2601234")}>试粘贴一个 DOI</button>
-              <button className="ff-chip" onClick={() => run("aortic valve")}>试搜一个主题词</button>
+              <span className="ff-chip ff-hint-only">粘贴 DOI 回车直达</span>
+              <span className="ff-chip ff-hint-only">或输入标题 / 作者 / 关键词</span>
             </div>
           </div>
         ) : results.length === 0 ? (

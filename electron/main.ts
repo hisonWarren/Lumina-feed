@@ -10,6 +10,9 @@ import { keytarStore } from "../src/core/secrets/keyvault.ts";
 import { registerIpc, startSubsScheduler } from "./ipc.ts";
 import { loadAppSettings } from "./settings.ts";
 
+// 统一 userData 目录（与 npm 包名 lumina-feed 解耦，避免旧测试数据被安装版误读）
+app.setPath("userData", path.join(app.getPath("appData"), "Lumina Feed"));
+
 let win: BrowserWindow | null = null;
 let store: Store;
 const secrets = keytarStore();
@@ -100,6 +103,7 @@ app.whenReady().then(async () => {
     if (opts && typeof opts.openAtLogin === "boolean") { try { app.setLoginItemSettings({ openAtLogin: opts.openAtLogin }); } catch { /* 忽略 */ } }
     return { ok: true };
   });
+  ipcMain.handle("app:getUserDataPath", () => app.getPath("userData"));
   startSubsScheduler(store, secrets); // 订阅调度：到期自动检索 + 通知（后台开启时关窗仍继续）
 });
 

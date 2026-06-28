@@ -55,11 +55,11 @@ ok(has(app, '{mode === "settings" && (') && /onClose=\{\(\) => setMode\(prevMode
 ok(/onClick=\{\(\) => \{ if \(mode !== "settings"\) setPrevMode\(mode\); setMode\("settings"\); \}\}/.test(app), "齿轮记忆当前视图再开设置");
 ok(has(app, 'view === "find"') && has(app, 'view === "read"'), "主舞台按 view 渲染各模块");
 
-console.log("\n[4] 阅读首页 · 独立左栏面板 + 加宽");
-ok(/\.rh-rail\{[^}]*background:var\(--surf2\)[^}]*border:1px solid var\(--line\)/.test(hub), "左栏改为有背景+边框的独立面板（区域区分）");
+console.log("\n[4] 阅读首页 · 上下布局 + 列表面板");
+ok(/\.rh-inner\{[^}]*flex-direction:column/.test(hub), "rh-inner 上下布局（column）");
+ok(/\.rh-rail\{[^}]*background:var\(--surf2\)[^}]*border:1px solid var\(--line\)/.test(hub), "列表区有背景+边框的独立面板");
 ok(/\.rh-rail \.rh-sec \+ \.rh-sec\{border-top/.test(hub), "面板内分区有分隔线");
-ok(/\.rh-inner\{[^}]*max-width:1280px/.test(hub), "布局加宽（缓解过度居中）");
-ok(/\.rh-rail\{[^}]*position:sticky/.test(hub), "左栏 sticky 贴顶");
+ok(/\.rh-inner\{[^}]*max-width:760px/.test(hub), "单列居中宽 max-width:760");
 
 console.log("\n[5] 检索页 · 命中来源标签收进容器条");
 ok(/\.ff-sources\{[^}]*background:var\(--surf2\)[^}]*border:1px solid var\(--line\)/.test(ff), "来源标签条改为带背景/边框的容器");

@@ -2,16 +2,15 @@
 // 打开本地 PDF(拖拽/选择) → 进入阅读器工作台。会话内"最近阅读"(内存，重开即用)。
 // "已下载全文" 经 bridge.listDownloaded()/readPdf() 读回（reader_engine 暴露 oa:listPdfs/readPdf）。
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { FolderOpen, Upload, Clock, Download, FileText, BookOpen, Loader } from "lucide-react";
+import { FolderOpen, Upload, Clock, Download, FileText, BookOpen, Loader, Home, X } from "lucide-react";
 import { bridge } from "../lumina-bridge.js";
 import Reader from "./Reader.jsx";
 
 const HUB_CSS = `
 .rh{flex:1;min-height:0;overflow-y:auto;padding:36px 30px 48px;display:flex;flex-direction:column;gap:26px;align-items:center}
-.rh-inner{width:100%;max-width:1280px;display:flex;flex-direction:row;flex-wrap:wrap;gap:30px;align-items:flex-start;justify-content:center;margin-block:auto}
-.rh-main{flex:1;min-width:320px;max-width:780px;display:flex;flex-direction:column;gap:24px}
-.rh-rail{order:-1;flex:0 0 304px;min-width:264px;display:flex;flex-direction:column;gap:0;align-self:flex-start;position:sticky;top:0;background:var(--surf2);border:1px solid var(--line);border-radius:16px;padding:6px 16px 16px;box-shadow:var(--shadow)}
-@media (max-width:820px){.rh-inner{flex-direction:column;max-width:760px}.rh-rail{order:0;flex-basis:auto;width:100%;position:static}}
+.rh-inner{width:100%;max-width:760px;display:flex;flex-direction:column;gap:28px;align-items:stretch;justify-content:center;margin-block:auto}
+.rh-main{display:flex;flex-direction:column;gap:24px;width:100%}
+.rh-rail{display:flex;flex-direction:column;gap:0;width:100%;background:var(--surf2);border:1px solid var(--line);border-radius:16px;padding:6px 16px 16px;box-shadow:var(--shadow)}
 .rh-h{display:flex;flex-direction:column;gap:6px}
 .rh-eyebrow{font-family:'Space Mono',monospace;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink3)}
 .rh-h h1{font-family:'Source Serif 4',Georgia,serif;font-size:24px;font-weight:600;margin:0;color:var(--ink)}

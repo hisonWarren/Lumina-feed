@@ -59,8 +59,8 @@ body{background:#F4F4F1;font-family:Inter,system-ui,sans-serif}
 .ff-results{flex:1;min-height:0;overflow-y:auto;padding:8px 20px 24px}
 .ff-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:48px 24px;text-align:center;color:var(--ink2);min-height:280px}
 .ff-empty h2{margin:0;font-size:18px;font-family:'Source Serif 4',Georgia,serif;color:var(--ink)}
-.ff-empty p{margin:0;font-size:13.5px;line-height:1.65;max-width:520px}
 .ff-hint{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:8px}
+.ff-hint-only{cursor:default;pointer-events:none;opacity:.88}
 .ff-card{border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:0 auto 12px;max-width:920px;background:var(--surf);transition:box-shadow .16s,border-color .16s}
 .ff-card:hover{box-shadow:var(--shadow);border-color:var(--line2)}
 .ff-title{font-family:'Source Serif 4',Georgia,serif;font-size:16px;font-weight:600;line-height:1.4;cursor:pointer;color:var(--ink)}

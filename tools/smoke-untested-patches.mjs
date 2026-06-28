@@ -100,8 +100,8 @@ try {
   await clickTab(cdp, "检索取文");
   const ffMeta = await evalJs(cdp, `
     return {
-      field: !!document.querySelector("select.ff-field"),
-      fieldOpts: [...(document.querySelector("select.ff-field")?.options||[])].map(o=>o.text).join("|"),
+      field: !!document.querySelector(".ff-field-wrap"),
+      fieldOpts: [...document.querySelectorAll(".ff-field-opt")].map(b=>b.textContent?.trim()).join("|"),
       streamFn: typeof window.luminaApi?.searchOnlineStream === "function",
     };
   `);
@@ -145,7 +145,7 @@ try {
   ffUi.cards > 0 ? pass("search_settings：检索结果卡片", `${ffUi.cards} 张`) : skip("search_settings ff-card", "IPC 可能已通但 UI 时序未出卡");
   ffUi.sourcesBar ? pass("search_settings：各源进度条区域", `子项 ${ffUi.sources}`) : skip("search_settings ff-sources", "检索未完成或无 UI");
 
-  // ReadHub 左栏
+  // ReadHub 上下布局
   await clickTab(cdp, "阅读");
   await new Promise((r) => setTimeout(r, 400));
   const rh = await evalJs(cdp, `
@@ -154,9 +154,9 @@ try {
     if (!rail || !main) return { ok: false };
     const railRect = rail.getBoundingClientRect();
     const mainRect = main.getBoundingClientRect();
-    return { ok: true, railLeft: railRect.left, mainLeft: mainRect.left, railFirst: railRect.left < mainRect.left };
+    return { ok: true, railBelow: railRect.top >= mainRect.top, railTop: railRect.top, mainTop: mainRect.top };
   `);
-  rh?.ok && rh.railFirst ? pass("search_settings：ReadHub 历史左栏", `rail@${Math.round(rh.railLeft)} < main@${Math.round(rh.mainLeft)}`) : fail("ReadHub rh-rail", JSON.stringify(rh));
+  rh?.ok && rh.railBelow ? pass("search_settings：ReadHub 上下布局", `rail@${Math.round(rh.railTop)} ≥ main@${Math.round(rh.mainTop)}`) : fail("ReadHub layout", JSON.stringify(rh));
 
   // Settings 单框 + 眼睛 + 后台开关
   await evalJs(cdp, `

@@ -32,7 +32,7 @@ ok(has(set, "const [showKey, setShowKey]") && has(set, "set-key-eye"), "API Key 
 ok(has(set, 'type={showKey ? "text" : "password"}') && has(set, "EyeOff"), "眼睛切换 password/text");
 
 console.log("\n[2] 检索·字段范围下拉（数据库式聚焦；非分面）");
-ok(has(ff, 'className="ff-field"') && has(ff, '<option value="title">标题</option>'), "字段下拉（不限/标题/摘要/标题+摘要/作者/期刊）");
+ok(has(ff, "ff-field-wrap") && has(ff, "ff-field-opt") && has(ff, "FIELD_OPTS") && has(ff, "id: \"title\"") && has(ff, "label: \"标题\""), "字段下拉（不限/标题/摘要/标题+摘要/作者/期刊）");
 ok(has(ff, 'const [field, setField]'), "field 状态");
 ok(has(ff, 'field !== "all" && !isDoi(term) && !term.includes("[")') && has(ff, '(term + " [" + field + "]")'), "所选字段并入查询标签（DOI/已含标签不加）");
 ok(has(ff, "<code>[title]</code>") && has(ff, "<code>[author]</code>"), "检索语法 help 含有效全称字段标签（[title]/[author]…）");
@@ -51,10 +51,10 @@ ok(has(ff, "const curReq = useRef(0)") && has(ff, "ev.reqId !== curReq.current")
 ok(has(ff, 'className="ff-sources"') && has(ff, 'className="ff-more"'), "每源进度条 + 底部「还在获取」");
 ok(has(ff, "loading && results.length === 0 ?") && has(ff, "{shown.map("), "渐进渲染：有结果即显，loading 仅在无结果时占位");
 
-console.log("\n[4] 阅读首页·历史左栏（flex order，DOM 不重排，窄屏回落上下）");
-ok(has(hub, ".rh-rail{") && has(hub, "order:-1"), "rh-rail 左栏（order:-1）");
-ok(has(hub, ".rh-main{") && has(hub, 'className="rh-main"') && has(hub, 'className="rh-rail"'), "两栏容器 rh-main + rh-rail");
-ok(has(hub, "@media (max-width:820px)") && has(hub, "order:0"), "窄屏回落为上下");
+console.log("\n[4] 阅读首页·历史列表（上下布局：主区在上、列表在下）");
+ok(has(hub, ".rh-inner{") && /flex-direction:column/.test(hub), "rh-inner 上下布局（column）");
+ok(has(hub, ".rh-main{") && has(hub, 'className="rh-main"') && has(hub, 'className="rh-rail"'), "主区 + 列表面板 rh-main + rh-rail");
+ok(!has(hub, "order:-1"), "已移除左栏 order:-1（回归上下）");
 
 console.log("\n[5] 链路完整性（前置未回退）");
 ok(has(ff, "ff-cites") && has(ff, "copyCite"), "finish 结果页单条引用复制仍在");

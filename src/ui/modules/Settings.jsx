@@ -2,7 +2,7 @@
 // 复用引擎既有 settings:get/save + secrets:set（密钥仅入系统钥匙串，绝不写配置/代码 = 红线3）。
 // 主题切换由壳层 onTheme 即时应用 + 持久化；视觉读图归「隐私」；阅读偏好归「阅读」。豆包模型框支持 Model ID 或推理接入点 ep-。
 import React, { useState, useEffect, useCallback } from "react";
-import { Cpu, Palette, Bell, Mail, KeyRound, Check, Save, Info, Eye, EyeOff, Plug, ChevronDown, RefreshCw, Loader, X, BookOpen, Shield } from "lucide-react";
+import { Cpu, Palette, Bell, Mail, KeyRound, Check, Save, Info, Eye, EyeOff, Plug, ChevronDown, RefreshCw, Loader, X, BookOpen, Shield, Trash2 } from "lucide-react";
 import { bridge, hasBackend } from "../lumina-bridge.js";
 import { THEMES } from "../themes.js";
 import { CURATED_MODELS, PROVIDER_DEFAULT_MODEL, OLLAMA_MODEL_PRESETS } from "../../core/summarize/model-presets.ts";
@@ -99,6 +99,8 @@ const SET_CSS = `
 .set-switch.on i{left:20px}
 .set-note{display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:1.55;color:var(--ink3);background:var(--surf2);border:1px solid var(--line);border-radius:10px;padding:11px 13px}
 .set-note svg{color:var(--gold);flex-shrink:0;margin-top:1px}
+.set-note-t{flex:1;min-width:0}
+.set-note-t .set-mono{word-break:break-all}
 .set-warn{color:#9a6b2e;background:rgba(245,158,11,.08);border-color:rgba(245,158,11,.3)}
 @media (prefers-reduced-motion: reduce){ .set-switch,.set-switch i,.set-prov,.set-theme,.set-btn{transition:none !important} }
 /* 弹窗外壳 + 左侧分类导航 */
@@ -128,6 +130,8 @@ const SET_CSS = `
 .set-kbd-row:last-child{border-bottom:none}
 .set-about{font-size:12.5px;color:var(--ink2);line-height:1.7}
 .set-about b{color:var(--ink)}
+.set-btn-danger{background:transparent;border:1px solid color-mix(in srgb,var(--danger,#BC3B2B) 45%,transparent);color:var(--danger,#BC3B2B)}
+.set-btn-danger:hover{background:color-mix(in srgb,var(--danger,#BC3B2B) 8%,transparent)}
 @media (max-width:680px){ .set-rail{width:128px} .set-modal{max-height:none;height:100%} }
 `;
 
@@ -156,6 +160,8 @@ export default function Settings({ theme, onTheme, pushToast, onClose }) {
   const [defaultZoom, setDefaultZoom] = useState(1.1);       // 阅读器默认缩放
   const [nightInvert, setNightInvert] = useState(false);     // 夜读反色默认
   const [savingReader, setSavingReader] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [userDataPath, setUserDataPath] = useState("");
   const backend = hasBackend();
 
   useEffect(() => {
@@ -171,6 +177,13 @@ export default function Settings({ theme, onTheme, pushToast, onClose }) {
     }).catch(() => {});
     return () => { alive = false; };
   }, []);
+
+  useEffect(() => {
+    if (!backend) return;
+    let alive = true;
+    bridge.getUserDataPath().then((p) => { if (alive && p) setUserDataPath(String(p)); }).catch(() => {});
+    return () => { alive = false; };
+  }, [backend]);
 
   const onPickProvider = (id) => {
     setProvider(id);
@@ -250,6 +263,18 @@ export default function Settings({ theme, onTheme, pushToast, onClose }) {
     finally { setSavingGen(false); }
   }, [contactEmail, notifications, bgTray, bgLogin, backend, pushToast]);
 
+  const onResetLocalData = useCallback(async () => {
+    if (!backend) { pushToast && pushToast("需 Electron 引擎"); return; }
+    const ok = window.confirm("将删除本机文献库、订阅、收藏、已下载 PDF 与阅读缓存，并重启应用。大模型密钥与通用设置保留。此操作不可恢复。");
+    if (!ok) return;
+    setResetting(true);
+    try {
+      const r = await bridge.resetLocalData();
+      if (!r || !r.ok) pushToast && pushToast("清除失败：" + ((r && r.error) || "未知错误"));
+    } catch (e) { pushToast && pushToast("清除失败"); }
+    finally { setResetting(false); }
+  }, [backend, pushToast]);
+
   return (
     <div className="set-backdrop" onClick={onClose}>
       <div className="set-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="设置">
@@ -268,7 +293,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose }) {
           </nav>
           <div className="set-pane">
             {!backend && (
-              <div className="set-note set-warn"><Info size={15} /> 当前未连接引擎（原型模式）：设置可填写与即时应用主题，但不会持久化；密钥也不会写入钥匙串。接入 Electron 引擎后生效。</div>
+              <div className="set-note set-warn"><Info size={15} /><span className="set-note-t">当前未连接引擎（原型模式）：设置可填写与即时应用主题，但不会持久化；密钥也不会写入钥匙串。接入 Electron 引擎后生效。</span></div>
             )}
 
             {activeCat === "llm" && (
@@ -392,15 +417,15 @@ export default function Settings({ theme, onTheme, pushToast, onClose }) {
                 </div>
                 <span className="set-hint">默认关闭，守本地优先（红线7）：关闭时图表分析仅用本地视觉模型（Ollama），图像不出本机；开启后才允许把图像发往所选云端模型。改动随「保存大模型设置」一并写入。</span>
                 {visionConsent && provider === "doubao" && (
-                  <div className="set-note"><Info size={15} /> 豆包（火山方舟）支持读图，但需选用<b>视觉 / 多模态模型</b>（如 <span className="set-mono">doubao-seed-*</span> 或 <span className="set-mono">doubao-*-vision-*</span>）；纯文本 pro 会拒绝图像。下拉仅列常用 Model ID；其他 ID 或 <span className="set-mono">ep-</span> 接入点请自填。</div>
+                  <div className="set-note"><Info size={15} /><span className="set-note-t">豆包（火山方舟）支持读图，但需选用<b>视觉 / 多模态模型</b>（如 <span className="set-mono">doubao-seed-*</span> 或 <span className="set-mono">doubao-*-vision-*</span>）；纯文本 pro 会拒绝图像。下拉仅列常用 Model ID；其他 ID 或 <span className="set-mono">ep-</span> 接入点请自填。</span></div>
                 )}
                 {visionConsent && !["openai", "anthropic", "ollama"].includes(provider) && provider !== "doubao" && (
-                  <div className="set-note set-warn"><Info size={15} /> 当前所选「{preset.label}」多为纯文本模型，可能不支持读图：图表分析需 OpenAI / Anthropic 的视觉模型，或本地 Ollama 多模态模型（如 llava / qwen2-vl）。纯文本模型（如 deepseek-v4-flash）会返回「不支持视觉输入」。</div>
+                  <div className="set-note set-warn"><Info size={15} /><span className="set-note-t">当前所选「{preset.label}」多为纯文本模型，可能不支持读图：图表分析需 OpenAI / Anthropic 的视觉模型，或本地 Ollama 多模态模型（如 llava / qwen2-vl）。纯文本模型（如 deepseek-v4-flash）会返回「不支持视觉输入」。</span></div>
                 )}
                 <div className="set-btnrow">
                   <button className="set-btn" onClick={saveLlm} disabled={savingLlm}><Save size={15} /> {savingLlm ? "保存中…" : "保存大模型设置"}</button>
                 </div>
-                <div className="set-note"><Info size={15} /> 密钥安全：经 <span className="set-mono">secrets:set</span> 存入 OS 钥匙串 / 环境变量；本应用从不读取回显，也绝不写入配置文件或代码。</div>
+                <div className="set-note"><Info size={15} /><span className="set-note-t">密钥安全：保存时写入系统钥匙串或环境变量，界面不回显；绝不写入配置文件或代码。</span></div>
               </>
             )}
 
@@ -425,6 +450,9 @@ export default function Settings({ theme, onTheme, pushToast, onClose }) {
                   <input className="set-in" type="email" value={contactEmail} placeholder="you@example.org" onChange={(e) => setContactEmail(e.target.value)} />
                 </div>
                 <button className="set-btn" onClick={saveGeneral} disabled={savingGen}><Save size={15} /> {savingGen ? "保存中…" : "保存通用设置"}</button>
+                <div className="set-note" style={{ marginTop: 16 }}><Info size={15} /><span className="set-note-t">本机数据保存在：<span className="set-mono">{userDataPath || "（启动后显示实际路径）"}</span> — 文献库、已下载 PDF 与阅读缓存均在此目录，不会上传云端。</span></div>
+                <button className="set-btn set-btn-danger" onClick={onResetLocalData} disabled={resetting || !backend}><Trash2 size={15} /> {resetting ? "正在清除…" : "清除本机文献数据并重启"}</button>
+                <span className="set-hint">删除文献库、订阅、收藏、已下载 PDF 与阅读缓存；不删除大模型密钥与通用设置。</span>
               </>
             )}
 
