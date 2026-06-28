@@ -1,5 +1,5 @@
 // Lumina Feed · 模块化壳（find_fetch 前置 · 检索取文接线）
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { bridge, hasBackend, countSubsBadge } from "./lumina-bridge.js";
 import { DEFAULT_THEME, THEME_CSS, isLight, THEMES } from "./themes.js";
 import { LOGO_DATA_URI } from "./brand-logo.js";
@@ -13,6 +13,7 @@ import { buildFetchedMeta, isFetched, fetchProgressUi, metaFromAsset } from "./f
 import EmailPrompt from "./components/EmailPrompt.jsx";
 import ConfirmDialog from "./components/ConfirmDialog.jsx";
 import AppContextMenu from "./components/AppContextMenu.jsx";
+import { runEditAction } from "./context-menu-actions.js";
 
 const BASE_CSS = `
 html,body,#root{height:100%;margin:0}
@@ -111,6 +112,7 @@ export default function LuminaApp() {
   const [showOnboardingEmail, setShowOnboardingEmail] = useState(false);
   const [settingsCat, setSettingsCat] = useState("llm");
   const [ctxMenu, setCtxMenu] = useState(null);
+  const ctxEditTarget = useRef(null);
   const ctxPlatform = (typeof window !== "undefined" && window.luminaApi && window.luminaApi.platform) || "win32";
 
   const refreshSubsBadge = useCallback(async () => {
@@ -191,6 +193,7 @@ export default function LuminaApp() {
     if (!api || !api.onContextMenu) return;
     return api.onContextMenu((payload) => {
       if (payload && (payload.isEditable || String(payload.selectionText || "").trim() || payload.linkURL)) {
+        ctxEditTarget.current = document.activeElement;
         setCtxMenu(payload);
       }
     });
@@ -198,7 +201,7 @@ export default function LuminaApp() {
 
   useEffect(() => {
     if (!ctxMenu) return;
-    const close = () => setCtxMenu(null);
+    const close = () => { setCtxMenu(null); ctxEditTarget.current = null; };
     const onKey = (e) => { if (e.key === "Escape") close(); };
     const onDown = (e) => { if (!(e.target && e.target.closest && e.target.closest(".lf-ctx"))) close(); };
     window.addEventListener("keydown", onKey);
@@ -211,9 +214,18 @@ export default function LuminaApp() {
     };
   }, [ctxMenu]);
 
-  const onContextAction = useCallback((action, extra) => {
+  const onContextAction = useCallback(async (action, extra) => {
     const api = typeof window !== "undefined" ? window.luminaApi : null;
-    if (api && api.contextAction) void api.contextAction(action, extra);
+    const editActions = ["undo", "redo", "cut", "copy", "paste", "selectAll"];
+    if (editActions.includes(action)) {
+      const done = await runEditAction(action, ctxEditTarget.current);
+      if (done) {
+        ctxEditTarget.current = null;
+        return;
+      }
+    }
+    if (api && api.contextAction) await api.contextAction(action, extra);
+    ctxEditTarget.current = null;
   }, []);
   useEffect(() => {
     if (!bridge.onOpenLocalPdf) return;

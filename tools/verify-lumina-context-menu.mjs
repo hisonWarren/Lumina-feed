@@ -32,6 +32,8 @@ ok(has(menu, "撤销") && has(menu, "复制") && has(menu, "粘贴") && has(menu
 ok(has(menu, "Undo2") && has(menu, "Copy") && has(menu, "ClipboardPaste"), "Lucide 图标");
 ok(has(menu, "var(--raise)") && has(menu, "var(--shadow-lg)"), "复用 Lumina 主题 token");
 ok(has(app, "AppContextMenu") && has(app, "onContextMenu"), "LuminaApp 挂载");
+ok(has(read("src/ui/context-menu-actions.js"), "navigator.clipboard.readText") && has(read("src/ui/context-menu-actions.js"), "insertTextAtCaret"), "渲染层粘贴（保留焦点+剪贴板插入）");
+ok(has(menu, "onMouseDown") && has(menu, "preventDefault"), "菜单 mousedown 防止输入框失焦");
 
 try { execSync("node --experimental-strip-types --check electron/context-menu.ts", { stdio: "pipe" }); ok(true, "context-menu.ts strip-types"); } catch { ok(false, "context-menu.ts strip-types"); }
 

@@ -84,6 +84,7 @@ export default function AppContextMenu({ payload, platform, onAction, onClose })
         role="menu"
         aria-label="上下文菜单"
         style={{ left: pos.left + "px", top: pos.top + "px" }}
+        onMouseDown={(e) => e.preventDefault()}
         onContextMenu={(e) => e.preventDefault()}
       >
         {items.map((item, i) => item.type === "sep" ? (
