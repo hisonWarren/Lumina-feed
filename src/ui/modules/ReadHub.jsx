@@ -8,14 +8,15 @@ import Reader from "./Reader.jsx";
 
 const HUB_CSS = `
 .rh{flex:1;min-height:0;overflow-y:auto;padding:36px 30px 48px;display:flex;flex-direction:column;gap:26px;align-items:center}
-.rh-inner{width:100%;max-width:760px;display:flex;flex-direction:column;gap:28px;align-items:stretch;justify-content:center;margin-block:auto}
-.rh-main{display:flex;flex-direction:column;gap:24px;width:100%}
-.rh-rail{display:flex;flex-direction:column;gap:0;width:100%;background:var(--surf2);border:1px solid var(--line);border-radius:16px;padding:6px 16px 16px;box-shadow:var(--shadow)}
-.rh-h{display:flex;flex-direction:column;gap:6px}
+.rh-inner{width:100%;max-width:760px;display:flex;flex-direction:column;gap:28px;align-items:stretch;justify-content:center;margin-block:auto;box-sizing:border-box}
+.rh-inner,.rh-inner *{box-sizing:border-box}
+.rh-main{display:flex;flex-direction:column;gap:24px;width:100%;min-width:0}
+.rh-rail{display:flex;flex-direction:column;gap:0;width:100%;min-width:0;background:var(--surf2);border:1px solid var(--line);border-radius:16px;padding:6px 16px 16px;box-shadow:var(--shadow)}
+.rh-h{display:flex;flex-direction:column;gap:6px;width:100%}
 .rh-eyebrow{font-family:'Space Mono',monospace;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink3)}
 .rh-h h1{font-family:'Source Serif 4',Georgia,serif;font-size:24px;font-weight:600;margin:0;color:var(--ink)}
-.rh-h p{font-size:13.5px;line-height:1.65;color:var(--ink2);margin:0;max-width:620px}
-.rh-drop{border:2px dashed var(--line2);border-radius:16px;padding:40px 24px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;background:var(--surf);cursor:pointer;transition:all .16s}
+.rh-h p{font-size:13.5px;line-height:1.65;color:var(--ink2);margin:0;width:100%}
+.rh-drop{width:100%;border:2px dashed var(--line2);border-radius:16px;padding:40px 24px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;background:var(--surf);cursor:pointer;transition:all .16s}
 .rh-drop:hover{border-color:var(--gold);background:var(--surf2);box-shadow:var(--shadow)}
 .rh-drop.drag{border-color:var(--gold);background:rgba(14,124,111,.06)}
 .rh-drop svg{color:var(--gold)}
