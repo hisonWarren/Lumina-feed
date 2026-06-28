@@ -21,10 +21,14 @@ export const isLight = (id) => themeById(id).base === "day";
 /** 生成每个主题的强调色覆盖 CSS（只覆盖品牌三色 + mark/选区，复用基底表面规则）。 */
 export const THEME_CSS = THEMES.map((t) => {
   const dim = t.base === "night" ? 0.16 : 0.16;
-  return `.lf[data-theme="${t.id}"]{--gold:${t.gold};--goldDim:${t.goldDim};--peri:${t.peri}}
+  const base = `.lf[data-theme="${t.id}"]{--gold:${t.gold};--goldDim:${t.goldDim};--peri:${t.peri}}
 .lf[data-theme="${t.id}"] .lf-mark svg{color:${t.gold}}
 .lf[data-theme="${t.id}"] mark{background:${hexA(t.gold, t.base === "night" ? 0.22 : 0.16)};color:${t.goldDim}}
 .lf[data-theme="${t.id}"] ::selection{background:${hexA(t.gold, dim + 0.02)}}`;
+  if (t.base !== "night") return base;
+  const deep = t.swatch[0]; // 该主题深色基底 → 真暗色 surface（此前 night 主题误用 .lf 亮表面）
+  return base + `
+.lf[data-theme="${t.id}"]:not(.day){--surf:${deep};--surf2:color-mix(in srgb, ${deep} 85%, #fff);--raise:color-mix(in srgb, ${deep} 77%, #fff);--ink:#ECEEF3;--ink2:#BBC2CE;--ink3:#8A93A1;--ink4:#5E6675;--line:rgba(255,255,255,.11);--line2:rgba(255,255,255,.18);--shadow:0 1px 2px rgba(0,0,0,.5),0 8px 24px rgba(0,0,0,.55);--shadow-lg:0 24px 60px rgba(0,0,0,.66),0 4px 12px rgba(0,0,0,.45)}`;
 }).join("\n");
 
 // hex → rgba 字符串

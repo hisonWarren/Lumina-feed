@@ -1,5 +1,5 @@
 // lumina-feed · 备选全文渠道（LibGen / Anna's Archive / Sci-Hub）
-// 端口自「文献检索与PDF下载_实现资料」，与 OA 候选统一按 priority 排序，不单独分阶段。
+// 端口自「文献检索与PDF下载_实现资料」，与 OA 候选统一按 priority 排序。
 import altMirrors from "./config/alt-mirrors.json" with { type: "json" };
 import type { PdfCandidate, UrlCandidate } from "./candidate.ts";
 

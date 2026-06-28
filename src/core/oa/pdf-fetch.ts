@@ -33,7 +33,7 @@ function buildHeaders(url: string): Record<string, string> {
 export async function fetchPdf(url: string, deps: FetchPdfDeps = {}): Promise<Uint8Array> {
   const allowAlt = deps.allowAltSources !== false;
   if (!isFetchableUrl(url, { allowAltSources: allowAlt })) {
-    throw new Error(allowAlt ? "无效链接" : "非合法 OA 链接，拒绝抓取");
+    throw new Error(allowAlt ? "无效链接" : "链接不可抓取");
   }
 
   const max = deps.maxBytes ?? 30 * 1024 * 1024;

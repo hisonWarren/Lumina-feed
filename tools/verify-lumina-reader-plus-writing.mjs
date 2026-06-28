@@ -1,0 +1,31 @@
+import { readFileSync } from "node:fs";
+import { execSync } from "node:child_process";
+let pass = 0, fail = 0;
+const ok = (c, m) => { if (c) { pass++; console.log("  ✓ " + m); } else { fail++; console.log("  ✗ " + m); } };
+const R = (p) => { try { return readFileSync(p, "utf8"); } catch { return ""; } };
+console.log("── reader_plus_writing（P3 写作观察 + swipe file）契约自检 ──");
+try { execSync("node --experimental-strip-types --check src/core/reader/reader-plus.ts", { stdio: "pipe" }); ok(true, "reader-plus.ts strip-types"); } catch { ok(false, "reader-plus.ts strip-types"); }
+try { execSync("node --experimental-strip-types --check electron/ipc.ts", { stdio: "pipe" }); ok(true, "ipc.ts strip-types"); } catch { ok(false, "ipc.ts strip-types"); }
+const rp = R("src/core/reader/reader-plus.ts");
+ok(/async function runMove/.test(rp), "runMove 分析器存在");
+ok(/if \(kind === "move"\) return runMove/.test(rp), "analyzeReader 派发 move（带 text/page）");
+ok(/"原句：「" \+ String\(text/.test(rp), "原句逐字保留（不经模型改写，杜绝杜撰/洗稿）");
+ok(/去 AI 味|humaniz/i.test(rp) && /不是让你照抄/.test(rp), "move 带防抄袭 + 接 humanization 框定语（模板三道闸）");
+ok(/move:\s*\{ lane: "evidence"/.test(rp), "move 仍证据车道（KIND_REGISTRY 未改归属）");
+const ipc = R("electron/ipc.ts");
+ok(/payload && payload\.text/.test(ipc) && /payload && payload\.page/.test(ipc), "ipc reader:analyze 透传 text/page");
+ok(/swipe:get/.test(ipc) && /swipe:save/.test(ipc) && /swipe:remove/.test(ipc), "ipc 有 swipe 持久化（本地 sources_cache）");
+const pre = R("electron/preload.ts");
+ok(/swipeGet/.test(pre) && /swipeSave/.test(pre) && /swipeRemove/.test(pre), "preload 暴露 swipe 三方法");
+ok(/analyze:\s*\(kind, pages, opts\)/.test(pre), "preload analyze 透传 opts");
+const br = R("src/ui/lumina-bridge.js");
+ok(/async swipeGet/.test(br) && /async swipeSave/.test(br) && /_swipeMem/.test(br), "bridge swipe 三方法 + 无引擎内存兜底");
+const rd = R("src/ui/modules/Reader.jsx");
+ok(/const onWritingObs =/.test(rd) && /onClick=\{onWritingObs\}/.test(rd), "划词浮条「写作观察」按钮接入");
+ok(/run\("move", \{ text: moveReq\.text/.test(rd), "EvidencePane 经 moveReq 跑 move（划词触发）");
+ok(/rd-swipe-save/.test(rd) && /env\.kind === "move" &&/.test(rd), "写作观察结果带「存入 swipe file」（仅 move）");
+ok(/rd-swipe-item/.test(rd) && /bridge\.swipeGet/.test(rd) && /removeSwipe/.test(rd), "swipe file 列表（带出处 p.X + 移除）");
+ok(/<EnvelopeCard env=\{env\}/.test(rd), "结果仍复用 EnvelopeCard（env.lane 路由，HC-1 不破）");
+ok(!/&&\s*(AssistantPanel|InfCard|EvidenceCard|EnvelopeCard|ReaderPanel|EvidencePane)\(/.test(rd), "无危险 Hook 条件调用");
+console.log("\n结果：" + pass + " 通过 / " + fail + " 失败");
+process.exit(fail ? 1 : 0);

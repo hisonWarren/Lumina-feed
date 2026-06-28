@@ -40,17 +40,17 @@ export interface SummaryResult {
 
 // ── 可插拔 LLM ──
 export interface LlmMessage { role: "system" | "user" | "assistant"; content: string }
-export interface LlmCompleteOpts { maxTokens?: number; temperature?: number; signal?: AbortSignal }
+export interface LlmCompleteOpts { maxTokens?: number; temperature?: number; signal?: AbortSignal; images?: string[] }
 export interface LlmClient {
   id: "anthropic" | "openai" | "ollama" | string;
   model: string;
   complete(messages: LlmMessage[], opts?: LlmCompleteOpts): Promise<string>;
 }
 
-// ── 合法全文提供者（复用红线 OA；M3 实装，这里注入）──
+// ── 全文提供者（M3 实装，这里注入）──
 export interface FullTextResult { text: string; url: string }
 export interface FullTextProvider {
-  /** 取合法 OA 全文文本；取不到/非合法 OA → 返回 null（强制回退摘要） */
+  /** 取全文文本；取不到 → 返回 null（强制回退摘要） */
   getFullText(paper: Paper, opts?: { signal?: AbortSignal }): Promise<FullTextResult | null>;
 }
 

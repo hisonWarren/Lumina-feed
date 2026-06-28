@@ -1,0 +1,33 @@
+import { readFileSync } from "node:fs";
+import { execSync } from "node:child_process";
+let pass = 0, fail = 0;
+const ok = (c, m) => { if (c) { pass++; console.log("  ✓ " + m); } else { fail++; console.log("  ✗ " + m); } };
+const R = (p) => { try { return readFileSync(p, "utf8"); } catch { return ""; } };
+console.log("── reader_plus_corpus（P6 语料层·跨篇）契约自检 ──");
+try { execSync("node --experimental-strip-types --check src/core/reader/reader-plus.ts", { stdio: "pipe" }); ok(true, "reader-plus.ts strip-types"); } catch { ok(false, "reader-plus.ts strip-types"); }
+try { execSync("node --experimental-strip-types --check electron/ipc.ts", { stdio: "pipe" }); ok(true, "ipc.ts strip-types"); } catch { ok(false, "ipc.ts strip-types"); }
+const rp = R("src/core/reader/reader-plus.ts");
+ok(/paperRefs\?:\s*string\[\]/.test(rp), "AnalysisClaim 增 paperRefs（跨篇指向文献而非页码）");
+ok(/"fulltext\+vision" \| "external" \| "corpus"/.test(rp), "sourceBasis 增 corpus");
+ok(/corpus_framing:\s*\{ lane: "inference"/.test(rp) && /corpus_contradiction:\s*\{ lane: "inference"/.test(rp) && /corpus_recipe:\s*\{ lane: "evidence"/.test(rp), "三 corpus kinds 入 KIND_REGISTRY（framing/contradiction 推断·recipe 证据）");
+ok(/export async function analyzeCorpus/.test(rp), "analyzeCorpus 存在");
+ok(/papers\.length < 2/.test(rp), "跨篇至少 2 篇（否则拒绝信封）");
+ok(/p\.summary \|\| p\.abstract/.test(rp), "基于各篇 总结/摘要（非全文，控成本/上下文）");
+ok(/不要编造/.test(rp), "prompt 明令不编造文献中没有的内容");
+const ipc = R("electron/ipc.ts");
+ok(/reader:corpus/.test(ipc) && /analyzeCorpus/.test(ipc), "ipc reader:corpus → analyzeCorpus");
+ok(/\.slice\(0, 8\)/.test(ipc), "篇数上限 8（限工作集、控成本）");
+ok(/ids\.length < 2/.test(ipc), "ipc 侧 ≥2 篇校验");
+ok(/SELECT text FROM summaries WHERE paper_id=\?/.test(ipc), "后端聚合各篇缓存总结");
+const pre = R("electron/preload.ts"); ok(/corpus:.*reader:corpus/.test(pre), "preload 暴露 corpus");
+const br = R("src/ui/lumina-bridge.js"); ok(/async readerCorpus/.test(br) && /示例文献/.test(br), "bridge readerCorpus + 无引擎占位（不伪造跨篇结论）");
+const lib = R("src/ui/modules/Library.jsx");
+ok(/function CorpusCard/.test(lib), "CorpusCard 渲染器（库内独立，带车道色）");
+ok(/const \[selMode/.test(lib) && /lib-cb/.test(lib), "工作集多选（selMode + 卡片选择框）");
+ok(/runCorpus\("corpus_framing"\)/.test(lib) && /runCorpus\("corpus_contradiction"\)/.test(lib) && /runCorpus\("corpus_recipe"\)/.test(lib), "三跨篇工具按钮");
+ok(/bridge\.readerCorpus\(kind, Array\.from\(sel\)\)/.test(lib), "仅就选中文献跨篇（Array.from(sel)，非全库）");
+ok(/c\.paperRefs[^]*lib-corpus-ref/.test(lib), "结果带出处文献 chips（paperRefs）");
+ok(/非全库问答/.test(lib), "明示限工作集、非全库问答（范围红线）");
+ok(/lib-corpus-card" \+ \(inf \? " inf"/.test(lib), "跨篇结果按 lane 着色（evidence 绿/inference 琥珀）");
+console.log("\n结果：" + pass + " 通过 / " + fail + " 失败");
+process.exit(fail ? 1 : 0);

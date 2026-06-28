@@ -1,0 +1,33 @@
+import { readFileSync } from "node:fs";
+import { execSync } from "node:child_process";
+let pass = 0, fail = 0;
+const ok = (c, m) => { if (c) { pass++; console.log("  ✓ " + m); } else { fail++; console.log("  ✗ " + m); } };
+const R = (p) => { try { return readFileSync(p, "utf8"); } catch { return ""; } };
+console.log("── reader_plus_foundation 契约自检 ──");
+try { execSync("node --experimental-strip-types --check src/core/reader/reader-plus.ts", { stdio: "pipe" }); ok(true, "reader-plus.ts strip-types 通过"); }
+catch { ok(false, "reader-plus.ts strip-types 通过"); }
+const rp = R("src/core/reader/reader-plus.ts");
+ok(/interface AnalysisEnvelope/.test(rp) && /lane:\s*Lane/.test(rp), "AnalysisEnvelope 含 lane 契约字段（HC-1）");
+ok(/export const KIND_REGISTRY/.test(rp), "KIND_REGISTRY 存在（单一车道真相源）");
+const kinds = [...rp.matchAll(/(\w+):\s*\{\s*lane:\s*"(evidence|inference)"/g)].map((m) => m[1]);
+ok(kinds.length >= 12, "KIND_REGISTRY 为全部 kind 声明 lane（共 " + kinds.length + "）");
+ok(/groundability === "L3"/.test(rp) && /refused:/.test(rp), "L3 走静态拒绝信封（不调 LLM，ADR-I3 安全底）");
+const ipc = R("electron/ipc.ts");
+ok(/reader:analyze/.test(ipc) && /analyzeReader/.test(ipc), "ipc 注册 reader:analyze → analyzeReader");
+ok(/reader_analysis\(/.test(ipc), "ipc 建 reader_analysis 缓存表");
+ok(/reader:analysisGet/.test(ipc) && /reader:analysisSave/.test(ipc), "ipc 有分析缓存读写");
+const pre = R("electron/preload.ts");
+ok(/reader:analyze/.test(pre), "preload 暴露 reader:analyze");
+const br = R("src/ui/lumina-bridge.js");
+ok(/readerAnalyze/.test(br), "bridge 有 readerAnalyze（无引擎走 mock 信封）");
+const rd = R("src/ui/modules/Reader.jsx");
+ok(/rd-zones/.test(rd) && /function ReaderPanel/.test(rd), "Reader 四区容器 ReaderPanel/.rd-zones");
+ok(/function EvidencePane/.test(rd) && /function InferencePane/.test(rd), "Reader 证据/推断两区");
+ok(/function EnvelopeCard/.test(rd), "Reader 信封路由 EnvelopeCard");
+ok(/env\.lane === "inference"/.test(rd), "EnvelopeCard 仅按 env.lane 路由（HC-1，无手选颜色）");
+ok(/doOutline/.test(rd) && /readerAnalyze\("outline"/.test(rd), "助手区接入大纲（reader:analyze outline）");
+ok(/--amber:/.test(rd) && /\.lf:not\(\.day\) \.rd/.test(rd), "琥珀车道 token 明/暗四主题派生");
+ok(!/&&\s*(AssistantPanel|InfCard|EvidenceCard|EnvelopeCard|ReaderPanel)\(/.test(rd), "无危险 Hook 条件调用（组件均 <Comp/> 渲染）");
+ok(!/annoOpen/.test(rd), "annoOpen 已彻底移除（面板归一到 zone）");
+console.log("\n结果：" + pass + " 通过 / " + fail + " 失败");
+process.exit(fail ? 1 : 0);

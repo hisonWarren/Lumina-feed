@@ -1,9 +1,9 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import LuminaFeedObservatory from "../src/ui/Observatory.jsx";
+import LuminaApp from "../src/ui/LuminaApp.jsx";
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <LuminaFeedObservatory />
+    <LuminaApp />
   </React.StrictMode>,
 );

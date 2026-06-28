@@ -1,22 +1,13 @@
-// lumina-feed · 应用设置（存 settings 单行；密钥另走钥匙串）
+// lumina-feed · 应用设置（LLM + 联系邮箱）
 import type { Store } from "../src/core/store/index.ts";
 import type { LlmConfig } from "../src/core/summarize/llm-client.ts";
-import type { EmailConfig } from "../src/core/notify/channels/email.ts";
-import type { TelegramConfig } from "../src/core/notify/channels/telegram.ts";
-import type { WebhookConfig } from "../src/core/notify/channels/webhook.ts";
 
 export interface AppSettings {
-  contactEmail?: string;          // 礼貌署名 + OA 解析
-  llm?: LlmConfig;                // provider/model/baseUrl（key 在钥匙串）
-  backgroundEnabled: boolean;     // B：托盘常驻 + 定时
-  channels: {
-    email?: EmailConfig;
-    telegram?: Omit<TelegramConfig, "botToken">;
-    webhook?: Omit<WebhookConfig, "secret">;
-  };
+  contactEmail?: string;
+  llm?: LlmConfig;
 }
 
-const DEFAULTS: AppSettings = { backgroundEnabled: true, channels: {} };
+const DEFAULTS: AppSettings = {};
 const KEY = "app_settings";
 
 export async function loadAppSettings(store: Store): Promise<AppSettings> {
@@ -36,6 +27,5 @@ export async function saveAppSettings(store: Store, s: Partial<AppSettings>): Pr
 }
 
 function ensure(store: Store): void {
-  // sources_cache 表由 M1 bootstrap 建；这里复用它存设置（单行）
   store.db.exec("CREATE TABLE IF NOT EXISTS sources_cache(key TEXT PRIMARY KEY, payload TEXT, fetched_at TEXT);");
 }

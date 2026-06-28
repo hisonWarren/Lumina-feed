@@ -107,6 +107,16 @@ async function build() {
   });
 
   fs.copyFileSync(path.join(ROOT, "renderer/index.html"), path.join(DIST, "index.html"));
+
+  // PDF.js worker → dist（同源加载，满足 CSP worker-src 'self'）。需先 npm install pdfjs-dist。
+  const pdfWorker = path.join(ROOT, "node_modules/pdfjs-dist/build/pdf.worker.min.mjs");
+  if (fs.existsSync(pdfWorker)) {
+    fs.copyFileSync(pdfWorker, path.join(DIST, "pdf.worker.min.mjs"));
+    console.log("  ✓ dist/pdf.worker.min.mjs");
+  } else {
+    console.warn("  ! 未找到 pdfjs-dist worker —— 请先 `npm install`（pdfjs-dist）");
+  }
+
   console.log("\n  ✓ build/main.cjs");
   console.log("  ✓ build/preload.cjs");
   console.log("  ✓ dist/index.html + renderer.js\n");

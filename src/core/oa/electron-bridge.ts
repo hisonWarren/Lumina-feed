@@ -11,7 +11,7 @@ const PDF_MAGIC = Buffer.from([0x25, 0x50, 0x44, 0x46]); // %PDF
 export async function registerOaPdfBridge(): Promise<void> {
   const { ipcMain } = (await import("electron")) as any;
   ipcMain.handle("oa:fetchPdf", async (_e: unknown, url: string): Promise<Uint8Array> => {
-    if (!isFetchableUrl(url, { allowAltSources: true })) throw new Error("拒绝：无效链接");
+    if (!isFetchableUrl(url, { allowAltSources: false })) throw new Error("拒绝：无效链接");
     const bytes = await fetchViaNet(url);
     if (bytes.byteLength > MAX) throw new Error("PDF 超出大小上限");
     if (!bytes.subarray(0, 4).equals(PDF_MAGIC)) throw new Error("内容非 PDF");

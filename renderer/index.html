@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https:;" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https: blob:;" />
   <title>Lumina Feed</title>
   <style>
     html, body { margin: 0; height: 100%; background: #0A0D14; overflow: hidden; }
-    #root { height: 100%; display: flex; align-items: stretch; justify-content: center; padding: 12px; box-sizing: border-box; }
+    #root { height: 100%; display: flex; align-items: stretch; padding: 0; box-sizing: border-box; }
   </style>
 </head>
 <body>

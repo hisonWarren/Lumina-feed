@@ -27,10 +27,13 @@ export async function aggregateSearch(spec: QuerySpec, opts: SearchOpts = {}): P
     else perSource[id] = { count: 0, ok: false, error: String((s.reason as Error)?.message ?? s.reason) }; // 标记失败,不抛
   });
 
+  return { papers: postProcess(all, spec), perSource, raw: all };
+}
+
+// 归一化 → 去重/版本归并 → 结构化过滤 → 排序（一次性与流式共用，保证两条路径结果一致）。
+function postProcess(all: SearchHit[], spec: QuerySpec): Paper[] {
   let papers = all.map(normalize);
   papers = dedupeAndMerge(papers);
-
-  // 结构化后过滤（peerReviewed/OA/type/language/year）—— 源端能力不一,这里统一兜底
   const f = spec.filters;
   papers = papers.filter((p) => {
     if (f.peerReviewedOnly && !p.peerReviewed) return false;
@@ -41,8 +44,26 @@ export async function aggregateSearch(spec: QuerySpec, opts: SearchOpts = {}): P
     if (f.types?.length && !p.studyTypes.some((t) => f.types!.includes(t))) return false;
     return true;
   });
-
-  // 默认按发表日期降序
   papers.sort((a, b) => (b.pubDate ?? "").localeCompare(a.pubDate ?? ""));
-  return { papers, perSource, raw: all };
+  return papers;
+}
+
+// 渐进式聚合：每个源返回即回调当前累积快照（去重/过滤/排序后），慢源不拖累首屏。
+// 保留 aggregateSearch（一次性）供订阅等调用；本函数仅检索 UI 用。
+export type StreamCb = (sourceId: string, snapshot: Paper[], perSource: AggregateResult["perSource"]) => void;
+export async function aggregateSearchStream(spec: QuerySpec, opts: SearchOpts = {}, onSource?: StreamCb): Promise<AggregateResult> {
+  const adapters = selectAdapters(spec.filters.sources);
+  const perSource: AggregateResult["perSource"] = {};
+  const all: SearchHit[] = [];
+  await Promise.all(adapters.map(async (a) => {
+    try {
+      const hits = await a.search(spec, opts);
+      perSource[a.id] = { count: hits.length, ok: true };
+      all.push(...hits);
+    } catch (e) {
+      perSource[a.id] = { count: 0, ok: false, error: String((e as Error)?.message ?? e) };
+    }
+    try { onSource && onSource(a.id, postProcess(all, spec), { ...perSource }); } catch { /* 回调异常不影响聚合 */ }
+  }));
+  return { papers: postProcess(all, spec), perSource, raw: all };
 }

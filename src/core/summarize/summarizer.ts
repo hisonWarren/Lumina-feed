@@ -32,7 +32,7 @@ export async function summarizePaper(paper: Paper, opts: SummarizeOptions, deps:
   let basisIsFulltext = false;
   const wantFulltext = opts.source === "prefer_fulltext" && opts.fetchPdf !== "no";
   if (wantFulltext) {
-    const ft = await provider.getFullText(paper, { signal: deps.signal }); // provider 内部仅取合法 OA
+    const ft = await provider.getFullText(paper, { signal: deps.signal }); // provider 走统一候选链
     if (ft && ft.text) { text = ft.text; basisIsFulltext = true; }
   }
   if (!basisIsFulltext) text = (paper.abstract ?? "").trim() || paper.title; // 回退摘要；连摘要都没有则用标题
@@ -81,7 +81,7 @@ function buildCaveats(paper: Paper, basisIsFulltext: boolean, opts: SummarizeOpt
   const c: string[] = [];
   if (paper.retracted) c.push("该文献已撤稿");
   if (paper.isPreprint) c.push("预印本，未经同行评议");
-  if (!basisIsFulltext && opts.source === "prefer_fulltext") c.push("未获取到合法 OA 全文，基于摘要总结");
+  if (!basisIsFulltext && opts.source === "prefer_fulltext") c.push("未获取到全文，基于摘要总结");
   return c;
 }
 

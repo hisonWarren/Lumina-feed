@@ -21,6 +21,9 @@ export interface QuerySpec {
 }
 
 const quote = (v: string) => (/\s/.test(v) ? `"${v}"` : v);
+// ISSN 识别/归一（期刊订阅可填 ISSN → 各源精确过滤）
+const isIssn = (v: string): boolean => /^\d{4}-?\d{3}[\dxX]$/.test(String(v).trim());
+const normIssn = (v: string): string => { const d = String(v).replace(/[^0-9xX]/gi, "").toUpperCase(); return d.length === 8 ? d.slice(0, 4) + "-" + d.slice(4) : String(v).trim(); };
 
 /** 结构化 → raw（人类可读 / 可存档）。组间默认 AND，组内按 group.op 连接。 */
 export function specToRaw(spec: QuerySpec): string {
@@ -38,6 +41,11 @@ export function specToRaw(spec: QuerySpec): string {
 }
 
 /** raw → 结构化（宽松解析：按 AND 切组，识别 field 标签 [tiab] 等；解析不了的整体塞 all 组）。 */
+// 字段别名：PubMed 风格简写 + 全称 → 内部 Field；未知标签归 all（避免下游 [undefined]）。
+const FIELD_ALIAS: Record<string, Field> = {
+  ti: "title", title: "title", ab: "abstract", abstract: "abstract", tiab: "tiab",
+  au: "author", author: "author", ta: "journal", journal: "journal", mh: "mesh", mesh: "mesh", all: "all",
+};
 export function rawToSpec(raw: string, filters: QueryFilters = {}): QuerySpec {
   const text = raw.trim();
   if (!text) return { groups: [], filters, raw: text };
@@ -49,7 +57,7 @@ export function rawToSpec(raw: string, filters: QueryFilters = {}): QuerySpec {
     const terms: QueryTerm[] = rawTerms.map((rt) => {
       const m = rt.match(/^"?([^"\[]+?)"?\s*(?:\[(\w+)(:exp)?\])?$/);
       const value = (m?.[1] ?? rt).trim();
-      const field = (m?.[2] as Field) || "all";
+      const field: Field = FIELD_ALIAS[(m?.[2] || "").toLowerCase()] || "all";
       return { field, value, explode: !!m?.[3] };
     }).filter((t) => t.value);
     if (terms.length) groups.push({ op, terms });
@@ -79,16 +87,18 @@ export function toPubmedTerm(spec: QuerySpec): string {
 /** Crossref：bibliographic / query.author / query.title 等参数 + filter */
 export function toCrossrefParams(spec: QuerySpec, since?: string): URLSearchParams {
   const p = new URLSearchParams();
-  const bib: string[] = [], authors: string[] = [], titles: string[] = [];
+  const bib: string[] = [], authors: string[] = [], titles: string[] = [], issns: string[] = [];
   for (const g of spec.groups) for (const t of g.terms) {
     if (t.field === "author") authors.push(t.value);
     else if (t.field === "title") titles.push(t.value);
+    else if (t.field === "journal" && isIssn(t.value)) issns.push(normIssn(t.value)); // ISSN 精确过滤
     else bib.push(t.value);
   }
   if (bib.length) p.set("query.bibliographic", bib.join(" "));
   if (titles.length) p.set("query.title", titles.join(" "));
   if (authors.length) p.set("query.author", authors.join(" "));
   const filters: string[] = [];
+  for (const x of issns) filters.push(`issn:${x}`);
   const from = since ? since.slice(0, 10) : spec.filters.yearFrom ? `${spec.filters.yearFrom}-01-01` : null;
   if (from) filters.push(`from-pub-date:${from}`);
   if (spec.filters.yearTo) filters.push(`until-pub-date:${spec.filters.yearTo}-12-31`);
@@ -99,9 +109,14 @@ export function toCrossrefParams(spec: QuerySpec, since?: string): URLSearchPara
 /** OpenAlex：search= + filter=from_publication_date / type 等 */
 export function toOpenalexParams(spec: QuerySpec, since?: string): URLSearchParams {
   const p = new URLSearchParams();
-  const words = spec.groups.flatMap((g) => g.terms.map((t) => t.value));
+  const issns: string[] = []; const words: string[] = [];
+  for (const g of spec.groups) for (const t of g.terms) {
+    if (t.field === "journal" && isIssn(t.value)) issns.push(normIssn(t.value)); // ISSN 精确过滤
+    else words.push(t.value);
+  }
   if (words.length) p.set("search", words.join(" "));
   const filters: string[] = [];
+  if (issns.length) filters.push(`primary_location.source.issn:${issns.join("|")}`);
   const from = since ? since.slice(0, 10) : spec.filters.yearFrom ? `${spec.filters.yearFrom}-01-01` : null;
   if (from) filters.push(`from_publication_date:${from}`);
   if (spec.filters.openAccessOnly) filters.push("is_oa:true");
@@ -114,7 +129,7 @@ export function toEuropePmcQuery(spec: QuerySpec): string {
   const map: Partial<Record<Field, string>> = { title: "TITLE", abstract: "ABSTRACT", tiab: "TITLE_ABS", author: "AUTH", journal: "JOURNAL" };
   const groups = spec.groups.filter((g) => g.terms.length).map((g) => {
     const parts = g.terms.map((t) => {
-      const pre = map[t.field];
+      const pre = (t.field === "journal" && isIssn(t.value)) ? "ISSN" : map[t.field]; // ISSN 精确过滤
       return pre ? `${pre}:${quote(t.value)}` : quote(t.value);
     });
     const j = parts.join(` ${g.op === "NOT" ? "NOT" : g.op} `);

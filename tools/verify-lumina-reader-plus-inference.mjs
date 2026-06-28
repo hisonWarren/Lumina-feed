@@ -1,0 +1,31 @@
+import { readFileSync } from "node:fs";
+import { execSync } from "node:child_process";
+let pass = 0, fail = 0;
+const ok = (c, m) => { if (c) { pass++; console.log("  ✓ " + m); } else { fail++; console.log("  ✗ " + m); } };
+const R = (p) => { try { return readFileSync(p, "utf8"); } catch { return ""; } };
+console.log("── reader_plus_inference（P4 推断车道 + 整体推断度）契约自检 ──");
+try { execSync("node --experimental-strip-types --check src/core/reader/reader-plus.ts", { stdio: "pipe" }); ok(true, "reader-plus.ts strip-types"); } catch { ok(false, "reader-plus.ts strip-types"); }
+try { execSync("node --experimental-strip-types --check electron/ipc.ts", { stdio: "pipe" }); ok(true, "ipc.ts strip-types"); } catch { ok(false, "ipc.ts strip-types"); }
+const rp = R("src/core/reader/reader-plus.ts");
+ok(/\n  hardcore:/.test(rp) && /\n  limitations:/.test(rp), "hardcore + limitations prompt 接入");
+ok(/spec\.lane === "inference"\) claim\.confidence/.test(rp), "推断车道 claim 把握度按 groundability 兜底（c1/c2/c3）");
+ok(/groundability === "L3"/.test(rp) && /refused:/.test(rp), "genesis 仍 L3 静态拒绝（不调 LLM，安全底）");
+ok(/function flagIntentReconstruction/.test(rp) && /env\.lane !== "evidence"\) return env/.test(rp), "整体推断度：仅对证据车道做保守 needs_recheck 标记（不静默改车道，HC-3 透明）");
+ok(/flagIntentReconstruction\(await runStructured/.test(rp), "证据车道结果套用整体推断度标记");
+const ipc = R("electron/ipc.ts");
+ok(/reader:practiceSave/.test(ipc) && /practice:/.test(ipc), "ipc reader:practiceSave（练判断留痕，本地）");
+const pre = R("electron/preload.ts"); ok(/practiceSave/.test(pre), "preload 暴露 practiceSave");
+const br = R("src/ui/lumina-bridge.js");
+ok(/async readerPracticeSave/.test(br), "bridge readerPracticeSave");
+ok(/kind === "genesis"/.test(br) && /kind === "hardcore" \|\| kind === "limitations"/.test(br), "bridge 推断 mock（genesis 拒绝 / hardcore / limitations）");
+const rd = R("src/ui/modules/Reader.jsx");
+ok(/function InfBody/.test(rd) && (rd.match(/<InfBody env=\{env\}/g) || []).length >= 2, "InfBody 抽取并被 InfCard 与 InfAnalyzer 共用");
+ok(/function InfAnalyzer/.test(rd), "InfAnalyzer 推断分析器卡");
+ok(/if \(nx && !env && !busy && !practice\) run\(\)/.test(rd), "练判断 gate①：limitations 展开不自动取 AI（揭示前不下发）");
+ok(/bridge\.readerPracticeSave\(source\.paperId, kind, guess\);\s*\n?\s*setRevealed\(true\); run\(\)/.test(rd) || (/readerPracticeSave\(source\.paperId, kind, guess\)/.test(rd) && /setRevealed\(true\); run\(\)/.test(rd)), "练判断 gate②：揭示先留痕用户判断、再取 AI（不自动给答案）");
+ok(/practice && !revealed \?/.test(rd), "练判断 gate③：未揭示只渲染 guess-box，不渲染 AI 内容");
+ok(/InfAnalyzer kind="hardcore"[^]*InfAnalyzer kind="limitations"[^]*practice[^]*InfAnalyzer kind="genesis"/.test(rd), "InferencePane 实装三推断分析器（limitations 带 practice）");
+ok(/<InferencePane ensurePages=\{ensurePages\}/.test(rd), "ReaderPanel 向 InferencePane 传 ensurePages/source/onGoto");
+ok(!/&&\s*(AssistantPanel|InfCard|InfBody|EvidenceCard|EnvelopeCard|ReaderPanel|EvidencePane|InferencePane|InfAnalyzer)\(/.test(rd), "无危险 Hook 条件调用");
+console.log("\n结果：" + pass + " 通过 / " + fail + " 失败");
+process.exit(fail ? 1 : 0);

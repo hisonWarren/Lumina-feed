@@ -1,5 +1,4 @@
-// lumina-feed · PDF 候选解析（OA + 备选渠道统一排序，不区分类别）
-// 聚合实现资料 oa_sources + alt_sources + Sci-Hub，按 priority 一条链顺序尝试。
+// lumina-feed · PDF 候选解析（OA + LibGen + Anna + Sci-Hub 统一链）
 import type { Paper } from "../model.ts";
 import publisherRules from "./config/publisher-rules.json" with { type: "json" };
 import { dedupeCandidates, type PdfCandidate, type UrlCandidate } from "./candidate.ts";
@@ -20,7 +19,7 @@ export interface ResolveDeps {
     altSources?: boolean;
     scihub?: boolean;
   };
-  /** false 时仅保留 isLegitimateOaUrl 候选（默认 true：与 OA 同一顺序链） */
+  /** false 时仅保留 isLegitimateOaUrl 候选（默认 true：含备选渠道） */
   includeAltSources?: boolean;
 }
 

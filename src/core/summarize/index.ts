@@ -6,4 +6,3 @@ export { isLegitimateOaUrl, isFetchableUrl, OA_DENY_PATTERNS } from "./oa-guard.
 export { makeFullTextProvider, noFullText, type FullTextDeps } from "./fulltext.ts";
 export { summarizePaper, summarizeMany, chunkText, type SummarizeDeps } from "./summarizer.ts";
 export { memoryCache, sqliteSummaryCache } from "./summaries.repo.ts";
-export { enrichDigestItems } from "./digest-glue.ts";

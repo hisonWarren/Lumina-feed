@@ -1,5 +1,5 @@
-// lumina-feed · 合法 OA 守门（复用上一个补丁的红线，ADR-1）
-// 仅放行合法开放获取来源；硬拒影子图书馆。全文获取链路必经此门（纵深防御）。
+// lumina-feed · URL 守门（OA 白名单 + 多源模式）
+// allowAltSources:true 时放行 LibGen / Anna / Sci-Hub；false 时仅 isLegitimateOaUrl。
 
 /** 影子图书馆 / 盗版聚合 —— 一律拒绝 */
 export const OA_DENY_PATTERNS: RegExp[] = [

@@ -1,0 +1,288 @@
+// Lumina Feed · 模块化壳（find_fetch 前置 · 检索取文接线）
+import React, { useState, useCallback, useEffect } from "react";
+import { bridge, hasBackend } from "./lumina-bridge.js";
+import { DEFAULT_THEME, THEME_CSS, isLight, THEMES } from "./themes.js";
+import { LOGO_DATA_URI } from "./brand-logo.js";
+import { Telescope, BookOpen, BookMarked, Rss, Settings as SettingsIcon, Palette, Check } from "lucide-react";
+import FindFetch from "./modules/FindFetch.jsx";
+import ReaderModule from "./modules/ReadHub.jsx";
+import Settings from "./modules/Settings.jsx";
+import Library from "./modules/Library.jsx";
+import Subscriptions from "./modules/Subscriptions.jsx";
+import { buildFetchedMeta, isFetched, fetchProgressUi } from "./fetch-meta.js";
+
+const BASE_CSS = `
+html,body,#root{height:100%;margin:0}
+body{background:#F4F4F1;font-family:Inter,system-ui,sans-serif}
+.lf{--gold:#0E7C6F;--goldDim:#0B5F55;--ink:#12151C;--ink2:#3A3F4A;--ink3:#6B7280;--ink4:#9CA3AF;--surf:#fff;--surf2:#F8F8F6;--line:#E5E5E0;--line2:#D8D8D2;--raise:#fff;--r:13px;--amber:#BE7A18;--ok:#2C8A60;--danger:#BC3B2B;--gold-tint:color-mix(in srgb,var(--gold) 10%,transparent);--gold-line:color-mix(in srgb,var(--gold) 28%,transparent);--shadow:0 1px 2px rgba(20,22,26,.04),0 8px 24px rgba(20,22,26,.06);--shadow-lg:0 24px 60px rgba(20,22,26,.16),0 4px 12px rgba(20,22,26,.08);--sans:Inter,system-ui,sans-serif;height:100vh;width:100%;display:flex;flex-direction:column;color:var(--ink)}
+.lf button:focus-visible,.lf input:focus-visible,.lf [role="tab"]:focus-visible,.lf [role="menuitemradio"]:focus-visible{outline:2px solid var(--gold-line);outline-offset:2px}
+.lf-top{display:flex;align-items:center;gap:18px;padding:13px 20px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,var(--surf2),var(--surf));flex-shrink:0;position:relative;z-index:40}
+.lf-brand{display:flex;align-items:center;gap:11px;flex-shrink:0}
+.lf-logo{width:34px;height:34px;border-radius:10px;flex-shrink:0;display:block;object-fit:cover;box-shadow:0 3px 10px rgba(20,22,26,.20)}
+.lf-wm{display:flex;flex-direction:column;line-height:1}
+.lf-wm .nm{font-family:'Source Serif 4',Georgia,serif;font-weight:600;font-size:17px;letter-spacing:-.01em;color:var(--ink)}
+.lf-wm .tg{font-family:'Space Mono',monospace;font-size:8.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--ink3);margin-top:3px}
+.lf-stage{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}
+.lf-nav{display:flex;gap:3px;margin:0 auto;background:var(--surf2);padding:4px;border-radius:12px;border:1px solid var(--line)}
+.lf-tab{display:inline-flex;align-items:center;gap:7px;border:none;background:transparent;color:var(--ink2);border-radius:9px;padding:7px 14px;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;transition:background .16s,color .16s,box-shadow .16s}
+.lf-tab:hover{color:var(--ink)}
+.lf-tab.on{background:var(--gold);color:#fff;box-shadow:0 2px 8px var(--gold-tint)}
+.lf-badge{min-width:16px;height:16px;padding:0 5px;border-radius:8px;background:var(--amber);color:#fff;font-size:9.5px;font-weight:700;display:grid;place-items:center;font-family:var(--sans)}
+.lf-tab.on .lf-badge{background:rgba(255,255,255,.26)}
+.lf-tools{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.lf-status{display:inline-flex;align-items:center;gap:7px;font-family:'Space Mono',monospace;font-size:10px;color:var(--ink3);margin-right:2px;white-space:nowrap}
+.lf-dot{width:6px;height:6px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px var(--ok);flex-shrink:0}
+.lf-icon{width:34px;height:34px;border-radius:9px;border:1px solid var(--line);background:var(--surf);color:var(--ink2);display:grid;place-items:center;cursor:pointer;transition:all .15s}
+.lf-icon:hover{border-color:var(--line2);color:var(--ink);background:var(--raise)}
+.lf-icon.on{border-color:var(--gold-line);color:var(--gold);background:var(--gold-tint)}
+.lf-theme-wrap{position:relative}
+.lf-tmenu{position:absolute;top:42px;right:0;background:var(--raise);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow-lg);padding:6px;z-index:60;min-width:188px}
+.lf-tmenu .th{font-family:'Space Mono',monospace;font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink3);padding:6px 9px 5px}
+.lf-trow{display:flex;align-items:center;gap:10px;width:100%;border:none;background:transparent;border-radius:9px;padding:8px 9px;cursor:pointer;font-family:inherit;font-size:13px;color:var(--ink2);text-align:left}
+.lf-trow:hover{background:var(--surf2)}
+.lf-trow.on{color:var(--ink)}
+.lf-sw{display:inline-flex;gap:2px;flex-shrink:0}
+.lf-sw i{width:11px;height:14px;border-radius:3px;display:block}
+.lf-trow .ck{margin-left:auto;color:var(--gold);display:inline-flex}
+@media (prefers-reduced-motion: reduce){ .lf-tab{transition:none} }
+@media (prefers-reduced-motion: reduce){ *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important;scroll-behavior:auto !important} }
+.ff{flex:1;min-height:0;display:flex;flex-direction:column}
+.ff-head{padding:16px 20px 8px;flex-shrink:0;width:100%;max-width:958px;margin:0 auto}
+.ff-bar{display:flex;align-items:center;gap:10px;border:1px solid var(--line2);border-radius:12px;padding:10px 14px;background:var(--surf)}
+.ff-bar input{flex:1;border:none;outline:none;font-size:14px;font-family:inherit;background:transparent;color:var(--ink)}
+.ff-doitag{font-size:10px;font-family:'Space Mono',monospace;background:rgba(14,124,111,.12);color:var(--gold);padding:2px 6px;border-radius:5px}
+.ff-clr{border:none;background:transparent;color:var(--ink3);cursor:pointer;display:grid;place-items:center;padding:2px}
+.ff-recent{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
+.ff-rl{font-size:11px;color:var(--ink4);font-family:'Space Mono',monospace}
+.ff-chip{border:1px solid var(--line2);background:var(--surf2);color:var(--ink2);border-radius:8px;padding:5px 10px;font-size:12px;cursor:pointer;font-family:inherit}
+.ff-chip:hover{border-color:var(--gold);color:var(--gold)}
+.ff-results{flex:1;min-height:0;overflow-y:auto;padding:8px 20px 24px}
+.ff-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:48px 24px;text-align:center;color:var(--ink2);min-height:280px}
+.ff-empty h2{margin:0;font-size:18px;font-family:'Source Serif 4',Georgia,serif;color:var(--ink)}
+.ff-empty p{margin:0;font-size:13.5px;line-height:1.65;max-width:520px}
+.ff-hint{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:8px}
+.ff-card{border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:0 auto 12px;max-width:920px;background:var(--surf);transition:box-shadow .16s,border-color .16s}
+.ff-card:hover{box-shadow:var(--shadow);border-color:var(--line2)}
+.ff-title{font-family:'Source Serif 4',Georgia,serif;font-size:16px;font-weight:600;line-height:1.4;cursor:pointer;color:var(--ink)}
+.ff-title:hover{color:var(--gold)}
+.ff-title mark{background:rgba(14,124,111,.14);color:var(--goldDim);border-radius:3px;padding:0 2px}
+.ff-meta{font-size:12.5px;color:var(--ink3);margin-top:6px}
+.ff-doi{display:inline-flex;align-items:center;gap:5px;margin-top:8px;font-family:'Space Mono',monospace;font-size:11px;color:var(--gold);background:none;border:none;cursor:pointer;padding:0}
+.ff-badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.ff-b{font-size:10.5px;font-family:'Space Mono',monospace;color:var(--ink3);background:var(--surf2);border:1px solid var(--line);border-radius:6px;padding:3px 7px}
+.ff-b-ret{color:#b42318;background:rgba(180,35,24,.08);border-color:rgba(180,35,24,.25)}
+.ff-b-pre{color:#9a6b2e}
+.ff-b-oa{color:var(--gold)}
+.ff-b-ft,.sd-b-ft,.dg-b-ft,.lib-b-ft{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 35%,transparent)}
+.ff-b-alt,.sd-b-alt,.dg-b-alt,.lib-b-alt{color:var(--ink2);border-color:var(--line2)}
+.ff-b-nooa,.sd-b-nooa,.dg-b-nooa,.lib-b-nooa{color:var(--ink3)}
+.ff-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.ff-act{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:9px;padding:7px 12px;font-size:12.5px;cursor:pointer;font-family:inherit}
+.ff-act:hover{border-color:var(--gold);color:var(--gold)}
+.ff-act.on{background:var(--gold);color:#fff;border-color:var(--gold)}
+.ff-act.loading{opacity:.7;cursor:default}
+.ff-ft.on{background:rgba(14,124,111,.12);color:var(--gold);border-color:rgba(14,124,111,.3)}
+.ff-soon{font-size:10px;opacity:.7}
+.ff-wall{margin-top:12px;font-size:12px;line-height:1.6;color:var(--ink2);background:var(--surf2);border-left:3px solid var(--gold);padding:10px 12px;border-radius:0 8px 8px 0}
+.ff-spin{animation:ffspin .8s linear infinite}
+@keyframes ffspin{to{transform:rotate(360deg)}}
+.lf-toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:10px;font-size:13px;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,.15)}
+`;
+
+export default function LuminaApp() {
+  const [mode, setMode] = useState("find");
+  const [prevMode, setPrevMode] = useState("find"); // 设置弹窗打开时，底层仍显示的视图
+  const [fetchedMeta, setFetchedMeta] = useState({});
+  const [fetchingMeta, setFetchingMeta] = useState({});
+  const [fetchTick, setFetchTick] = useState(0);
+  const [readTarget, setReadTarget] = useState(null);
+  const [lib, setLib] = useState([]);
+  const [lists, setLists] = useState([]); // 单层清单 [{id,name,ids}]
+  const [toasts, setToasts] = useState([]);
+  const [theme, setTheme] = useState(DEFAULT_THEME);
+  const [themeOpen, setThemeOpen] = useState(false);
+  const [incomingPdf, setIncomingPdf] = useState(null);
+  const [subsNew, setSubsNew] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    bridge.getSettings().then((s) => { if (alive && s && s.theme) setTheme(s.theme); }).catch(() => {});
+    bridge.libraryList().then((rows) => { if (alive && Array.isArray(rows)) setLib(rows); }).catch(() => {}); // 工作集持久化载入
+    bridge.listsGet().then((ls) => { if (alive && Array.isArray(ls)) setLists(ls); }).catch(() => {}); // 清单持久化载入
+    if (typeof bridge.subsList === "function") bridge.subsList().then((subs) => { if (alive && Array.isArray(subs)) setSubsNew(subs.reduce((n, sub) => n + ((sub && sub.enabled && Array.isArray(sub.today)) ? sub.today.length : 0), 0)); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const onTheme = useCallback(async (id) => {
+    setTheme(id);
+    try { const s = (await bridge.getSettings()) || {}; await bridge.saveSettings({ ...s, theme: id }); } catch (e) { /* noop */ }
+  }, []);
+  useEffect(() => {
+    if (!themeOpen) return;
+    const onKey = (e) => { if (e.key === "Escape") setThemeOpen(false); };
+    const onDown = (e) => { if (!(e.target && e.target.closest && e.target.closest(".lf-theme-wrap"))) setThemeOpen(false); };
+    window.addEventListener("keydown", onKey); window.addEventListener("mousedown", onDown);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("mousedown", onDown); };
+  }, [themeOpen]);
+  useEffect(() => {
+    if (!bridge.onOpenLocalPdf) return;
+    bridge.onOpenLocalPdf((payload) => { if (payload && payload.data) { setIncomingPdf({ name: payload.name, data: payload.data, _t: Date.now() }); setMode("read"); } });
+  }, []);
+
+  const pushToast = useCallback((msg) => {
+    const id = Date.now();
+    setToasts((t) => [...t, { id, msg }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200);
+  }, []);
+
+  useEffect(() => {
+    if (!Object.keys(fetchingMeta).length) return;
+    const t = setInterval(() => setFetchTick((x) => x + 1), 1000);
+    return () => clearInterval(t);
+  }, [fetchingMeta]);
+
+  const inLibFn = useCallback((id) => lib.some((x) => x.id === id), [lib]);
+
+  const onFetch = useCallback(async (p) => {
+    setFetchingMeta((m) => ({ ...m, [p.id]: { startedAt: Date.now() } }));
+    try {
+      if (hasBackend()) {
+        const r = await bridge.fetchFullText(p);
+        const meta = buildFetchedMeta(r);
+        if (meta) {
+          setFetchedMeta((m) => ({ ...m, [p.id]: meta }));
+          pushToast("已获取全文 · " + meta.label);
+        } else {
+          const why = r && r.reason;
+          pushToast(why === "no_pdf" || why === "no_oa"
+            ? "未能自动获取全文——可经机构订阅或向作者索取"
+            : "取文未成功（" + (why || "未知原因") + "）。可稍后重试或经机构访问");
+        }
+      } else {
+        await new Promise((res) => setTimeout(res, 500));
+        const mockSource = p.oa !== "closed" ? "unpaywall_mock" : "libgen_mock";
+        const meta = buildFetchedMeta({ ok: true, source: mockSource });
+        setFetchedMeta((m) => ({ ...m, [p.id]: meta }));
+        pushToast("（原型模拟）已取全文 · " + meta.label);
+      }
+    } finally {
+      setFetchingMeta((m) => { const n = { ...m }; delete n[p.id]; return n; });
+    }
+  }, [pushToast]);
+
+  const onReadPaper = useCallback(async (p) => {
+    const id = typeof p === "string" ? p : p.id;
+    const title = typeof p === "string" ? id : (p.title || id);
+    if (!isFetched(fetchedMeta[id])) { pushToast("请先获取全文"); return; }
+    if (!hasBackend()) { pushToast("原型模式无法打开已下载 PDF"); return; }
+    setReadTarget({ paperId: id, title, _t: Date.now() });
+    setMode("read");
+  }, [fetchedMeta, pushToast]);
+
+  const onSave = useCallback((p) => {
+    if (lib.some((x) => x.id === p.id)) {
+      bridge.libraryRemove(p.id);
+      setLib((l) => l.filter((x) => x.id !== p.id));
+      const next = lists.map((L) => ({ ...L, ids: L.ids.filter((x) => x !== p.id) }));
+      setLists(next); bridge.listsSave(next);
+      pushToast("已移出收藏");
+    } else {
+      bridge.libraryAdd(p, "find_fetch");
+      setLib((l) => [...l, { ...p, provenance: "find_fetch" }]);
+      pushToast("已收藏");
+    }
+  }, [lib, lists, pushToast]);
+
+  const onRemoveLib = useCallback((id) => {
+    bridge.libraryRemove(id);
+    setLib((l) => l.filter((x) => x.id !== id));
+    const next = lists.map((L) => ({ ...L, ids: L.ids.filter((x) => x !== id) })); // 同步清出清单
+    setLists(next); bridge.listsSave(next);
+  }, [lists]);
+  const onReadFromLib = useCallback((p) => { if (p) onReadPaper(p); else setMode("read"); }, [onReadPaper]);
+  const createList = useCallback((name, firstId) => { const next = [...lists, { id: "L" + Date.now(), name, ids: firstId ? [firstId] : [] }]; setLists(next); bridge.listsSave(next); }, [lists]);
+  const toggleInList = useCallback((lid, pid) => { const next = lists.map((L) => (L.id === lid ? { ...L, ids: L.ids.includes(pid) ? L.ids.filter((x) => x !== pid) : [...L.ids, pid] } : L)); setLists(next); bridge.listsSave(next); }, [lists]);
+  const deleteList = useCallback((lid) => { const next = lists.filter((L) => L.id !== lid); setLists(next); bridge.listsSave(next); }, [lists]);
+
+  const view = mode === "settings" ? prevMode : mode; // 设置弹窗时底层视图保持不变
+
+  return (
+    <>
+      <style>{BASE_CSS + THEME_CSS}</style>
+      <div className={"lf" + (isLight(theme) ? " day" : "")} data-theme={theme}>
+        <header className="lf-top">
+          <div className="lf-brand">
+            <img className="lf-logo" src={LOGO_DATA_URI} alt="Lumina Feed" width={34} height={34} />
+            <div className="lf-wm"><span className="nm">Lumina Feed</span><span className="tg">Locate · Fetch · Illuminate</span></div>
+          </div>
+          <nav className="lf-nav" role="tablist" aria-label="主模块">
+            <button role="tab" aria-selected={mode === "find"} className={"lf-tab" + (mode === "find" ? " on" : "")} onClick={() => setMode("find")}><Telescope size={15} /> 检索取文</button>
+            <button role="tab" aria-selected={mode === "subs"} className={"lf-tab" + (mode === "subs" ? " on" : "")} onClick={() => setMode("subs")}><Rss size={15} /> 订阅简报 {subsNew > 0 && <span className="lf-badge">{subsNew}</span>}</button>
+            <button role="tab" aria-selected={mode === "library"} className={"lf-tab" + (mode === "library" ? " on" : "")} onClick={() => setMode("library")}><BookMarked size={15} /> 我的文献 {lib.length > 0 && <span className="lf-badge">{lib.length}</span>}</button>
+            <button role="tab" aria-selected={mode === "read"} className={"lf-tab" + (mode === "read" ? " on" : "")} onClick={() => setMode("read")}><BookOpen size={15} /> 阅读</button>
+          </nav>
+          <div className="lf-tools">
+            <span className="lf-status" title="数据、PDF 与索引都在本机"><span className="lf-dot" /> 本机 · 已就绪</span>
+            <div className="lf-theme-wrap">
+              <button className={"lf-icon" + (themeOpen ? " on" : "")} title="主题" aria-haspopup="true" aria-expanded={themeOpen} onClick={() => setThemeOpen((o) => !o)}><Palette size={16} /></button>
+              {themeOpen && (
+                <div className="lf-tmenu" role="menu" onMouseLeave={() => setThemeOpen(false)}>
+                  <div className="th">主题</div>
+                  {THEMES.map((t) => (
+                    <button key={t.id} role="menuitemradio" aria-checked={theme === t.id} className={"lf-trow" + (theme === t.id ? " on" : "")} onClick={() => { onTheme(t.id); setThemeOpen(false); }}>
+                      <span className="lf-sw">{(t.swatch || []).map((c, i) => <i key={i} style={{ background: c }} />)}</span>
+                      {t.name}
+                      {theme === t.id && <span className="ck"><Check size={14} /></span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button className={"lf-icon" + (mode === "settings" ? " on" : "")} title="设置" aria-label="设置" onClick={() => { if (mode !== "settings") setPrevMode(mode); setMode("settings"); }}><SettingsIcon size={16} /></button>
+          </div>
+        </header>
+        <main className="lf-stage">
+          {view === "find" ? (
+            <FindFetch
+              fetchedMeta={fetchedMeta}
+              fetchingMeta={fetchingMeta}
+              fetchTick={fetchTick}
+              onFetch={onFetch}
+              onReadPaper={onReadPaper}
+              onSave={onSave}
+              inLibFn={inLibFn}
+              pushToast={pushToast}
+            />
+          ) : view === "subs" ? (
+            <Subscriptions
+              pushToast={pushToast}
+              fetchedMeta={fetchedMeta}
+              fetchingMeta={fetchingMeta}
+              fetchTick={fetchTick}
+              onFetch={onFetch}
+              onReadPaper={onReadPaper}
+            />
+          ) : view === "read" ? (
+            <ReaderModule
+              pushToast={pushToast}
+              incoming={incomingPdf}
+              onIncomingHandled={() => setIncomingPdf(null)}
+              readTarget={readTarget}
+              onReadTargetHandled={() => setReadTarget(null)}
+            />
+          ) : view === "library" ? (
+            <Library lib={lib} lists={lists} onCreateList={createList} onToggleInList={toggleInList} onDeleteList={deleteList} onRemove={onRemoveLib} onRead={onReadFromLib} fetchedMeta={fetchedMeta} pushToast={pushToast} />
+          ) : (
+            <FindFetch fetchedMeta={fetchedMeta} fetchingMeta={fetchingMeta} fetchTick={fetchTick} onFetch={onFetch} onReadPaper={onReadPaper} onSave={onSave} inLibFn={inLibFn} pushToast={pushToast} />
+          )}
+        </main>
+        {mode === "settings" && (
+          <Settings theme={theme} onTheme={onTheme} pushToast={pushToast} onClose={() => setMode(prevMode)} />
+        )}
+        {toasts.map((t) => (
+          <div key={t.id} className="lf-toast">{t.msg}</div>
+        ))}
+      </div>
+    </>
+  );
+}

@@ -1,0 +1,446 @@
+// Lumina Feed · 设置 —— 弹窗 + 左侧分类（大模型 / 阅读 / 外观 / 隐私 / 通用 / 关于）
+// 复用引擎既有 settings:get/save + secrets:set（密钥仅入系统钥匙串，绝不写配置/代码 = 红线3）。
+// 主题切换由壳层 onTheme 即时应用 + 持久化；视觉读图归「隐私」；阅读偏好归「阅读」。豆包模型框支持 Model ID 或推理接入点 ep-。
+import React, { useState, useEffect, useCallback } from "react";
+import { Cpu, Palette, Bell, Mail, KeyRound, Check, Save, Info, Eye, EyeOff, Plug, ChevronDown, RefreshCw, Loader, X, BookOpen, Shield } from "lucide-react";
+import { bridge, hasBackend } from "../lumina-bridge.js";
+import { THEMES } from "../themes.js";
+import { CURATED_MODELS, PROVIDER_DEFAULT_MODEL, OLLAMA_MODEL_PRESETS } from "../../core/summarize/model-presets.ts";
+
+// provider 预设：id 即引擎 LlmConfig.provider；密钥名 = `${id}_key`；ollama 无需 key；自定义需 baseUrl。
+const PROVIDERS = [
+  { id: "deepseek",  label: "DeepSeek（默认）", model: PROVIDER_DEFAULT_MODEL.deepseek, needsKey: true,  base: "https://api.deepseek.com" },
+  { id: "anthropic", label: "Claude（Anthropic）", model: PROVIDER_DEFAULT_MODEL.anthropic, needsKey: true,  base: "https://api.anthropic.com" },
+  { id: "openai",    label: "OpenAI",            model: PROVIDER_DEFAULT_MODEL.openai, needsKey: true,  base: "https://api.openai.com" },
+  { id: "moonshot",  label: "Kimi（Moonshot）",  model: PROVIDER_DEFAULT_MODEL.moonshot, needsKey: true,  base: "https://api.moonshot.cn" },
+  { id: "doubao",    label: "豆包（火山方舟）",    model: PROVIDER_DEFAULT_MODEL.doubao, needsKey: true,  base: "https://ark.cn-beijing.volces.com/api/v3" },
+  { id: "ollama",    label: "Ollama（本地）",     model: PROVIDER_DEFAULT_MODEL.ollama, needsKey: false, base: "http://localhost:11434", showBase: true },
+  { id: "custom",    label: "自定义（OpenAI 兼容）", model: "",                          needsKey: true,  base: "", showBase: true, baseRequired: true },
+];
+// 内置兜底清单（动态 listModels 失败或未配 key 时使用；云端下拉经引擎精选过滤）
+const MODEL_PRESETS = {
+  deepseek: [...CURATED_MODELS.deepseek],
+  anthropic: [...CURATED_MODELS.anthropic],
+  openai: [...CURATED_MODELS.openai],
+  moonshot: [...CURATED_MODELS.moonshot],
+  doubao: [...CURATED_MODELS.doubao],
+  ollama: [...OLLAMA_MODEL_PRESETS],
+  custom: [],
+};
+const presetOf = (id) => PROVIDERS.find((p) => p.id === id) || PROVIDERS[0];
+
+// 设置分类（左侧导航）：随类目增长，左栏才名副其实——本版把视觉读图独立为「隐私」，并新增「阅读」「关于」。
+const CATS = [
+  { id: "llm", label: "大模型", icon: Cpu },
+  { id: "reader", label: "阅读", icon: BookOpen },
+  { id: "appearance", label: "外观", icon: Palette },
+  { id: "privacy", label: "隐私", icon: Shield },
+  { id: "general", label: "通用", icon: Bell },
+  { id: "about", label: "关于", icon: Info },
+];
+
+const SET_CSS = `
+.set-h1{font-family:'Source Serif 4',Georgia,serif;font-size:22px;font-weight:600;margin:0;color:var(--ink)}
+.set-sec-d{font-size:12px;color:var(--ink3);line-height:1.55;margin:-6px 0 0}
+.set-row{display:flex;flex-direction:column;gap:6px}
+.set-lbl{font-size:12px;color:var(--ink2);font-weight:500}
+.set-provs{display:flex;flex-wrap:wrap;gap:7px}
+.set-prov{border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:9px;padding:7px 12px;font-size:12.5px;cursor:pointer;font-family:inherit}
+.set-prov:hover{border-color:var(--gold);color:var(--gold)}
+.set-prov.on{background:var(--gold);color:#fff;border-color:var(--gold)}
+.set-in{border:1px solid var(--line2);border-radius:9px;padding:9px 11px;font-size:13px;font-family:inherit;background:var(--surf);color:var(--ink);outline:none;width:100%;box-sizing:border-box}
+.set-in:focus{border-color:var(--gold)}
+.set-mono{font-family:'Space Mono',monospace;font-size:12px}
+.set-hint{font-size:11px;color:var(--ink4);line-height:1.5}
+.set-ep-ok{color:var(--goldDim);font-weight:500}
+.set-btnrow{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+.set-btn2{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line2);background:var(--surf);color:var(--ink);border-radius:10px;padding:9px 15px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
+.set-btn2:hover:not(:disabled){border-color:var(--gold);color:var(--gold)}
+.set-btn2:disabled{opacity:.6;cursor:default}
+.set-test{font-size:12px;font-family:'Space Mono',monospace;border-radius:8px;padding:7px 10px;line-height:1.5}
+.set-test.ok{color:var(--goldDim);background:rgba(14,124,111,.08);border:1px solid rgba(14,124,111,.25)}
+.set-test.err{color:#9a6b2e;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3)}
+.set-key{display:flex;gap:8px;align-items:center}
+.set-key svg{color:var(--ink3);flex-shrink:0}
+.set-lbl-sub{font-weight:400;color:var(--ink4);font-size:11px}
+.set-combo{position:relative;display:flex;gap:8px;align-items:center}
+.set-combo-btn{flex:1;display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--line2);border-radius:9px;padding:9px 11px;background:var(--surf);color:var(--ink);cursor:pointer;font-family:inherit;min-width:0}
+.set-combo-btn:hover{border-color:var(--gold)}
+.set-combo-in{flex:1;border:1px solid var(--line2);border-radius:9px;padding:9px 11px;background:var(--surf);color:var(--ink);font-family:inherit;min-width:0}
+.set-combo-in:focus{border-color:var(--gold);outline:none}
+.set-combo-tg{flex-shrink:0;width:38px;height:38px;display:grid;place-items:center;border:1px solid var(--line2);border-radius:9px;background:var(--surf);color:var(--ink2);cursor:pointer}
+.set-combo-tg:hover{border-color:var(--gold);color:var(--gold)}
+.set-key-eye{flex-shrink:0;width:38px;height:38px;display:grid;place-items:center;border:1px solid var(--line2);border-radius:9px;background:var(--surf);color:var(--ink2);cursor:pointer}
+.set-key-eye:hover{border-color:var(--gold);color:var(--gold)}
+.set-combo-rf{flex-shrink:0;width:38px;height:38px;display:grid;place-items:center;border:1px solid var(--line2);border-radius:9px;background:var(--surf);color:var(--ink2);cursor:pointer}
+.set-combo-rf:hover:not(:disabled){border-color:var(--gold);color:var(--gold)}
+.set-combo-rf:disabled{opacity:.6;cursor:default}
+.set-spin{display:inline-flex;animation:set-spin 1s linear infinite}
+@keyframes set-spin{to{transform:rotate(360deg)}}
+.set-combo-menu{position:absolute;top:calc(100% + 5px);left:0;right:0;z-index:30;background:var(--raise);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow-lg);padding:5px;max-height:264px;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+.set-combo-note{font-size:10.5px;color:var(--ink4);padding:5px 9px 3px}
+.set-combo-opt{display:flex;align-items:center;justify-content:space-between;gap:8px;border:none;background:transparent;color:var(--ink2);text-align:left;padding:8px 10px;border-radius:7px;cursor:pointer;font-size:12.5px}
+.set-combo-opt:hover{background:var(--surf2);color:var(--gold)}
+.set-combo-opt.on{color:var(--gold)}
+.set-btn{align-self:flex-start;display:inline-flex;align-items:center;gap:7px;border:none;background:var(--gold);color:#fff;border-radius:10px;padding:9px 15px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
+.set-btn:disabled{opacity:.6;cursor:default}
+.set-themes{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.set-theme{border:1.5px solid var(--line2);border-radius:11px;padding:10px;cursor:pointer;display:flex;flex-direction:column;gap:8px;background:var(--surf)}
+.set-theme:hover{border-color:var(--gold)}
+.set-theme.on{border-color:var(--gold);box-shadow:0 0 0 2px rgba(14,124,111,.18)}
+.set-sw{height:34px;border-radius:7px;display:flex;overflow:hidden;border:1px solid var(--line2)}
+.set-sw span{flex:1}
+.set-theme-nm{font-size:12px;color:var(--ink2);display:flex;align-items:center;justify-content:space-between}
+.set-theme-nm .ck{color:var(--gold)}
+.set-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.set-switch{width:42px;height:24px;border-radius:13px;border:none;cursor:pointer;position:relative;transition:background .15s;background:var(--line2)}
+.set-switch.on{background:var(--gold)}
+.set-switch i{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s}
+.set-switch.on i{left:20px}
+.set-note{display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:1.55;color:var(--ink3);background:var(--surf2);border:1px solid var(--line);border-radius:10px;padding:11px 13px}
+.set-note svg{color:var(--gold);flex-shrink:0;margin-top:1px}
+.set-warn{color:#9a6b2e;background:rgba(245,158,11,.08);border-color:rgba(245,158,11,.3)}
+@media (prefers-reduced-motion: reduce){ .set-switch,.set-switch i,.set-prov,.set-theme,.set-btn{transition:none !important} }
+/* 弹窗外壳 + 左侧分类导航 */
+.set-backdrop{position:fixed;inset:0;z-index:200;background:rgba(20,18,16,.46);display:flex;align-items:center;justify-content:center;padding:28px;backdrop-filter:blur(2px)}
+.set-modal{width:100%;max-width:880px;height:100%;max-height:680px;background:var(--surf);border:1px solid var(--line);border-radius:18px;box-shadow:0 24px 70px rgba(0,0,0,.32);display:flex;flex-direction:column;overflow:hidden}
+.set-modal-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line);flex-shrink:0}
+.set-close{width:34px;height:34px;display:grid;place-items:center;border:1px solid var(--line2);border-radius:9px;background:var(--surf);color:var(--ink2);cursor:pointer}
+.set-close:hover{border-color:var(--gold);color:var(--gold)}
+.set-modal-body{flex:1;min-height:0;display:flex}
+.set-rail{width:176px;flex-shrink:0;border-right:1px solid var(--line);padding:12px 10px;display:flex;flex-direction:column;gap:3px;overflow-y:auto;background:var(--surf2)}
+.set-railbtn{display:flex;align-items:center;gap:10px;border:none;background:transparent;color:var(--ink2);text-align:left;padding:9px 12px;border-radius:10px;cursor:pointer;font-size:13.5px;font-family:inherit;font-weight:500}
+.set-railbtn svg{color:var(--ink3);flex-shrink:0}
+.set-railbtn:hover{background:var(--surf);color:var(--ink)}
+.set-railbtn.on{background:var(--gold);color:#fff}
+.set-railbtn.on svg{color:#fff}
+.set-pane{flex:1;min-width:0;overflow-y:auto;padding:24px 28px 40px;display:flex;flex-direction:column;gap:20px}
+.set-pane-h{font-family:'Source Serif 4',Georgia,serif;font-size:18px;font-weight:600;margin:0 0 2px;color:var(--ink);display:flex;align-items:center;gap:9px}
+.set-pane-h svg{color:var(--gold)}
+.set-kv{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:2px 0}
+.set-kv-main{display:flex;flex-direction:column;gap:3px;min-width:0}
+.set-kv-d{font-size:11px;color:var(--ink4);line-height:1.5}
+.set-seg{display:inline-flex;gap:3px;background:var(--surf2);border:1px solid var(--line);border-radius:9px;padding:3px}
+.set-seg button{border:none;background:transparent;color:var(--ink2);padding:6px 12px;border-radius:7px;cursor:pointer;font-size:12.5px;font-family:inherit}
+.set-seg button.on{background:var(--gold);color:#fff}
+.set-kbd{font-family:'Space Mono',monospace;font-size:11px;background:var(--surf2);border:1px solid var(--line);border-radius:6px;padding:2px 7px;color:var(--ink2)}
+.set-kbd-row{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12.5px;color:var(--ink2);padding:5px 0;border-bottom:1px dashed var(--line)}
+.set-kbd-row:last-child{border-bottom:none}
+.set-about{font-size:12.5px;color:var(--ink2);line-height:1.7}
+.set-about b{color:var(--ink)}
+@media (max-width:680px){ .set-rail{width:128px} .set-modal{max-height:none;height:100%} }
+`;
+
+export default function Settings({ theme, onTheme, pushToast, onClose }) {
+  const [provider, setProvider] = useState("deepseek");
+  const [model, setModel] = useState(PROVIDER_DEFAULT_MODEL.deepseek);
+  const [baseUrl, setBaseUrl] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [showKey, setShowKey] = useState(false);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [fetchedModels, setFetchedModels] = useState(null);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsErr, setModelsErr] = useState(null);
+  const [customMode, setCustomMode] = useState(false);
+  const [contactEmail, setContactEmail] = useState("");
+  const [notifications, setNotifications] = useState(true);
+  const [bgTray, setBgTray] = useState(false);
+  const [bgLogin, setBgLogin] = useState(false);
+  const [savingLlm, setSavingLlm] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+  const [visionConsent, setVisionConsent] = useState(false);
+  const [savingGen, setSavingGen] = useState(false);
+  const [activeCat, setActiveCat] = useState("llm");
+  const [rememberPos, setRememberPos] = useState(true);     // 续读位置（默认开）
+  const [defaultZoom, setDefaultZoom] = useState(1.1);       // 阅读器默认缩放
+  const [nightInvert, setNightInvert] = useState(false);     // 夜读反色默认
+  const [savingReader, setSavingReader] = useState(false);
+  const backend = hasBackend();
+
+  useEffect(() => {
+    let alive = true;
+    bridge.getSettings().then((s) => {
+      if (!alive || !s) return;
+      if (s.llm && s.llm.provider) { setProvider(s.llm.provider); setModel(s.llm.model || presetOf(s.llm.provider).model); if (s.llm.baseUrl) setBaseUrl(s.llm.baseUrl); if (typeof s.llm.visionConsent === "boolean") setVisionConsent(s.llm.visionConsent); }
+      if (typeof s.contactEmail === "string") setContactEmail(s.contactEmail);
+      if (typeof s.notifications === "boolean") setNotifications(s.notifications);
+      if (s.app) { setBgTray(!!s.app.minimizeToTray); setBgLogin(!!s.app.openAtLogin); }
+      if (s.reader) { if (typeof s.reader.rememberPos === "boolean") setRememberPos(s.reader.rememberPos); if (typeof s.reader.defaultZoom === "number") setDefaultZoom(s.reader.defaultZoom); if (typeof s.reader.nightInvert === "boolean") setNightInvert(s.reader.nightInvert); }
+      bridge.setBackground && bridge.setBackground(!!(s.app && s.app.minimizeToTray), !!(s.app && s.app.openAtLogin)); // 启动同步主进程
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const onPickProvider = (id) => {
+    setProvider(id);
+    const p = presetOf(id);
+    setModel(p.model);
+    setBaseUrl(p.showBase ? (id === "ollama" ? "" : "") : "");
+    setApiKey("");
+  };
+
+  const fetchModels = useCallback(async () => {
+    const pr = presetOf(provider);
+    setModelsLoading(true); setModelsErr(null);
+    try {
+      const res = await bridge.listModels({ provider, baseUrl: pr.showBase ? (baseUrl.trim() || undefined) : undefined, apiKey: apiKey.trim() || undefined });
+      if (res && res.ok && Array.isArray(res.models) && res.models.length) setFetchedModels(res.models);
+      else { setFetchedModels(null); if (res && res.error) setModelsErr(res.error); }
+    } catch (e) { setFetchedModels(null); setModelsErr("拉取失败"); }
+    finally { setModelsLoading(false); }
+  }, [provider, baseUrl, apiKey]);
+  // 切换供应商即拉取（有 key / Ollama 返回真列表；无 key 静默回落内置清单）。
+  useEffect(() => { setFetchedModels(null); setCustomMode(false); setModelMenuOpen(false); fetchModels(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [provider]);
+  const preset = presetOf(provider);
+  const availModels = (fetchedModels && fetchedModels.length) ? fetchedModels : (MODEL_PRESETS[provider] || []);
+  const showCustomInput = customMode || (!!model && !availModels.includes(model)); // 自填/自定义模型能力标记（provider_translate 契约）
+
+  const saveLlm = useCallback(async () => {
+    setSavingLlm(true);
+    try {
+      const llm = { provider, model: (model || preset.model).trim(), visionConsent };
+      if (preset.showBase && baseUrl.trim()) llm.baseUrl = baseUrl.trim();
+      const cur = (await bridge.getSettings()) || {};
+      const next = { ...cur, llm };
+      await bridge.saveSettings(next);
+      if (preset.needsKey && apiKey.trim()) { await bridge.setSecret(provider + "_key", apiKey.trim()); setApiKey(""); }
+      pushToast && pushToast(backend ? "已保存大模型设置" : "（原型）未接后端，设置未持久化");
+    } catch (e) { pushToast && pushToast("保存失败"); }
+    finally { setSavingLlm(false); }
+  }, [provider, model, baseUrl, apiKey, preset, backend, pushToast, visionConsent]);
+
+  const onTestLlm = useCallback(async () => {
+    setTesting(true); setTestResult(null);
+    try {
+      const res = await bridge.testLlm({ provider, model: (model || preset.model).trim(), baseUrl: preset.showBase ? baseUrl.trim() : undefined, apiKey: apiKey.trim() || undefined });
+      setTestResult(res && typeof res.ok === "boolean" ? res : { ok: false, error: "无响应" });
+    } catch (e) { setTestResult({ ok: false, error: "测试失败" }); }
+    finally { setTesting(false); }
+  }, [provider, model, baseUrl, apiKey, preset]);
+
+  const saveReader = useCallback(async () => {
+    setSavingReader(true);
+    try {
+      const cur = (await bridge.getSettings()) || {};
+      const reader = { ...(cur.reader || {}), rememberPos, defaultZoom, nightInvert };
+      await bridge.saveSettings({ ...cur, reader });
+      pushToast && pushToast(backend ? "已保存阅读设置" : "（原型）未接后端，设置未持久化");
+    } catch (e) { pushToast && pushToast("保存失败"); }
+    finally { setSavingReader(false); }
+  }, [rememberPos, defaultZoom, nightInvert, backend, pushToast]);
+
+  // 弹窗 Esc 关闭：用捕获阶段 + stopImmediatePropagation，先于阅读器(window 冒泡)处理，避免误触底层阅读器的 Esc。
+  useEffect(() => {
+    if (!onClose) return;
+    const onKey = (e) => { if (e.key === "Escape") { e.stopImmediatePropagation(); onClose(); } };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onClose]);
+
+  const saveGeneral = useCallback(async () => {
+    setSavingGen(true);
+    try {
+      const cur = (await bridge.getSettings()) || {};
+      const next = { ...cur, contactEmail: contactEmail.trim() || undefined, notifications, app: { minimizeToTray: bgTray, openAtLogin: bgLogin } };
+      await bridge.saveSettings(next);
+      bridge.setBackground && bridge.setBackground(bgTray, bgLogin);
+      pushToast && pushToast(backend ? "已保存通用设置" : "（原型）未接后端，设置未持久化");
+    } catch (e) { pushToast && pushToast("保存失败"); }
+    finally { setSavingGen(false); }
+  }, [contactEmail, notifications, bgTray, bgLogin, backend, pushToast]);
+
+  return (
+    <div className="set-backdrop" onClick={onClose}>
+      <div className="set-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="设置">
+        <style>{SET_CSS}</style>
+        <div className="set-modal-head">
+          <h1 className="set-h1">设置</h1>
+          <button className="set-close" onClick={onClose} aria-label="关闭设置" title="关闭 (Esc)"><X size={18} /></button>
+        </div>
+        <div className="set-modal-body">
+          <nav className="set-rail" role="tablist" aria-label="设置分类">
+            {CATS.map((c) => (
+              <button key={c.id} role="tab" aria-selected={activeCat === c.id} className={"set-railbtn" + (activeCat === c.id ? " on" : "")} onClick={() => setActiveCat(c.id)}>
+                <c.icon size={16} /> {c.label}
+              </button>
+            ))}
+          </nav>
+          <div className="set-pane">
+            {!backend && (
+              <div className="set-note set-warn"><Info size={15} /> 当前未连接引擎（原型模式）：设置可填写与即时应用主题，但不会持久化；密钥也不会写入钥匙串。接入 Electron 引擎后生效。</div>
+            )}
+
+            {activeCat === "llm" && (
+              <>
+                <h2 className="set-pane-h"><Cpu size={18} /> 大模型</h2>
+                <p className="set-sec-d">选择提供方并填模型；密钥仅写入系统钥匙串，绝不进配置或代码（红线3）。AI 总结 / 问答 / 翻译都用此配置。</p>
+                <div className="set-row">
+                  <span className="set-lbl">提供方</span>
+                  <div className="set-provs">
+                    {PROVIDERS.map((p) => (
+                      <button key={p.id} className={"set-prov" + (provider === p.id ? " on" : "")} onClick={() => onPickProvider(p.id)}>{p.label}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="set-row">
+                  <span className="set-lbl">模型 <span className="set-lbl-sub">· 点选；可刷新拉取最新，或自填</span></span>
+                  <div className="set-combo">
+                    <input className="set-combo-in set-mono" value={model} onChange={(e) => setModel(e.target.value)} onFocus={() => setModelMenuOpen(true)} placeholder={preset.model || "模型名（点选或直接输入）"} aria-label="模型名" />
+                    <button type="button" className="set-combo-tg" onClick={() => setModelMenuOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={modelMenuOpen} title="模型列表"><ChevronDown size={14} /></button>
+                    <button type="button" className="set-combo-rf" onClick={() => fetchModels()} disabled={modelsLoading} title="拉取最新模型列表"><span className={modelsLoading ? "set-spin" : ""}>{modelsLoading ? <Loader size={14} /> : <RefreshCw size={14} />}</span></button>
+                    {modelMenuOpen && (
+                      <div className="set-combo-menu" role="listbox">
+                        {modelsErr && <div className="set-combo-note">拉取失败：{modelsErr}——用内置清单，或直接在框内输入</div>}
+                        {!modelsErr && fetchedModels && <div className="set-combo-note">已拉取 {fetchedModels.length} 个（来自 {preset.label}）；也可直接输入</div>}
+                        {!modelsErr && !fetchedModels && availModels.length > 0 && <div className="set-combo-note">内置清单（可能过时，以官网 / 刷新为准）；也可直接输入</div>}
+                        {availModels.map((m) => (
+                          <button type="button" role="option" aria-selected={m === model} key={m} className={"set-combo-opt set-mono" + (m === model ? " on" : "")} onClick={() => { setModel(m); setModelMenuOpen(false); }}>{m}{m === model ? <Check size={13} /> : null}</button>
+                        ))}
+                        {availModels.length === 0 && <div className="set-combo-note">无内置清单——请在框内直接输入模型名，或点刷新拉取</div>}
+                      </div>
+                    )}
+                  </div>
+                  {provider === "doubao" && (
+                    <span className="set-hint">
+                      「模型」可填 <b>Model ID</b>（模型广场，如 <span className="set-mono">doubao-seed-2-1-pro-260628</span>）或<b>推理接入点 ID</b>（在线推理，<span className="set-mono">ep-</span> 开头）——二者都填入此框、二选一。账户未开通的 Model ID 会 404；自建 <span className="set-mono">ep-</span> 接入点在账号内一定可用，<b>推荐</b>。
+                      {model.trim().startsWith("ep-") && <span className="set-ep-ok"><br />✓ 已识别为<b>推理接入点 ID</b>（ep-，在线推理）。</span>}
+                    </span>
+                  )}
+                </div>
+                {preset.showBase && (
+                  <div className="set-row">
+                    <span className="set-lbl">Base URL{preset.baseRequired ? "（必填）" : "（可选，默认 " + (preset.base || "") + "）"}</span>
+                    <input className="set-in set-mono" value={baseUrl} placeholder={preset.base || "https://…/v1"} onChange={(e) => setBaseUrl(e.target.value)} />
+                  </div>
+                )}
+                {preset.needsKey && (
+                  <div className="set-row">
+                    <span className="set-lbl">API Key</span>
+                    <div className="set-key">
+                      <KeyRound size={16} />
+                      <input className="set-in set-mono" type={showKey ? "text" : "password"} value={apiKey} placeholder="粘贴密钥（保存后写入系统钥匙串，不回显）" onChange={(e) => setApiKey(e.target.value)} />
+                      <button type="button" className="set-key-eye" onClick={() => setShowKey((v) => !v)} aria-label={showKey ? "隐藏密钥" : "显示密钥"} title={showKey ? "隐藏" : "显示"}>{showKey ? <EyeOff size={15} /> : <Eye size={15} />}</button>
+                    </div>
+                    <span className="set-hint">留空＝保持现有密钥不变；填入＝更新。密钥不会回显、不写入任何配置文件（红线3）。</span>
+                  </div>
+                )}
+                <div className="set-btnrow">
+                  <button className="set-btn" onClick={saveLlm} disabled={savingLlm}><Save size={15} /> {savingLlm ? "保存中…" : "保存大模型设置"}</button>
+                  <button className="set-btn2" onClick={onTestLlm} disabled={testing} title="用当前填写或已存的配置做一次极小调用，验证密钥/模型/网络是否通"><Plug size={15} /> {testing ? "测试中…" : "测试连接"}</button>
+                </div>
+                {testResult && <div className={"set-test" + (testResult.ok ? " ok" : " err")}>{testResult.ok ? ("✓ 连接成功 · " + testResult.model + (testResult.ms ? " · " + testResult.ms + " ms" : "")) : ("✗ " + (testResult.error || "连接失败"))}</div>}
+              </>
+            )}
+
+            {activeCat === "reader" && (
+              <>
+                <h2 className="set-pane-h"><BookOpen size={18} /> 阅读</h2>
+                <p className="set-sec-d">阅读器的默认行为与快捷键。改动保存后对新打开的文献生效。</p>
+                <div className="set-kv">
+                  <div className="set-kv-main"><span className="set-lbl">记住阅读位置</span><span className="set-kv-d">重开同一篇时回到上次页码（按文献分别记忆）。</span></div>
+                  <button role="switch" aria-checked={rememberPos} className={"set-switch" + (rememberPos ? " on" : "")} onClick={() => setRememberPos((v) => !v)} aria-label="记住阅读位置开关"><i /></button>
+                </div>
+                <div className="set-kv">
+                  <div className="set-kv-main"><span className="set-lbl">默认缩放</span><span className="set-kv-d">打开文献时的初始缩放比例。</span></div>
+                  <div className="set-seg">
+                    {[["100%", 1], ["110%", 1.1], ["125%", 1.25], ["150%", 1.5]].map(([lbl, val]) => (
+                      <button key={lbl} className={defaultZoom === val ? "on" : ""} onClick={() => setDefaultZoom(val)}>{lbl}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="set-kv">
+                  <div className="set-kv-main"><span className="set-lbl">夜读反色（默认）</span><span className="set-kv-d">深色环境下反相页面，减轻白底刺眼；阅读器内也可随时切换。</span></div>
+                  <button role="switch" aria-checked={nightInvert} className={"set-switch" + (nightInvert ? " on" : "")} onClick={() => setNightInvert((v) => !v)} aria-label="夜读反色默认开关"><i /></button>
+                </div>
+                <div className="set-row">
+                  <span className="set-lbl">键盘快捷键</span>
+                  <div>
+                    <div className="set-kbd-row"><span>查找</span><span className="set-kbd">Ctrl / ⌘ + F</span></div>
+                    <div className="set-kbd-row"><span>首页 / 末页</span><span className="set-kbd">Home / End</span></div>
+                    <div className="set-kbd-row"><span>上一页 / 下一页</span><span className="set-kbd">← → · PgUp / PgDn</span></div>
+                    <div className="set-kbd-row"><span>放大 / 缩小</span><span className="set-kbd">Ctrl / ⌘ + = / -</span></div>
+                    <div className="set-kbd-row"><span>适配宽度</span><span className="set-kbd">Ctrl / ⌘ + 0</span></div>
+                  </div>
+                </div>
+                <button className="set-btn" onClick={saveReader} disabled={savingReader}><Save size={15} /> {savingReader ? "保存中…" : "保存阅读设置"}</button>
+              </>
+            )}
+
+            {activeCat === "appearance" && (
+              <>
+                <h2 className="set-pane-h"><Palette size={18} /> 外观</h2>
+                <p className="set-sec-d">点选即时切换并保存。晴台为默认亮色；暖夜 / 薄暮 / 松林为深色。</p>
+                <div className="set-themes">
+                  {THEMES.map((t) => (
+                    <div key={t.id} className={"set-theme" + (theme === t.id ? " on" : "")} onClick={() => onTheme && onTheme(t.id)}>
+                      <div className="set-sw">{(t.swatch || []).map((c, i) => <span key={i} style={{ background: c }} />)}</div>
+                      <div className="set-theme-nm">{t.name}{theme === t.id ? <Check size={14} className="ck" /> : null}</div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {activeCat === "privacy" && (
+              <>
+                <h2 className="set-pane-h"><Shield size={18} /> 隐私</h2>
+                <p className="set-sec-d">Lumina 本地优先：数据、PDF 与索引都在本机。唯一会出网的是你主动配置的云端模型调用。</p>
+                <div className="set-toggle">
+                  <span className="set-lbl"><Eye size={13} style={{ verticalAlign: "-2px", marginRight: 5 }} />允许云端读图（把图表图像发送到云端视觉模型分析）</span>
+                  <button role="switch" aria-checked={visionConsent} className={"set-switch" + (visionConsent ? " on" : "")} onClick={() => setVisionConsent((v) => !v)} aria-label="云端读图开关"><i /></button>
+                </div>
+                <span className="set-hint">默认关闭，守本地优先（红线7）：关闭时图表分析仅用本地视觉模型（Ollama），图像不出本机；开启后才允许把图像发往所选云端模型。改动随「保存大模型设置」一并写入。</span>
+                {visionConsent && provider === "doubao" && (
+                  <div className="set-note"><Info size={15} /> 豆包（火山方舟）支持读图，但需选用<b>视觉 / 多模态模型</b>（如 <span className="set-mono">doubao-seed-*</span> 或 <span className="set-mono">doubao-*-vision-*</span>）；纯文本 pro 会拒绝图像。下拉仅列常用 Model ID；其他 ID 或 <span className="set-mono">ep-</span> 接入点请自填。</div>
+                )}
+                {visionConsent && !["openai", "anthropic", "ollama"].includes(provider) && provider !== "doubao" && (
+                  <div className="set-note set-warn"><Info size={15} /> 当前所选「{preset.label}」多为纯文本模型，可能不支持读图：图表分析需 OpenAI / Anthropic 的视觉模型，或本地 Ollama 多模态模型（如 llava / qwen2-vl）。纯文本模型（如 deepseek-v4-flash）会返回「不支持视觉输入」。</div>
+                )}
+                <div className="set-btnrow">
+                  <button className="set-btn" onClick={saveLlm} disabled={savingLlm}><Save size={15} /> {savingLlm ? "保存中…" : "保存大模型设置"}</button>
+                </div>
+                <div className="set-note"><Info size={15} /> 密钥安全：经 <span className="set-mono">secrets:set</span> 存入 OS 钥匙串 / 环境变量；本应用从不读取回显，也绝不写入配置文件或代码。</div>
+              </>
+            )}
+
+            {activeCat === "general" && (
+              <>
+                <h2 className="set-pane-h"><Bell size={18} /> 通用</h2>
+                <div className="set-toggle">
+                  <span className="set-lbl">桌面通知（订阅简报等）</span>
+                  <button role="switch" aria-checked={notifications} className={"set-switch" + (notifications ? " on" : "")} onClick={() => setNotifications((v) => !v)} aria-label="通知开关"><i /></button>
+                </div>
+                <div className="set-toggle">
+                  <span className="set-lbl">关闭时最小化到托盘后台运行（订阅检索与每日简报继续）</span>
+                  <button role="switch" aria-checked={bgTray} className={"set-switch" + (bgTray ? " on" : "")} onClick={() => setBgTray((v) => !v)} aria-label="后台运行开关"><i /></button>
+                </div>
+                <div className="set-toggle">
+                  <span className="set-lbl">开机时自动启动 Lumina</span>
+                  <button role="switch" aria-checked={bgLogin} className={"set-switch" + (bgLogin ? " on" : "")} onClick={() => setBgLogin((v) => !v)} aria-label="开机自启开关"><i /></button>
+                </div>
+                <span className="set-hint">后台运行：关主窗口后驻留系统托盘，订阅按计划检索、有新发表时桌面通知；从托盘可重新打开或退出。托盘/自启为系统级，需打包后真机验证（Linux 自启支持有限）。</span>
+                <div className="set-row">
+                  <span className="set-lbl"><Mail size={13} style={{ verticalAlign: "-2px", marginRight: 5 }} />联系邮箱（用于 OA 取文的礼貌池标识，可选）</span>
+                  <input className="set-in" type="email" value={contactEmail} placeholder="you@example.org" onChange={(e) => setContactEmail(e.target.value)} />
+                </div>
+                <button className="set-btn" onClick={saveGeneral} disabled={savingGen}><Save size={15} /> {savingGen ? "保存中…" : "保存通用设置"}</button>
+              </>
+            )}
+
+            {activeCat === "about" && (
+              <>
+                <h2 className="set-pane-h"><Info size={18} /> 关于</h2>
+                <div className="set-about">
+                  <p><b>Lumina Feed</b> —— 本地优先的个人文献工具：定位一篇 → 多源取全文 PDF → AI 照亮（读 / 译 / 总结 / 批注）+ 主题订阅 + 每日简报。</p>
+                  <p style={{ marginTop: 10 }}><b>底线（始终成立）</b></p>
+                  <p>· 全文按 OA → LibGen → Anna's Archive → Sci-Hub 顺序自动尝试；<br />· AI 只排序 / 总结，从不替你裁决纳入或排除；<br />· 密钥只入 OS 钥匙串，绝不写配置或代码；<br />· 每条总结都带依据徽章与页码引用，可回原文核对；<br />· 预印本标注「未经同行评议」、已撤稿明确提示；<br />· 数据、PDF 与索引都在本机。</p>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
