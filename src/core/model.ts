@@ -13,6 +13,7 @@ export interface SearchHit {
   pmid?: string;
   pmcid?: string;
   arxivId?: string;
+  s2Id?: string;             // Semantic Scholar paperId（去重键 s2:）
   title: string;
   abstract?: string;
   authors: string[];

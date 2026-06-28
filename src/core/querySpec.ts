@@ -8,10 +8,17 @@ export type BoolOp = "AND" | "OR" | "NOT";
 export interface QueryTerm { field: Field; value: string; explode?: boolean }
 export interface QueryGroup { op: BoolOp; terms: QueryTerm[] }
 
+export type SearchField = "all" | "title" | "abstract" | "tiab" | "author" | "journal";
+export type SearchSort = "relevance" | "recent" | "cited";
+
 export interface QueryFilters {
   yearFrom?: number; yearTo?: number;
   sources?: string[]; types?: StudyType[];
   peerReviewedOnly?: boolean; openAccessOnly?: boolean; languages?: string[];
+  /** 检索字段范围（Find & Fetch UI 传入） */
+  field?: SearchField;
+  /** 排序：默认 relevance（定位），非数据库式总数 */
+  sort?: SearchSort;
 }
 
 export interface QuerySpec {

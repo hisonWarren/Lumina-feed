@@ -2,6 +2,7 @@
 // 去重键：① DOI 规范化；② 无 DOI → 标题指纹+首作者姓+年；③ 标题 Jaccard 模糊兜底。
 // 版本归并：preprint 与正式发表经 DOI 关系合并为一条带 versions[]，取「正式/最新」为代表。
 import type { SearchHit, Paper } from "./model.ts";
+import { dedupeKeyExt } from "./dedupe-keys.ts";
 
 export function normDoi(doi?: string): string | undefined {
   if (!doi) return undefined;
@@ -17,11 +18,7 @@ const lastName = (a?: string) => (a ? a.split(/[\s,]+/).filter(Boolean).pop() ??
 
 /** 单条命中的去重键 */
 export function dedupeKey(h: SearchHit | Paper): string {
-  const doi = normDoi((h as any).doi);
-  if (doi) return `doi:${doi}`;
-  const fp = titleFingerprint(h.title ?? "");
-  const a = lastName(h.authors?.[0]);
-  return `fp:${fp}|${a}|${h.year ?? ""}`;
+  return dedupeKeyExt(h);
 }
 
 function jaccard(a: string, b: string): number {

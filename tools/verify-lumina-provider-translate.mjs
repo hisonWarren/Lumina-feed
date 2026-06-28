@@ -81,7 +81,7 @@ ok(has(reader, "const pmapRef = useRef({})"), "pmapRef 持久缓存");
 ok(has(reader, "translatePage = useCallback(async (pg, force)"), "translatePage(pg, force)");
 ok(has(reader, "命中持久缓存") && has(reader, "cached: true"), "命中缓存跳过 LLM");
 ok(has(reader, "bridge.saveTranslation(docKey, pg, model || \"\", trans)"), "成功译文落库");
-ok(has(reader, "if (pmapReady) translatePage(page)"), "等缓存载入后再译（先查缓存）");
+ok(/if \(pmapReady[^)]*\) translatePage\(page\)/.test(reader), "等缓存载入后再译（先查缓存）");
 ok(has(reader, "rd-tp-cache") && has(reader, "重新翻译"), "缓存条 + 重新翻译按钮");
 ok(has(reader, "docKey={docKey} model={llmModel}"), "TranslatePanel 传入 docKey/llmModel");
 const brdSave = (reader.match(/bridge\.saveTranslation/g) || []).length;

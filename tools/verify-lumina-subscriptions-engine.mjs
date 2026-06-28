@@ -30,9 +30,9 @@ if(exists("electron/ipc.ts")){ const s=read("electron/ipc.ts");
 console.log("\n— 4. runNow 真检索 + 期刊分支 + 成本闸 —");
 if(exists("electron/ipc.ts")){ const s=read("electron/ipc.ts");
   /aggregateSearch\(spec/.test(s)&&/store\.papers\.upsertMany/.test(s)?ok("真检索 aggregateSearch + 命中落库"):bad("缺真检索/落库");
-  /kind === "journal"/.test(s)&&/field: "journal"/.test(s)?ok("期刊分支（journal 字段；PubMed [Journal] 接受 ISSN/刊名）"):bad("缺期刊分支");
-  /sources: \["pubmed", "europepmc", "crossref", "openalex"\]/.test(s)?ok("期刊模式限非预印本源"):wn("期刊未限源");
-  /autoSummarize/.test(s)&&/"abstract"/.test(s)&&/topN|slice\(0, 3\)/.test(s)?ok("成本闸（off/abstract/topN）限制自动总结范围"):bad("缺成本闸");
+  /buildDigestSpec/.test(s)&&/JOURNAL_DIGEST_SOURCES|buildDigestSpec\(norm\)/.test(s)?ok("期刊分支（journal 字段 + 8 源白名单）"):bad("缺期刊分支");
+  /buildDigestSearchOpts|applyDigestSearchOpts/.test(s)?ok("继承 buildSearchOpts（keys/depth/disabledSources）"):bad("缺 digest opts 对齐");
+  /autoSummarize/.test(s)&&/"abstract"/.test(s)&&(/topN|slice\(0, 3\)/.test(s)||/mode === "blurb"/.test(s))?ok("成本闸（off/abstract/topN/blurb）"):bad("缺成本闸");
   /DEFAULT_SUMMARIZE/.test(s)&&/summarizeGrounded\(/.test(s)?ok("自动总结复用 summarizeGrounded（带 sourceBasis）"):wn("自动总结未接 summarizeGrounded");
 }
 
@@ -51,7 +51,7 @@ if(exists("electron/ipc.ts")){ const s=read("electron/ipc.ts");
   // runNow 失败/无结果返回空，不伪造
   /return \{ ok: false, hits: \[\] \}/.test(s)?ok("无结果/失败返回空命中（不伪造）"):wn("未见空命中兜底");
   // 不引入分面/命中总数/深分页（lookup 定位；limit 30）
-  /limit: 30/.test(s)?ok("沿用 limit 30（lookup 定位，无深分页）"):wn("未见 limit");
+  /buildDigestSearchOpts|applyDigestSearchOpts/.test(s)?ok("digest limit 随 searchDepth（lookup 定位，无深分页）"):wn("未见 digest opts");
   let leak=false; ["facet","hitCount","totalCount","深分页","offset:"].forEach((b)=>{ if(s.includes(b)){bad(`疑似越界 "${b}"`);leak=true;} });
   if(!leak) ok("无分面/命中总数/深分页（不滑向数据库）");
 }

@@ -1,0 +1,27 @@
+/* src/ui/styles/results-paging.css — 结果分页样式（token 化；选中页=实心 petrol，doc 03 §2）。
+   层叠在 finish-all.css / open-sources.css 之后。 */
+.lf-pager{ margin:22px 0 8px; display:flex; flex-direction:column; gap:10px; align-items:center; }
+.lf-pager-row{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:center; }
+.lf-pg{ font:inherit; font-size:13px; color:var(--ink2); background:var(--surf2); border:1px solid var(--line);
+  border-radius:8px; padding:6px 11px; cursor:pointer; transition:var(--transition,140ms ease); min-width:34px; }
+.lf-pg:hover:not(:disabled){ background:var(--raise); border-color:var(--line2); }
+.lf-pg:disabled{ opacity:.4; cursor:not-allowed; }
+.lf-pg-nums{ display:flex; align-items:center; gap:4px; }
+.lf-pg.num{ min-width:34px; text-align:center; font-family:var(--mono); }
+.lf-pg.num.on{ background:var(--petrol); color:#fff; border-color:var(--petrol); }   /* doc 03 §2 选中态 */
+.lf-pg.num.on:hover{ background:var(--petrol); }
+.lf-pg-gap{ padding:0 4px; color:var(--ink4); font-family:var(--mono); }
+.lf-pg.first,.lf-pg.last{ font-family:var(--mono); }
+.lf-pager-meta{ display:flex; align-items:center; gap:16px; flex-wrap:wrap; justify-content:center; }
+.lf-pg-range{ font-size:12.5px; color:var(--ink3); }
+.lf-pg-range b{ font-family:var(--mono); color:var(--ink2); }
+.lf-pg-q{ display:inline-flex; align-items:center; margin-left:6px; font-size:10.5px; color:var(--ink4);
+  border:1px solid var(--line); border-radius:5px; padding:0 5px; cursor:help; }
+.lf-pg-size{ font-size:12.5px; color:var(--ink3); display:inline-flex; align-items:center; gap:6px; }
+.lf-pg-size select{ font:inherit; font-size:12.5px; padding:3px 6px; border:1px solid var(--line);
+  border-radius:6px; background:var(--surf); color:var(--ink); }
+.lf-pager-refine{ font-size:12.5px; color:var(--ink3); background:var(--surf2); border:1px dashed var(--line2);
+  border-radius:var(--radius,12px); padding:9px 13px; text-align:center; max-width:560px; }
+.lf-refine-link{ font:inherit; font-size:12.5px; font-weight:600; color:var(--petrol); background:transparent; border:0; cursor:pointer; }
+.lf-refine-link:hover{ color:var(--petrol-deep); text-decoration:underline; }
+@media (prefers-reduced-motion: reduce){ .lf-pg{ transition:none !important; } }

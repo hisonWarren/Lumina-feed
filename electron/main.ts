@@ -9,6 +9,7 @@ import { setPoliteIdentity } from "../src/core/sources/adapter.ts";
 import { keytarStore } from "../src/core/secrets/keyvault.ts";
 import { registerIpc, startSubsScheduler } from "./ipc.ts";
 import { loadAppSettings } from "./settings.ts";
+import { installDefaultLimiters } from "../src/core/sources/rate-limit.ts";
 
 // 统一 userData 目录（与 npm 包名 lumina-feed 解耦，避免旧测试数据被安装版误读）
 app.setPath("userData", path.join(app.getPath("appData"), "Lumina Feed"));
@@ -83,8 +84,14 @@ async function createWindow() {
 
 app.whenReady().then(async () => {
   if (!gotLock) return;
-  setPoliteIdentity({ tool: "lumina-feed", email: process.env.LUMINA_CONTACT_EMAIL });
+  installDefaultLimiters();
   store = initStore(await openBetterSqlite(path.join(app.getPath("userData"), "lumina.db")));
+  try {
+    const settings = await loadAppSettings(store);
+    setPoliteIdentity({ tool: "lumina-feed", email: settings.contactEmail ?? process.env.LUMINA_CONTACT_EMAIL });
+  } catch {
+    setPoliteIdentity({ tool: "lumina-feed", email: process.env.LUMINA_CONTACT_EMAIL });
+  }
   await createWindow();
   // oa:fetchPdf 由 reader_engine 在 ipc.ts 注册（含落盘）；不再用 electron-bridge 重复注册
   ipcMain.handle("shell:openExternal", (_e, url: string) => {

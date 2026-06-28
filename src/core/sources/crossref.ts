@@ -1,8 +1,9 @@
 // lumina-feed · Crossref 适配器
-// works?query...&filter=from-pub-date&sort=published&order=desc&mailto=(polite pool)
+// 默认 relevance；recent/cited 时显式 sort。
 import type { SearchHit, StudyType } from "../model.ts";
 import type { QuerySpec } from "../querySpec.ts";
-import { toCrossrefParams } from "../querySpec.ts";
+import { SOURCE_BUILDERS } from "../search/query-spec.ts";
+import { searchContext } from "../search/search-context.ts";
 import { type SourceAdapter, type SearchOpts, getJson, getPoliteIdentity } from "./adapter.ts";
 
 const API = "https://api.crossref.org/works";
@@ -45,9 +46,10 @@ function stripJats(s?: string): string | undefined {
 export const crossrefAdapter: SourceAdapter = {
   id: "crossref",
   async search(q: QuerySpec, opts: SearchOpts = {}): Promise<SearchHit[]> {
-    const p = toCrossrefParams(q, opts.since);
+    const ctx = searchContext(q, opts);
+    const built = SOURCE_BUILDERS.crossref(ctx.q, ctx.field, ctx.sort, ctx.years);
+    const p = new URLSearchParams(built.params);
     p.set("rows", String(opts.limit ?? 25));
-    p.set("sort", "published"); p.set("order", "desc");
     const { email } = getPoliteIdentity();
     if (email) p.set("mailto", email);
     const json = await getJson(`${API}?${p}`, opts);

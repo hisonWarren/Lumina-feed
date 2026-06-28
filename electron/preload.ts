@@ -5,12 +5,16 @@ const invoke = (ch: string, ...args: unknown[]) => ipcRenderer.invoke(ch, ...arg
 
 contextBridge.exposeInMainWorld("luminaApi", {
   searchOnline: (raw: string, filters?: unknown) => invoke("search:online", raw, filters),
+  resolveIdentifier: (raw: string) => invoke("search:resolve-identifier", raw),
+  searchRetrySource: (sourceId: string, raw: string, filters?: unknown) =>
+    invoke("search:retry-source", sourceId, raw, filters),
   summarizePaper: (paperId: string, opts: unknown) => invoke("summarize:paper", paperId, opts),
   getSettings: () => invoke("settings:get"),
   saveSettings: (s: unknown) => invoke("settings:save", s),
   setSecret: (key: string, value: string) => invoke("secrets:set", key, value),
   testLlm: (cfg) => invoke("llm:test", cfg),
   listModels: (cfg) => invoke("llm:listModels", cfg),
+  llmStatus: () => invoke("llm:status"),
   onOpenLocalPdf: (cb: (payload: { name: string; data: ArrayBuffer }) => void) => { ipcRenderer.on("open-local-pdf", (_e, payload) => cb(payload)); },
   setBackground: (opts: { minimizeToTray?: boolean; openAtLogin?: boolean }) => invoke("app:setBackground", opts),
   resetLocalData: () => invoke("app:resetLocalData"),
@@ -22,11 +26,27 @@ contextBridge.exposeInMainWorld("luminaApi", {
     return () => ipcRenderer.removeListener("search:stream", handler);
   },
   openExternal: (url: string) => invoke("shell:openExternal", url),
+  sourcesStatus: () => invoke("sources:status"),
+  sourcesRegistry: () => invoke("sources:registry"),
+  testSource: (secretName: string, candidate?: string) => invoke("sources:test", secretName, candidate),
+  exportCitation: (items: unknown, fmt: string) => invoke("cite:export", items, fmt),
   subsList: () => invoke("subs:list"),
   subsGet: (id: string) => invoke("subs:get", id),
   subsSave: (sub: unknown) => invoke("subs:save", sub),
   subsRemove: (id: string) => invoke("subs:remove", id),
-  subsRunNow: (sub: unknown) => invoke("subs:runNow", sub),
+  subsRunNow: (sub: unknown, opts?: unknown) => invoke("subs:runNow", sub, opts),
+  subsPreview: (draft: unknown) => invoke("subs:preview", draft),
+  onSubsProgress: (cb: (p: unknown) => void) => {
+    const handler = (_e: unknown, payload: unknown) => cb(payload);
+    ipcRenderer.on("subs:progress", handler);
+    return () => ipcRenderer.removeListener("subs:progress", handler);
+  },
+  onSubsUpdated: (cb: (p: unknown) => void) => {
+    const handler = (_e: unknown, payload: unknown) => cb(payload);
+    ipcRenderer.on("subs:updated", handler);
+    return () => ipcRenderer.removeListener("subs:updated", handler);
+  },
+  getCachedSummary: (paperId: string, depth?: string, language?: string) => invoke("summaries:get", paperId, depth, language),
   libraryList: () => invoke("library:list"),
   libraryAdd: (paperId: string, provenance?: string) => invoke("library:add", paperId, provenance),
   libraryRemove: (paperId: string) => invoke("library:remove", paperId),
@@ -39,9 +59,31 @@ contextBridge.exposeInMainWorld("luminaApi", {
 contextBridge.exposeInMainWorld("luminaOa", {
   resolve: (paperId: string) => invoke("oa:resolve", paperId),
   fetchPaper: (paperId: string) => invoke("oa:fetchPaper", paperId),
+  fetchPaperStream: (paperId: string, reqId: number, cb: (p: unknown) => void) => {
+    const handler = (_e: unknown, payload: any) => { if (payload && payload.reqId === reqId) cb(payload); };
+    ipcRenderer.on("fetch:progress", handler);
+    ipcRenderer.invoke("oa:fetchPaper-stream", paperId, reqId).catch(() => {});
+    return () => ipcRenderer.removeListener("fetch:progress", handler);
+  },
   fetchPdf: (url: string, paperId?: string) => invoke("oa:fetchPdf", url, paperId),
   readPdf: (paperId: string) => invoke("oa:readPdf", paperId),
   listPdfs: () => invoke("oa:listPdfs"),
+  probeMirrors: () => invoke("mirrors:probe"),
+  onPrefetchStart: (cb: (payload: { paperId: string }) => void) => {
+    const handler = (_e: unknown, payload: { paperId: string }) => cb(payload);
+    ipcRenderer.on("prefetch:start", handler);
+    return () => ipcRenderer.removeListener("prefetch:start", handler);
+  },
+  onPrefetchDone: (cb: (payload: { paperId: string; result: unknown }) => void) => {
+    const handler = (_e: unknown, payload: { paperId: string; result: unknown }) => cb(payload);
+    ipcRenderer.on("prefetch:done", handler);
+    return () => ipcRenderer.removeListener("prefetch:done", handler);
+  },
+  onPrefetchFail: (cb: (payload: { paperId: string; result: unknown }) => void) => {
+    const handler = (_e: unknown, payload: { paperId: string; result: unknown }) => cb(payload);
+    ipcRenderer.on("prefetch:fail", handler);
+    return () => ipcRenderer.removeListener("prefetch:fail", handler);
+  },
 });
 
 contextBridge.exposeInMainWorld("luminaReader", {

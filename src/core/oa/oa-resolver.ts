@@ -1,12 +1,18 @@
 // lumina-feed · PDF 候选解析（OA + LibGen + Anna + Sci-Hub 统一链）
 import type { Paper } from "../model.ts";
-import publisherRules from "./config/publisher-rules.json" with { type: "json" };
+import type { AltMirrorSettings } from "./alt-sources.ts";
+import type { FetchTraceStatus } from "./fetch-trace.ts";
 import { dedupeCandidates, type PdfCandidate, type UrlCandidate } from "./candidate.ts";
-import { resolveAltUrlCandidates } from "./alt-sources.ts";
+import { resolveLibgenUrls, resolveAnnasUrls } from "./alt-sources.ts";
 import { isLegitimateOaUrl } from "../summarize/oa-guard.ts";
+import {
+  fromCore, fromDoaj, fromHal, fromZenodo, fromDatacite,
+} from "./oa-extended.ts";
+import publisherRules from "./config/publisher-rules.json" with { type: "json" };
 
 export interface ResolveDeps {
   email?: string;
+  coreKey?: string;
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
   /** 关闭某些 OA 元数据源（默认全开） */
@@ -21,6 +27,8 @@ export interface ResolveDeps {
   };
   /** false 时仅保留 isLegitimateOaUrl 候选（默认 true：含备选渠道） */
   includeAltSources?: boolean;
+  mirrorSettings?: AltMirrorSettings;
+  onTrace?: (stepId: string, status: FetchTraceStatus, detail?: string, ms?: number) => void;
 }
 
 const normDoi = (doi?: string) => doi?.trim().toLowerCase().replace(/^https?:\/\/(dx\.)?doi\.org\//, "");
@@ -223,7 +231,23 @@ async function fromCrossref(doi: string, deps: ResolveDeps): Promise<{ cands: Ur
 export async function resolvePdfCandidates(paper: Paper, deps: ResolveDeps = {}): Promise<PdfCandidate[]> {
   const doi = normDoi(paper.doi);
   const includeAlt = deps.includeAltSources !== false;
+  const trace = deps.onTrace;
+  const timed = async (stepId: string, fn: () => Promise<unknown>) => {
+    const t0 = Date.now();
+    trace?.(stepId, "running");
+    try {
+      const v = await fn();
+      trace?.(stepId, "ok", undefined, Date.now() - t0);
+      return v;
+    } catch (e) {
+      trace?.(stepId, "fail", String((e as Error)?.message || e), Date.now() - t0);
+      throw e;
+    }
+  };
+
+  trace?.("identifiers", "running");
   const all: PdfCandidate[] = [...fromIdentifiers(paper)];
+  trace?.("identifiers", all.length ? "ok" : "skip", all.length ? `${all.length} 个` : undefined);
 
   if (doi) {
     all.push(...fromPublisherRules(doi, paper));
@@ -233,11 +257,16 @@ export async function resolvePdfCandidates(paper: Paper, deps: ResolveDeps = {})
     all.push(...fromPlos(doi));
 
     const settled = await Promise.allSettled([
-      fromUnpaywall(doi, deps),
-      fromOpenalex(doi, deps),
-      fromSemanticScholar(doi, deps),
-      fromEuropePmc(doi, deps),
-      fromCrossref(doi, deps),
+      timed("unpaywall", () => fromUnpaywall(doi, deps)),
+      timed("openalex", () => fromOpenalex(doi, deps)),
+      timed("extended", () => fromSemanticScholar(doi, deps)),
+      timed("europepmc", () => fromEuropePmc(doi, deps)),
+      timed("crossref", () => fromCrossref(doi, deps)),
+      timed("extended", () => fromDoaj(doi, deps.fetchImpl ?? fetch, deps.signal)),
+      timed("extended", () => fromHal(doi, deps.fetchImpl ?? fetch, deps.signal)),
+      timed("extended", () => fromZenodo(doi, deps.fetchImpl ?? fetch, deps.signal)),
+      timed("extended", () => fromDatacite(doi, deps.fetchImpl ?? fetch, deps.signal)),
+      timed("extended", () => fromCore(doi, deps.fetchImpl ?? fetch, deps.signal, deps.coreKey)),
     ]);
 
     let title = paper.title;
@@ -251,13 +280,42 @@ export async function resolvePdfCandidates(paper: Paper, deps: ResolveDeps = {})
     }
 
     if (includeAlt && deps.use?.altSources !== false) {
-      const alt = await resolveAltUrlCandidates(doi, {
-        fetchImpl: deps.fetchImpl,
-        signal: deps.signal,
-        title,
-        includeScihub: deps.use?.scihub !== false,
-      });
-      all.push(...alt);
+      const hasDirectArxiv = !!paper.arxivId || !!(doi && /arxiv\.\d+\.\d+/i.test(doi));
+      if (!hasDirectArxiv) {
+        trace?.("libgen", "running");
+        const tL = Date.now();
+        let libgenPart: PdfCandidate[] = [];
+        let annasPart: PdfCandidate[] = [];
+        try {
+          [libgenPart, annasPart] = await Promise.all([
+            resolveLibgenUrls(doi, { fetchImpl: deps.fetchImpl, signal: deps.signal, title, mirrorSettings: deps.mirrorSettings }).then((r) => {
+              trace?.("libgen", r.length ? "ok" : "fail", r.length ? `${r.length} 候选` : "无匹配", Date.now() - tL);
+              return r;
+            }),
+            resolveAnnasUrls(doi, { fetchImpl: deps.fetchImpl, signal: deps.signal, title, mirrorSettings: deps.mirrorSettings }).then((r) => {
+              trace?.("annas", r.length ? "ok" : "fail", r.length ? `${r.length} 候选` : "无匹配");
+              return r;
+            }),
+          ]);
+        } catch {
+          trace?.("libgen", "fail");
+          trace?.("annas", "fail");
+        }
+        all.push(...libgenPart, ...annasPart);
+      } else {
+        trace?.("libgen", "skip", "arxiv 直达");
+        trace?.("annas", "skip", "arxiv 直达");
+      }
+      if (doi && deps.use?.scihub !== false) {
+        trace?.("scihub", "ok", "已加入候选");
+        all.push({ kind: "scihub", doi, source: "scihub", priority: 70 });
+      } else {
+        trace?.("scihub", "skip");
+      }
+    } else {
+      trace?.("libgen", "skip");
+      trace?.("annas", "skip");
+      trace?.("scihub", "skip");
     }
   }
 

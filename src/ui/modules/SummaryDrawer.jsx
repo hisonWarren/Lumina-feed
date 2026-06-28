@@ -100,7 +100,7 @@ export default function SummaryDrawer({ paper, fetchedMeta, fetchingMeta, onFetc
   const got = isFetched(fetchedMeta);
   const isFetching = !!(fetchingMeta && fetchingMeta.startedAt);
   const prog = isFetching ? fetchProgressUi(fetchingMeta, Date.now()) : null;
-  const altCaveat = got && fetchedMeta && fetchedMeta.tier === "alt";
+  const altCaveat = got && fetchedMeta && /libgen|annas|scihub|sci-?hub/.test(String(fetchedMeta.source || fetchedMeta.label || "").toLowerCase());
   const basisFull = res && res.sourceBasis === "fulltext";
   const basisAbs = res && res.sourceBasis === "abstract";
   const Seg = ({ field, items }) => (

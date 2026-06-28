@@ -2,6 +2,10 @@
 // 端口自「文献检索与PDF下载_实现资料」，与 OA 候选统一按 priority 排序。
 import altMirrors from "./config/alt-mirrors.json" with { type: "json" };
 import type { PdfCandidate, UrlCandidate } from "./candidate.ts";
+import type { AltMirrorSettings } from "./mirror-health.ts";
+import { orderMirrors } from "./mirror-health.ts";
+
+export type { AltMirrorSettings };
 
 const MD5_RE = /md5=([A-Fa-f0-9]{32})/;
 const ROW_RE = /<tr[^>]*>(.*?)<\/tr>/gis;
@@ -65,16 +69,112 @@ export function getScihubMirrors(): string[] {
   ];
 }
 
-function parseLibgenRows(html: string): { md5: string; ext: string }[] {
-  const rows: { md5: string; ext: string }[] = [];
+export function parseLibgenRows(html: string): { md5: string; ext: string; title?: string; authors?: string[]; year?: number; doi?: string }[] {
+  const rows: { md5: string; ext: string; title?: string; authors?: string[]; year?: number; doi?: string }[] = [];
   for (const row of html.matchAll(ROW_RE)) {
     const md5m = MD5_RE.exec(row[1]);
     if (!md5m) continue;
     const cells = [...row[1].matchAll(CELL_RE)].map((c) => stripHtml(c[1]));
     if (cells.length < 8) continue;
-    rows.push({ md5: md5m[1], ext: cells[7].toLowerCase() });
+    const doiM = DOI_RE.exec(row[1]);
+    const yr = parseInt(cells[4] ?? "", 10);
+    rows.push({
+      md5: md5m[1],
+      ext: cells[7].toLowerCase(),
+      title: cells[2]?.trim() || undefined,
+      authors: cells[1] ? cells[1].split(/[,;]/).map((a) => a.trim()).filter(Boolean) : [],
+      year: Number.isFinite(yr) ? yr : undefined,
+      doi: doiM ? normDoi(doiM[0]) : undefined,
+    });
   }
   return rows;
+}
+
+/** LibGen 检索 → SearchHit[]（USP 搜索适配器用） */
+export async function searchLibgenHits(
+  query: string,
+  deps: { column?: string; limit?: number; fetchImpl?: FetchImpl; signal?: AbortSignal; mirrorSettings?: AltMirrorSettings },
+): Promise<import("../model.ts").SearchHit[]> {
+  const q = query.trim();
+  if (!q) return [];
+  const f = deps.fetchImpl ?? fetch;
+  const limit = deps.limit ?? 25;
+  const { ordered } = await orderMirrors("libgen", deps.mirrorSettings, { fetchImpl: f, signal: deps.signal });
+  const out: import("../model.ts").SearchHit[] = [];
+  const seen = new Set<string>();
+
+  for (const mirror of ordered) {
+    try {
+      const params = new URLSearchParams({ req: q });
+      if (deps.column) params.set("column", deps.column);
+      const res = await f(`${mirror}/index.php?${params}`, { signal: deps.signal, redirect: "follow" } as RequestInit);
+      if (!res.ok) continue;
+      const text = await res.text();
+      if (!text.includes("md5=")) continue;
+      for (const row of parseLibgenRows(text)) {
+        if (!row.title || row.ext !== "pdf") continue;
+        const key = row.doi ? `doi:${row.doi}` : `md5:${row.md5}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({
+          source: "libgen",
+          doi: row.doi,
+          title: row.title,
+          authors: row.authors ?? [],
+          year: row.year,
+          isPreprint: false,
+          peerReviewed: false,
+        });
+        if (out.length >= limit) return out;
+      }
+      if (out.length) break;
+    } catch { /* 下一镜像 */ }
+  }
+  return out;
+}
+
+/** Anna's Archive 关键词检索 → SearchHit[] */
+export async function searchAnnasKeywordHits(
+  query: string,
+  deps: { limit?: number; fetchImpl?: FetchImpl; signal?: AbortSignal; mirrorSettings?: AltMirrorSettings },
+): Promise<import("../model.ts").SearchHit[]> {
+  const q = query.trim();
+  if (!q) return [];
+  const f = deps.fetchImpl ?? fetch;
+  const limit = deps.limit ?? 25;
+  const { ordered } = await orderMirrors("annas", deps.mirrorSettings, { fetchImpl: f, signal: deps.signal });
+  const out: import("../model.ts").SearchHit[] = [];
+  const seen = new Set<string>();
+
+  for (const mirror of ordered) {
+    try {
+      const res = await f(`${mirror}/search?q=${encodeURIComponent(q)}`, {
+        signal: deps.signal,
+        headers: { accept: "text/html" },
+        redirect: "follow",
+      } as RequestInit);
+      if (!res.ok) continue;
+      const html = await res.text();
+      for (const m of html.matchAll(/<a[^>]*href="([^"]*\/md5\/[a-f0-9]{32}[^"]*)"[^>]*>([^<]{10,})</gi)) {
+        const title = stripHtml(m[2]);
+        if (!title || title.length < 8) continue;
+        const block = html.slice(Math.max(0, html.indexOf(m[0]) - 300), html.indexOf(m[0]) + 500);
+        const doiM = DOI_RE.exec(block);
+        const doi = doiM ? normDoi(doiM[0]) : undefined;
+        const key = doi ? `doi:${doi}` : `t:${titleFingerprint(title)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ source: "annas", doi, title, authors: [], isPreprint: false, peerReviewed: false });
+        if (out.length >= limit) return out;
+      }
+      if (out.length) break;
+    } catch { /* 下一镜像 */ }
+  }
+  return out;
+}
+
+function titleFingerprint(title: string): string {
+  return title.toLowerCase().replace(/\s+/g, " ").trim().slice(0, 80);
 }
 
 async function resolveLibgenGetUrl(
@@ -97,12 +197,13 @@ async function resolveLibgenGetUrl(
 async function searchLibgen(
   f: FetchImpl,
   query: string,
-  opts: { column?: string; priority: number; signal?: AbortSignal },
+  opts: { column?: string; priority: number; signal?: AbortSignal; mirrors?: string[] },
 ): Promise<UrlCandidate[]> {
   const q = query.trim();
   if (!q) return [];
   const out: UrlCandidate[] = [];
-  for (const mirror of getLibgenMirrors()) {
+  const mirrorList = opts.mirrors?.length ? opts.mirrors : getLibgenMirrors();
+  for (const mirror of mirrorList) {
     try {
       const params = new URLSearchParams({ req: q });
       if (opts.column) params.set("column", opts.column);
@@ -130,18 +231,19 @@ async function searchLibgen(
 
 export async function resolveLibgenUrls(
   doi: string,
-  deps: { fetchImpl?: FetchImpl; signal?: AbortSignal; title?: string },
+  deps: { fetchImpl?: FetchImpl; signal?: AbortSignal; title?: string; mirrorSettings?: AltMirrorSettings },
 ): Promise<UrlCandidate[]> {
   const f = deps.fetchImpl ?? fetch;
   const d = normDoi(doi);
+  const { ordered } = await orderMirrors("libgen", deps.mirrorSettings, { fetchImpl: f, signal: deps.signal });
   const out: UrlCandidate[] = [];
-  out.push(...await searchLibgen(f, d, { column: "doi", priority: 60, signal: deps.signal }));
-  out.push(...await searchLibgen(f, d, { priority: 61, signal: deps.signal }));
+  out.push(...await searchLibgen(f, d, { column: "doi", priority: 60, signal: deps.signal, mirrors: ordered }));
+  out.push(...await searchLibgen(f, d, { priority: 61, signal: deps.signal, mirrors: ordered }));
   if (deps.title) {
-    out.push(...await searchLibgen(f, deps.title, { column: "title", priority: 61, signal: deps.signal }));
+    out.push(...await searchLibgen(f, deps.title, { column: "title", priority: 61, signal: deps.signal, mirrors: ordered }));
     const short = deps.title.split(":")[0]?.trim();
     if (short && short !== deps.title && short.length > 12) {
-      out.push(...await searchLibgen(f, short, { column: "title", priority: 62, signal: deps.signal }));
+      out.push(...await searchLibgen(f, short, { column: "title", priority: 62, signal: deps.signal, mirrors: ordered }));
     }
   }
   return dedupeUrls(out);
@@ -151,11 +253,12 @@ async function searchAnnas(
   f: FetchImpl,
   doi: string,
   signal?: AbortSignal,
+  mirrors?: string[],
 ): Promise<{ titles: string[]; md5s: string[] }> {
   const d = normDoi(doi);
   const titles: string[] = [];
   const md5s: string[] = [];
-  for (const mirror of getAnnasMirrors()) {
+  for (const mirror of (mirrors?.length ? mirrors : getAnnasMirrors())) {
     for (const q of [`doi:${d}`, d]) {
       try {
         const res = await f(`${mirror}/search?q=${encodeURIComponent(q)}`, {
@@ -191,14 +294,18 @@ async function searchAnnas(
 
 export async function resolveAnnasUrls(
   doi: string,
-  deps: { fetchImpl?: FetchImpl; signal?: AbortSignal; title?: string },
+  deps: { fetchImpl?: FetchImpl; signal?: AbortSignal; title?: string; mirrorSettings?: AltMirrorSettings },
 ): Promise<UrlCandidate[]> {
   const f = deps.fetchImpl ?? fetch;
   const out: UrlCandidate[] = [];
-  const { titles: annasTitles, md5s } = await searchAnnas(f, doi, deps.signal);
+  const [{ ordered: annasMirrors }, { ordered: libgenMirrors }] = await Promise.all([
+    orderMirrors("annas", deps.mirrorSettings, { fetchImpl: f, signal: deps.signal }),
+    orderMirrors("libgen", deps.mirrorSettings, { fetchImpl: f, signal: deps.signal }),
+  ]);
+  const { titles: annasTitles, md5s } = await searchAnnas(f, doi, deps.signal, annasMirrors);
 
   for (const md5 of md5s.slice(0, 3)) {
-    for (const mirror of getLibgenMirrors()) {
+    for (const mirror of libgenMirrors) {
       const getUrl = await resolveLibgenGetUrl(f, mirror, md5, deps.signal);
       if (getUrl) {
         out.push({ kind: "url", url: getUrl, source: `annas_bridge_libgen_${mirror.split("//").pop()}`, priority: 59 });
@@ -209,7 +316,7 @@ export async function resolveAnnasUrls(
 
   const searchTitles = [...new Set([deps.title, ...annasTitles].filter(Boolean) as string[])];
   for (const t of searchTitles) {
-    out.push(...await searchLibgen(f, t, { column: "title", priority: 61, signal: deps.signal }));
+    out.push(...await searchLibgen(f, t, { column: "title", priority: 61, signal: deps.signal, mirrors: libgenMirrors }));
   }
   return dedupeUrls(out);
 }
@@ -279,7 +386,7 @@ export async function fetchScihubPdf(
 
 export async function resolveAltUrlCandidates(
   doi: string,
-  deps: { fetchImpl?: FetchImpl; signal?: AbortSignal; title?: string; includeScihub?: boolean },
+  deps: { fetchImpl?: FetchImpl; signal?: AbortSignal; title?: string; includeScihub?: boolean; mirrorSettings?: AltMirrorSettings },
 ): Promise<PdfCandidate[]> {
   if (!doi) return [];
   const [libgen, annas] = await Promise.all([

@@ -239,6 +239,7 @@ const READER_CSS = `
 .rd-tp-cache{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 0 2px}
 .rd-tp-cached{font-family:'Space Mono',monospace;font-size:10px;color:var(--ink3)}
 .rd-tp-cached.fresh{color:var(--ink4)}
+.rd-tp-warn{font-size:12px;color:var(--ink2);background:rgba(14,124,111,.07);border:1px solid rgba(14,124,111,.20);border-radius:8px;padding:8px 10px;line-height:1.55}
 .rd-tp-rf{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:7px;padding:4px 9px;font-size:11px;cursor:pointer;font-family:inherit}
 .rd-tp-rf:hover:not(:disabled){border-color:var(--gold);color:var(--gold)}
 .rd-tp-rf:disabled{opacity:.5;cursor:default}
@@ -265,6 +266,11 @@ const READER_CSS = `
 .hl-pink{background:rgba(255,150,180,.5)}
 .hl-blue{background:rgba(120,170,255,.5)}
 .rd-hlbtn{width:18px;height:18px;border:1px solid rgba(255,255,255,.5);border-radius:5px;cursor:pointer;padding:0}
+.rd-pop-bar button.rd-hlbtn{padding:0;border:1px solid rgba(255,255,255,.65)}
+.rd-pop-bar button.hl-yellow{background:rgba(245,210,70,.95)}
+.rd-pop-bar button.hl-green{background:rgba(120,220,120,.95)}
+.rd-pop-bar button.hl-pink{background:rgba(255,150,180,.95)}
+.rd-pop-bar button.rd-hlbtn:hover{box-shadow:0 0 0 2px rgba(255,255,255,.45)}
 .rd-pop-div{width:1px;height:18px;background:rgba(255,255,255,.25);margin:0 2px;align-self:center}
 .rd-snip{position:absolute;z-index:45;border:1.5px dashed var(--gold);background:rgba(14,124,111,.12);pointer-events:none}
 .rd-view.snip{cursor:crosshair}
@@ -904,41 +910,60 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
 
 // 翻译面板：按页懒翻译（同步当前页 + 译全部页），三模式=同一(原文,译文)的三种布局。复用 reader:translate。
 function TranslatePanel({ doc, page, numPages, mode, setMode, onClose, pushToast, docKey, model }) {
-  const cacheRef = useRef({}); // page -> {orig, trans, loading, cached, model}
+  const cacheRef = useRef({}); // page -> {orig, trans, loading, cached, model, err}
   const [, setTick] = useState(0);
   const [bulk, setBulk] = useState(null);
   const pmapRef = useRef({});             // 持久翻译缓存 page -> {text, model, at}
   const [pmapReady, setPmapReady] = useState(false);
+  const [llmReady, setLlmReady] = useState({ checking: true, ok: false, message: "" });
   useEffect(() => {
     let alive = true; pmapRef.current = {}; cacheRef.current = {}; setPmapReady(false);
     bridge.getTranslations(docKey).then((m) => { if (alive) { pmapRef.current = m || {}; setPmapReady(true); } }).catch(() => { if (alive) setPmapReady(true); });
     return () => { alive = false; };
   }, [docKey]);
+  useEffect(() => {
+    let alive = true;
+    bridge.llmReady().then((s) => { if (alive) setLlmReady({ checking: false, ok: !!(s && s.ok), message: (s && s.message) || "" }); }).catch(() => { if (alive) setLlmReady({ checking: false, ok: false, message: "无法读取大模型配置" }); });
+    return () => { alive = false; };
+  }, []);
 
   const translatePage = useCallback(async (pg, force) => {
     const c = cacheRef.current[pg];
-    if (!force && c && (c.trans || c.loading)) return;
+    if (!force && c && (c.trans || c.loading || c.err)) return;
     let orig = "";
     try { const items = await getPageStrings(doc, pg); orig = items.join(" ").trim(); } catch (e) { /* noop */ }
     const hit = !force && pmapRef.current[pg];
     if (hit && hit.text) { cacheRef.current[pg] = { orig, trans: hit.text, loading: false, cached: true, model: hit.model || "" }; setTick((t) => t + 1); return; } // 命中持久缓存 → 跳过 LLM
+    if (!llmReady.ok) {
+      cacheRef.current[pg] = { orig, trans: "", loading: false, cached: false, model, err: llmReady.message || "请先在设置 → 大模型中配置 API Key" };
+      setTick((t) => t + 1);
+      return;
+    }
     cacheRef.current[pg] = { orig, trans: "", loading: true }; setTick((t) => t + 1);
     let trans = "";
-    try { trans = orig ? await bridge.readerTranslate(orig) : "（本页无可提取文本）"; } catch (e) { trans = "（翻译失败）"; }
-    cacheRef.current[pg] = { orig, trans, loading: false, cached: false, model }; setTick((t) => t + 1);
-    if (orig && trans && trans !== "（翻译失败）" && docKey) { pmapRef.current[pg] = { text: trans, model: model || "", at: Date.now() }; bridge.saveTranslation(docKey, pg, model || "", trans); } // 落库（派生缓存，非权威）
-  }, [doc, docKey, model]);
+    let err = "";
+    if (!orig) trans = "（本页无可提取文本）";
+    else {
+      const res = await bridge.readerTranslate(orig);
+      if (res && res.ok) trans = res.text || "（无译文）";
+      else err = (res && res.error) || "（翻译失败）";
+    }
+    cacheRef.current[pg] = { orig, trans, loading: false, cached: false, model, err }; setTick((t) => t + 1);
+    if (orig && trans && !err && docKey) { pmapRef.current[pg] = { text: trans, model: model || "", at: Date.now() }; bridge.saveTranslation(docKey, pg, model || "", trans); } // 落库（派生缓存，非权威）
+  }, [doc, docKey, model, llmReady]);
 
-  useEffect(() => { if (pmapReady) translatePage(page); }, [page, translatePage, pmapReady]);
+  useEffect(() => { if (pmapReady && !llmReady.checking) translatePage(page); }, [page, translatePage, pmapReady, llmReady]);
 
   const translateAll = useCallback(async () => {
+    if (!llmReady.ok) return;
     setBulk({ done: 0, total: numPages });
     for (let pg = 1; pg <= numPages; pg++) { await translatePage(pg); setBulk({ done: pg, total: numPages }); }
     setBulk(null); pushToast && pushToast("全部页翻译完成");
-  }, [numPages, translatePage, pushToast]);
+  }, [numPages, translatePage, pushToast, llmReady]);
 
   const cur = cacheRef.current[page] || { orig: "", trans: "", loading: true };
   const MODES = [["inline", "段内对照"], ["dual", "双栏对照"], ["only", "仅译文"]];
+  const llmBlocked = !llmReady.checking && !llmReady.ok;
 
   return (
     <div className="rd-tp">
@@ -946,17 +971,26 @@ function TranslatePanel({ doc, page, numPages, mode, setMode, onClose, pushToast
         <span><Languages size={15} /> 翻译 · 第 {page}/{numPages || "—"} 页</span>
         <button className="rd-x" onClick={onClose} title="关闭翻译"><X size={16} /></button>
       </div>
+      {llmBlocked && <div className="rd-tp-warn">{llmReady.message}</div>}
       <div className="rd-tp-cache">
-        {cur.cached ? <span className="rd-tp-cached" title={"已缓存译文（由 " + (cur.model || "未知模型") + " 翻译，重开即用）"}>已缓存{cur.model ? " · " + cur.model : ""}</span> : <span className="rd-tp-cached fresh">本机翻译</span>}
-        <button className="rd-tp-rf" onClick={() => translatePage(page, true)} disabled={cur.loading} title="用当前模型重新翻译本页（覆盖缓存）"><RefreshCw size={12} /> 重新翻译</button>
+        {cur.cached ? <span className="rd-tp-cached" title={"已缓存译文（由 " + (cur.model || "未知模型") + " 翻译，重开即用）"}>已缓存{cur.model ? " · " + cur.model : ""}</span> : llmReady.ok ? <span className="rd-tp-cached fresh">{model || "大模型"}</span> : null}
+        <button className="rd-tp-rf" onClick={() => translatePage(page, true)} disabled={cur.loading || llmBlocked} title="用当前模型重新翻译本页（覆盖缓存）"><RefreshCw size={12} /> 重新翻译</button>
       </div>
       <div className="rd-tp-modes">
         {MODES.map((mm) => <button key={mm[0]} className={mode === mm[0] ? "on" : ""} onClick={() => setMode(mm[0])}>{mm[1]}</button>)}
       </div>
-      <button className="rd-tp-all" onClick={translateAll} disabled={!!bulk}>{bulk ? ("翻译中 " + bulk.done + "/" + bulk.total + "…") : "译全部页"}</button>
+      <button className="rd-tp-all" onClick={translateAll} disabled={!!bulk || llmBlocked}>{bulk ? ("翻译中 " + bulk.done + "/" + bulk.total + "…") : "译全部页"}</button>
       <div className="rd-tp-body">
         {cur.loading ? (
           <div className="rd-ai-load"><Loader size={14} className="rd-spin" /> 翻译中…</div>
+        ) : llmBlocked ? (
+          mode === "only" ? null : mode === "dual" ? (
+            <div className="rd-tp-cols"><div className="rd-tp-orig">{cur.orig}</div></div>
+          ) : (
+            <div className="rd-tp-orig">{cur.orig}</div>
+          )
+        ) : cur.err ? (
+          <div className="rd-tp-warn">{cur.err}</div>
         ) : mode === "only" ? (
           <div className="rd-tp-tr">{cur.trans}</div>
         ) : mode === "dual" ? (
@@ -1260,7 +1294,14 @@ export default function Reader({ source, onClose, pushToast }) {
     } catch (er) { pushToast && pushToast("图表分析失败"); }
     finally { setFiguring(false); }
   }, [doc, page, pushToast]);
-  const onTranslate = async () => { if (!sel) return; setSelTrans({ loading: true, text: "" }); try { const t = await bridge.readerTranslate(sel.text); setSelTrans({ loading: false, text: t || "（无译文）" }); } catch (e) { setSelTrans({ loading: false, text: "（翻译失败）" }); } };
+  const onTranslate = async () => {
+    if (!sel) return;
+    setSelTrans({ loading: true, text: "" });
+    try {
+      const res = await bridge.readerTranslate(sel.text);
+      setSelTrans({ loading: false, text: (res && res.ok) ? (res.text || "（无译文）") : ((res && res.error) || "（翻译失败）") });
+    } catch (e) { setSelTrans({ loading: false, text: "（翻译失败）" }); }
+  };
   const onCopySel = () => { if (!sel) return; try { navigator.clipboard && navigator.clipboard.writeText(sel.text); pushToast && pushToast("已复制"); } catch (e) { /* noop */ } setSel(null); };
 
   useEffect(() => {

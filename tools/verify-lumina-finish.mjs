@@ -24,13 +24,15 @@ const themes = read("src/ui/themes.js");
 const reader = read("src/ui/modules/Reader.jsx");
 const app = read("src/ui/LuminaApp.jsx");
 
-console.log("\n[1] 结果页引用复制（复用 cite.js · 含 BibTeX · 批量导出仍属我的文献）");
-ok(has(ff, 'import { STYLES, formatCitation } from "../cite.js"'), "复用 cite.js（STYLES/formatCitation）");
-ok(has(ff, "const [citeFor, setCiteFor]"), "citeFor 状态");
-ok(has(ff, "const copyCite = (style, p)") && has(ff, "navigator.clipboard"), "copyCite 复制到剪贴板");
-ok(has(ff, '.ff-cites{') && has(ff, '.ff-cite{'), "引用样式条 CSS");
-ok(has(ff, "<Quote size={13} /> 引用") && has(ff, "STYLES.map((st)"), "引用按钮 + 五样式展开");
-ok(has(ff, '<button key={st[0]} className="ff-cite"'), "逐样式按钮（APA/MLA/Chicago/Vancouver/BibTeX）");
+console.log("\n[1] 结果页引用（cite.js 复制 + finish_all 下载 .ris/.bib）");
+const cite = read("src/ui/components/CitationActions.jsx") || "";
+const citeViaComponent = has(ff, "CitationActions") && has(cite, 'from "../cite.js"');
+ok(citeViaComponent || has(ff, 'import { STYLES, formatCitation } from "../cite.js"'), "复用 cite.js（STYLES/formatCitation）");
+ok(citeViaComponent || has(ff, "const [citeFor, setCiteFor]"), "citeFor 状态（或 CitationActions 组件）");
+ok(citeViaComponent || (has(ff, "const copyCite = (style, p)") && has(ff, "navigator.clipboard")), "copyCite / CitationActions 复制");
+ok(has(ff, '.ff-cites{') && has(ff, '.ff-cite{') || has(cite, "lf-cite-menu"), "引用菜单 CSS");
+ok(citeViaComponent || (has(ff, "<Quote size={13} /> 引用") && has(ff, "STYLES.map((st)")), "引用按钮 + 五样式展开");
+ok(citeViaComponent || has(ff, '<button key={st[0]} className="ff-cite"'), "逐样式按钮（或 CitationActions）");
 
 console.log("\n[2] 真暗色 surface（night 主题 .lf:not(.day) token，此前缺）");
 ok(has(themes, ':not(.day){--surf:'), "night 主题暗表面 token");

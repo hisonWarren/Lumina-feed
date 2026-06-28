@@ -1,13 +1,18 @@
 // lumina-feed · IPC（干净基线：检索 · 总结 · OA · 设置）+ reader_engine（OA 取/存/读回 · 阅读器接地 AI）
-import { ipcMain, app, Notification } from "electron";
+import { ipcMain, app, Notification, type WebContents } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import type { Store } from "../src/core/store/index.ts";
 import type { SecretStore } from "../src/core/secrets/keyvault.ts";
 import { rawToSpec } from "../src/core/querySpec.ts";
-import { aggregateSearch, aggregateSearchStream } from "../src/core/aggregate.ts";
+import { aggregateSearch, aggregateSearchStream, searchSingleSource } from "../src/core/aggregate.ts";
+import { resolveIdentifierInput, classifyInput } from "../src/core/locate/resolve-identifier.ts";
+import { shouldPrefetchIdentifier } from "../src/core/locate/prefetch-eligibility.ts";
+import { listSourceRegistry } from "../src/core/sources/index.ts";
 import { llmFromConfig, listModels } from "../src/core/summarize/llm-client.ts";
 import { makeOaFullTextProvider, fetchPaperPdf } from "../src/core/oa/provider.ts";
+import { attemptSignal } from "../src/core/oa/timeout.ts";
+import { probeAllMirrors } from "../src/core/oa/mirror-health.ts";
 import { resolvePdfCandidates } from "../src/core/oa/oa-resolver.ts";
 import { fetchPdf } from "../src/core/oa/pdf-fetch.ts";
 import { sqliteSummaryCache } from "../src/core/summarize/summaries.repo.ts";
@@ -15,9 +20,21 @@ import { summarizeGrounded } from "../src/core/trust/index.ts";
 import { analyzeReader, analyzeFigure, analyzeCorpus, KIND_REGISTRY, type AnalysisEnvelope } from "../src/core/reader/reader-plus.ts";
 import { saveGrounding } from "../src/core/trust/audit.ts";
 import { summarizeReader, askReader, translateText, type ReaderPage } from "../src/core/reader/reader-ai.ts";
-import { loadAppSettings, saveAppSettings } from "./settings.ts";
+import { loadAppSettings, saveAppSettings, loadAppSettingsView } from "./settings.ts";
 import type { SummarizeOptions } from "../src/core/summarize/types.ts";
 import { DEFAULT_SUMMARIZE } from "../src/core/summarize/types.ts";
+import { setPoliteIdentity } from "../src/core/sources/adapter.ts";
+import type { SearchOpts } from "../src/core/sources/adapter.ts";
+import { shouldSignalMissingEmail } from "../src/core/oa/oa-extended.ts";
+import type { Paper } from "../src/core/model.ts";
+import {
+  applyDigestSearchOpts, buildDigestSpec, normalizeSubscription, freshHits, type DigestRunMeta,
+} from "../src/core/subs/digest-search.ts";
+import {
+  type DigestAiMeta, type DigestAiProgressFn, DIGEST_PREVIEW_BLURB_SAMPLES,
+  digestSummarizeOpts, generateDigestBlurb, mergeAiOntoToday,
+  pickAbstractTargets, pickBlurbTargets, pickTopNTargets, readCachedSummary,
+} from "../src/core/subs/digest-ai.ts";
 
 export interface IpcDeps {
   store: Store;
@@ -38,29 +55,145 @@ function analysisError(kind: string, e: unknown, opts: { vision?: boolean; sourc
   return { kind, lane, groundability: "L2", sourceBasis: (opts.sourceBasis as AnalysisEnvelope["sourceBasis"]) || "fulltext", model: "(none)", title, refused: { reason }, claims: [] } as AnalysisEnvelope;
 }
 
+import { registerCiteExport } from "./ipc-cite-export.ts";
+
 export function registerIpc(deps: IpcDeps): void {
   const { store, secrets } = deps;
+  registerCiteExport();
+
+  async function buildSearchOpts(): Promise<SearchOpts> {
+    const settings = await loadAppSettings(store);
+    const limit = settings.searchDepth === "full" ? 50 : 25;
+    const keys: Record<string, string> = {};
+    const ss = await secrets.get("semanticscholar_key");
+    if (ss) keys.semanticscholar = ss;
+    const core = await secrets.get("core_key");
+    if (core) keys.core = core;
+    const lens = await secrets.get("lens_token");
+    if (lens) keys.lens = lens;
+    const ncbi = await secrets.get("ncbi_key");
+    if (ncbi) keys.ncbi = ncbi;
+    return { limit, keys, disabledSources: settings.disabledSources ?? [] };
+  }
+
+  async function buildDigestSearchOpts(preview = false): Promise<SearchOpts> {
+    return applyDigestSearchOpts(await buildSearchOpts(), preview);
+  }
+  digestSearchOptsFactory = (preview = false) => buildDigestSearchOpts(preview);
+
+  async function contactEmail(): Promise<string | undefined> {
+    const s = await loadAppSettings(store);
+    return s.contactEmail ?? process.env.LUMINA_CONTACT_EMAIL;
+  }
 
   const pdfDir = (): string => { const d = path.join(app.getPath("userData"), "pdfs"); fs.mkdirSync(d, { recursive: true }); return d; };
   const pdfPath = (id: string): string => path.join(pdfDir(), encodeURIComponent(id) + ".pdf");
+  const prefetchInflight = new Set<string>();
 
-  ipcMain.handle("search:online", async (_e, raw: string, filters) => {
+  ipcMain.handle("search:online", async (e, raw: string, filters) => {
+    const opts = await buildSearchOpts();
+    const kind = classifyInput(String(raw || "").trim());
+    if (kind !== "text") {
+      const resolved = await resolveIdentifierInput(String(raw || "").trim(), opts);
+      if (resolved.ok) {
+        store.papers.upsert(resolved.paper);
+        scheduleIdentifierPrefetch(e.sender, resolved.paper.id, resolved.resolvedFrom);
+        return {
+          perSource: { resolve: { ok: true, count: 1 } },
+          count: 1,
+          papers: [resolved.paper],
+          locateMode: "identifier",
+          resolvedFrom: resolved.resolvedFrom,
+        };
+      }
+      if (resolved.reason === "not_identifier") {
+        /* fall through */
+      } else {
+        // P7 · 标识符解析失败 → 回落关键词检索（消歧）
+        const spec = rawToSpec(raw, filters);
+        const agg = await aggregateSearch(spec, opts);
+        store.papers.upsertMany(agg.papers);
+        return {
+          perSource: agg.perSource,
+          count: agg.papers.length,
+          papers: agg.papers,
+          locateMode: "disambig",
+          identifierError: resolved.message || resolved.reason,
+        };
+      }
+    }
     const spec = rawToSpec(raw, filters);
-    const agg = await aggregateSearch(spec, { limit: 30 });
+    const agg = await aggregateSearch(spec, opts);
     store.papers.upsertMany(agg.papers);
-    return { perSource: agg.perSource, count: agg.papers.length, papers: agg.papers };
+    return { perSource: agg.perSource, count: agg.papers.length, papers: agg.papers, locateMode: "keyword" };
   });
 
-  // 渐进式检索：每个开放源返回即把当前累积快照推给渲染层（search:stream 事件），慢源不拖累首屏。
+  // 渐进式检索：每个源返回即把当前累积快照推给渲染层（search:stream 事件），慢源不拖累首屏。
   ipcMain.handle("search:online-stream", async (e, raw: string, filters, reqId) => {
-    const spec = rawToSpec(raw, filters);
+    const opts = await buildSearchOpts();
     const send = (payload: unknown) => { try { e.sender.send("search:stream", payload); } catch { /* 渲染层已关则忽略 */ } };
-    const agg = await aggregateSearchStream(spec, { limit: 30 }, (source, snapshot, perSource) => {
+    const kind = classifyInput(String(raw || "").trim());
+    if (kind !== "text") {
+      const resolved = await resolveIdentifierInput(String(raw || "").trim(), opts);
+      if (resolved.ok) {
+        store.papers.upsert(resolved.paper);
+        send({
+          reqId,
+          source: "resolve",
+          papers: [resolved.paper],
+          perSource: { resolve: { ok: true, count: 1 } },
+          done: true,
+          locateMode: "identifier",
+          resolvedFrom: resolved.resolvedFrom,
+        });
+        scheduleIdentifierPrefetch(e.sender, resolved.paper.id, resolved.resolvedFrom);
+        return { ok: true };
+      }
+      if (resolved.reason !== "not_identifier") {
+        // P7 · 标识符失败 → 关键词回落
+        const spec = rawToSpec(raw, filters);
+        send({
+          reqId,
+          source: "resolve",
+          papers: [],
+          perSource: { resolve: { ok: false, count: 0, error: resolved.message || resolved.reason } },
+          done: false,
+          locateMode: "disambig",
+          identifierError: resolved.message || resolved.reason,
+        });
+        const agg = await aggregateSearchStream(spec, opts, (source, snapshot, perSource) => {
+          send({ reqId, source, papers: snapshot, perSource, done: false, locateMode: "disambig" });
+        });
+        store.papers.upsertMany(agg.papers);
+        send({ reqId, papers: agg.papers, perSource: agg.perSource, done: true, locateMode: "disambig", identifierError: resolved.message || resolved.reason });
+        return { ok: true };
+      }
+    }
+    const spec = rawToSpec(raw, filters);
+    const agg = await aggregateSearchStream(spec, opts, (source, snapshot, perSource) => {
       send({ reqId, source, papers: snapshot, perSource, done: false });
     });
     store.papers.upsertMany(agg.papers);
-    send({ reqId, papers: agg.papers, perSource: agg.perSource, done: true });
+    send({ reqId, papers: agg.papers, perSource: agg.perSource, done: true, locateMode: "keyword" });
     return { ok: true };
+  });
+
+  ipcMain.handle("search:resolve-identifier", async (_e, raw: string) => {
+    const opts = await buildSearchOpts();
+    const resolved = await resolveIdentifierInput(String(raw || "").trim(), opts);
+    if (resolved.ok) store.papers.upsert(resolved.paper);
+    return resolved;
+  });
+
+  ipcMain.handle("search:retry-source", async (_e, sourceId: string, raw: string, filters) => {
+    const spec = rawToSpec(raw, filters);
+    const opts = await buildSearchOpts();
+    const s = await searchSingleSource(String(sourceId).toLowerCase(), spec, opts);
+    if (s.papers.length) store.papers.upsertMany(s.papers);
+    const st = s.error
+      ? { count: 0, ok: false, error: s.error }
+      : { count: s.hits.length, ok: true };
+    return { sourceId: s.id, perSource: { [s.id]: st }, papers: s.papers };
   });
 
   ipcMain.handle("summarize:paper", async (_e, paperId: string, opts: SummarizeOptions) => {
@@ -75,6 +208,9 @@ export function registerIpc(deps: IpcDeps): void {
     if (res) saveGrounding(store.db, paper.id, res.model, res.sourceBasis, res.grounded);
     return res;
   });
+  ipcMain.handle("summaries:get", (_e, paperId: string, depth = "tldr", language = "zh") => {
+    return readCachedSummary(store.db, paperId, depth, language);
+  });
 
   ipcMain.handle("oa:resolve", async (_e, paperId: string) => {
     const paper = store.papers.getById(paperId);
@@ -87,24 +223,161 @@ export function registerIpc(deps: IpcDeps): void {
   });
 
   // 统一候选链取文：OA → LibGen → Anna → Sci-Hub，成功则落盘。
-  ipcMain.handle("oa:fetchPaper", async (_e, paperId: string) => {
+  async function runFetchPaper(paperId: string, onTrace?: import("../src/core/oa/fetch-trace.ts").FetchTraceCallback) {
     const paper = store.papers.getById(paperId);
-    if (!paper) return { ok: false, reason: "not_found" };
+    if (!paper) return { ok: false as const, reason: "not_found" };
     const settings = await loadAppSettings(store);
+    const email = settings.contactEmail ?? process.env.LUMINA_CONTACT_EMAIL;
+    const coreKey = (await secrets.get("core_key")) ?? undefined;
+    const overall = attemptSignal(undefined, 120_000);
     try {
-      const res = await fetchPaperPdf(paper, { email: settings.contactEmail, includeAltSources: true });
-      if (!res.ok) return res;
-      try { fs.writeFileSync(pdfPath(paperId), Buffer.from(res.bytes)); } catch { /* 落盘失败不阻断 */ }
+      const res = await fetchPaperPdf(paper, {
+        email,
+        includeAltSources: true,
+        coreKey,
+        mirrorSettings: settings.altMirrors,
+        onTrace,
+        signal: overall.signal,
+        perAttemptTimeoutMs: 22_000,
+      });
+      if (!res.ok && shouldSignalMissingEmail(paper.doi, email)) {
+        return { ok: false as const, reason: "missing_email", hint: "configure_contact_email" };
+      }
+      if (res.ok) {
+        try { fs.writeFileSync(pdfPath(paperId), Buffer.from(res.bytes)); } catch { /* 落盘失败不阻断 */ }
+      }
       return res;
+    } finally {
+      overall.clear();
+    }
+  }
+
+  function scheduleIdentifierPrefetch(
+    sender: WebContents,
+    paperId: string,
+    resolvedFrom: string[] | undefined,
+  ): void {
+    void (async () => {
+      const settings = await loadAppSettings(store);
+      const paper = store.papers.getById(paperId);
+      const hasPdf = fs.existsSync(pdfPath(paperId));
+      if (hasPdf) {
+        try {
+          sender.send("prefetch:done", { paperId, result: { ok: true, source: "cached", cached: true } });
+        } catch { /* 渲染层已关 */ }
+        return;
+      }
+      if (!shouldPrefetchIdentifier("identifier", resolvedFrom, paper, settings, false)) return;
+      if (prefetchInflight.has(paperId)) return;
+      prefetchInflight.add(paperId);
+      try {
+        try { sender.send("prefetch:start", { paperId }); } catch { /* 渲染层已关 */ }
+        const res = await runFetchPaper(paperId);
+        try {
+          if (res.ok) sender.send("prefetch:done", { paperId, result: res });
+          else sender.send("prefetch:fail", { paperId, result: res });
+        } catch { /* 渲染层已关 */ }
+      } catch (e) {
+        try {
+          sender.send("prefetch:fail", { paperId, result: { ok: false, reason: String((e as Error)?.message || e) } });
+        } catch { /* 渲染层已关 */ }
+      } finally { prefetchInflight.delete(paperId); }
+    })();
+  }
+
+  ipcMain.handle("oa:fetchPaper", async (_e, paperId: string) => {
+    try {
+      return await runFetchPaper(paperId);
     } catch (e: unknown) {
       const msg = (e && (e as { message?: unknown }).message) ? String((e as { message?: unknown }).message) : "取文失败";
       console.error("oa:fetchPaper 失败", paperId, msg);
+      const paper = store.papers.getById(paperId);
+      const settings = await loadAppSettings(store);
+      const email = settings.contactEmail ?? process.env.LUMINA_CONTACT_EMAIL;
+      if (paper && shouldSignalMissingEmail(paper.doi, email)) {
+        return { ok: false, reason: "missing_email", hint: "configure_contact_email" };
+      }
       return { ok: false, reason: msg };
     }
   });
 
-  ipcMain.handle("settings:get", () => loadAppSettings(store));
-  ipcMain.handle("settings:save", async (_e, s) => { await saveAppSettings(store, s); return true; });
+  ipcMain.handle("oa:fetchPaper-stream", async (e, paperId: string, reqId: number) => {
+    const send = (payload: unknown) => {
+      try { e.sender.send("fetch:progress", { reqId, paperId, ...(payload as object) }); } catch { /* 渲染层已关 */ }
+    };
+    try {
+      const res = await runFetchPaper(paperId, (ev) => send(ev));
+      send({ type: "final", result: res });
+      return res;
+    } catch (err: unknown) {
+      const msg = String((err as Error)?.message || err || "取文失败");
+      const fail = { ok: false as const, reason: msg };
+      send({ type: "final", result: fail });
+      return fail;
+    }
+  });
+
+  ipcMain.handle("mirrors:probe", async () => {
+    const settings = await loadAppSettings(store);
+    return probeAllMirrors(settings.altMirrors);
+  });
+
+  ipcMain.handle("settings:get", () => loadAppSettingsView(store));
+  ipcMain.handle("settings:save", async (_e, s) => {
+    await saveAppSettings(store, s);
+    const cur = await loadAppSettings(store);
+    setPoliteIdentity({ tool: "lumina-feed", email: cur.contactEmail ?? process.env.LUMINA_CONTACT_EMAIL });
+    return true;
+  });
+  ipcMain.handle("sources:status", async () => {
+    const names = ["semanticscholar_key", "core_key", "lens_token", "ncbi_key"] as const;
+    const out: Record<string, boolean> = {};
+    for (const n of names) out[n] = !!(await secrets.get(n));
+    return out;
+  });
+  ipcMain.handle("sources:registry", async () => {
+    const settings = await loadAppSettings(store);
+    const disabled = new Set((settings.disabledSources ?? []).map((s) => s.toLowerCase()));
+    return listSourceRegistry().map((row) => ({
+      ...row,
+      enabled: !disabled.has(row.id),
+    }));
+  });
+  ipcMain.handle("sources:test", async (_e, secretName: string, candidate?: string) => {
+    const key = candidate || await secrets.get(secretName);
+    if (!key) return { ok: false, error: "no_key" };
+    const t0 = Date.now();
+    const f = fetch;
+    try {
+      if (secretName === "semanticscholar_key") {
+        const res = await f(`https://api.semanticscholar.org/graph/v1/paper/search?query=test&limit=1`, {
+          headers: { accept: "application/json", "x-api-key": key },
+        });
+        return { ok: res.ok, ms: Date.now() - t0, error: res.ok ? undefined : `HTTP ${res.status}` };
+      }
+      if (secretName === "core_key") {
+        const res = await f("https://api.core.ac.uk/v3/search/works?q=test&limit=1", {
+          headers: { Authorization: `Bearer ${key}`, accept: "application/json" },
+        });
+        return { ok: res.ok, ms: Date.now() - t0, error: res.ok ? undefined : `HTTP ${res.status}` };
+      }
+      if (secretName === "lens_token") {
+        const res = await f("https://api.lens.org/scholarly/search", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", accept: "application/json" },
+          body: JSON.stringify({ query: { query_string: { query: "test" } }, size: 1 }),
+        });
+        return { ok: res.ok, ms: Date.now() - t0, error: res.ok ? undefined : `HTTP ${res.status}` };
+      }
+      if (secretName === "ncbi_key") {
+        const res = await f("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=test&retmax=1&api_key=" + encodeURIComponent(key));
+        return { ok: res.ok, ms: Date.now() - t0, error: res.ok ? undefined : `HTTP ${res.status}` };
+      }
+      return { ok: false, error: "unknown_secret" };
+    } catch (e: unknown) {
+      return { ok: false, error: String((e as Error)?.message ?? e) };
+    }
+  });
   ipcMain.handle("secrets:set", (_e, key: string, value: string) => secrets.set(key, value));
   // 测试连接：用当前(表单或已存)配置做一次极小补全，验证密钥/模型/网络是否通。不持久化、不回显密钥（红线3）。
   ipcMain.handle("llm:test", async (_e, cfg: { provider?: string; model?: string; baseUrl?: string; apiKey?: string }) => {
@@ -165,11 +438,29 @@ export function registerIpc(deps: IpcDeps): void {
     } catch { return []; }
   });
 
+  // 大模型就绪：已选提供方+模型；云端还需钥匙串密钥（Ollama 免密钥）。
+  const checkLlmReady = async () => {
+    const settings = await loadAppSettings(store);
+    const llm = settings.llm;
+    if (!llm || !llm.provider || !llm.model) {
+      return { ok: false as const, reason: "no_config", message: "请先在「设置 → 大模型」选择提供方并填写模型。" };
+    }
+    if (llm.provider !== "ollama") {
+      const key = await secrets.get(`${llm.provider}_key`);
+      if (!key) {
+        return { ok: false as const, reason: "no_key", message: "请先在「设置 → 大模型」保存 API Key。" };
+      }
+    }
+    return { ok: true as const, provider: llm.provider, model: llm.model };
+  };
+  ipcMain.handle("llm:status", () => checkLlmReady());
+
   // ── reader_engine：阅读器接地 AI（对逐页文本总结/问答，带页码引用；只单篇）──
   const makeLlm = async () => {
+    const status = await checkLlmReady();
+    if (!status.ok) throw new Error(status.message || "未配置 LLM");
     const settings = await loadAppSettings(store);
-    if (!settings.llm) throw new Error("未配置 LLM");
-    return llmFromConfig(settings.llm, () => secrets.get(`${settings.llm!.provider}_key`));
+    return llmFromConfig(settings.llm!, () => secrets.get(`${settings.llm!.provider}_key`));
   };
   ipcMain.handle("reader:summarize", async (_e, payload: { pages?: ReaderPage[] }) => {
     const llm = await makeLlm();
@@ -180,8 +471,16 @@ export function registerIpc(deps: IpcDeps): void {
     return askReader((payload && payload.pages) || [], (payload && payload.question) || "", llm);
   });
   ipcMain.handle("reader:translate", async (_e, payload: { text?: string }) => {
-    const llm = await makeLlm();
-    return { text: await translateText((payload && payload.text) || "", llm), model: llm.model };
+    const status = await checkLlmReady();
+    if (!status.ok) return { ok: false, error: status.message || "未配置大模型" };
+    try {
+      const llm = await makeLlm();
+      const text = await translateText((payload && payload.text) || "", llm);
+      return { ok: true, text, model: llm.model };
+    } catch (e: unknown) {
+      const msg = (e && (e as { message?: unknown }).message) ? String((e as { message?: unknown }).message) : "翻译失败";
+      return { ok: false, error: msg };
+    }
   });
 
   // ── reader_plus：统一分析派发（信封；lane 由引擎注册表决定）+ 分析缓存（本地优先，红线7）──
@@ -309,9 +608,10 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle("subs:save", (_e, sub: any) => {
     try {
       ensureSubs();
-      const sv = sub && sub.id ? sub : { ...sub, id: "s" + Date.now() };
+      const norm = normalizeSubscription(sub);
+      const sv = norm.id ? norm : { ...norm, id: "s" + Date.now() };
       store.db.prepare("INSERT INTO subscriptions(id,payload,updated_at) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload, updated_at=excluded.updated_at")
-        .run(sv.id, JSON.stringify(sv), new Date().toISOString());
+        .run(sv.id as string, JSON.stringify(sv), new Date().toISOString());
       return sv;
     } catch { return sub; }
   });
@@ -320,7 +620,10 @@ export function registerIpc(deps: IpcDeps): void {
   });
   // 立即运行：构造检索式（关键词走 rawToSpec；期刊走 journal 字段，PubMed [Journal] 接受 ISSN/刊名，限非预印本源）→ 真检索 → 落库；
   // 成本闸 autoSummarize 限制自动总结范围（off/abstract/topN）。今日命中以引擎 Paper 返回，渲染层经 toCardModel 映射。
-  ipcMain.handle("subs:runNow", async (_e, sub: any) => runSubscriptionNow(sub, store, secrets));
+  ipcMain.handle("subs:runNow", async (e, sub: any, opts?: { asyncAi?: boolean }) =>
+    runSubscriptionNow(sub, store, secrets, () => buildDigestSearchOpts(false), { sender: e.sender, asyncAi: opts?.asyncAi !== false }));
+  ipcMain.handle("subs:preview", async (e, draft: any) =>
+    runSubscriptionNow(draft, store, secrets, () => buildDigestSearchOpts(true), { preview: true, sender: e.sender }));
 
   // ── library（工作集持久化）+ lists（单层清单持久化）+ 富集（有全文/有总结/总结正文）──
   // 注：批注按"文件名:字节数"为 docKey（见 Reader），与 paperId 不一一对应，故"有批注/批注数"留后续（需 paperId↔docKey 映射）。
@@ -429,56 +732,201 @@ export function registerIpc(deps: IpcDeps): void {
   });
 }
 
-// ── 订阅运行核心（手动 runNow 与调度器共用）+ 调度器 ──
+// ── 订阅运行核心（手动 runNow / preview / 调度器共用）──
+let digestSearchOptsFactory: (preview?: boolean) => Promise<SearchOpts> = async () => ({ limit: 25 });
+
 function ensureSubsTable(db: Store["db"]): void {
   db.exec("CREATE TABLE IF NOT EXISTS subscriptions(id TEXT PRIMARY KEY, payload TEXT, updated_at TEXT);");
 }
-async function runSubscriptionNow(sub: any, store: Store, secrets: SecretStore): Promise<{ ok: boolean; hits: any[] }> {
+
+function emitSubsProgress(sender: WebContents | undefined, subId: string, p: Omit<import("../src/core/subs/digest-ai.ts").DigestAiProgress, "subId">): void {
+  if (!sender || sender.isDestroyed()) return;
+  try { sender.send("subs:progress", { subId, ...p }); } catch { /* ignore */ }
+}
+
+async function runDigestAiPhase(
+  mode: string,
+  norm: Record<string, unknown>,
+  todayMerged: Paper[],
+  fresh: Paper[],
+  preview: boolean,
+  store: Store,
+  secrets: SecretStore,
+  subId: string,
+  onProgress?: DigestAiProgressFn,
+): Promise<{ patchById: Map<string, Record<string, unknown>>; aiMeta: DigestAiMeta }> {
+  const patchById = new Map<string, Record<string, unknown>>();
+  const aiMeta: DigestAiMeta = { status: "skipped", mode, processed: 0, total: 0, blurbs: 0, summaries: 0, errors: 0 };
+  if (mode === "off") {
+    aiMeta.skippedReason = "autoSummarize_off";
+    return { patchById, aiMeta };
+  }
+  const settings = await loadAppSettings(store);
+  if (!settings.llm) {
+    aiMeta.skippedReason = "llm_not_configured";
+    return { patchById, aiMeta };
+  }
+  let llm: Awaited<ReturnType<typeof llmFromConfig>>;
   try {
-    const kind = (sub && sub.kind) || "keyword";
-    let spec: any;
-    if (kind === "journal") {
-      const j = (sub && sub.journal) || {};
-      const value = (j.issn && String(j.issn).trim()) || (j.name && String(j.name).trim()) || ((sub && sub.q) || "").trim();
-      if (!value) return { ok: false, hits: [] };
-      spec = { groups: [{ op: "AND", terms: [{ field: "journal", value }] }], filters: { sources: ["pubmed", "europepmc", "crossref", "openalex"] } };
-    } else {
-      spec = rawToSpec((sub && sub.q) || "", {});
-      if (!spec.groups.length) return { ok: false, hits: [] };
-    }
-    const agg = await aggregateSearch(spec, { limit: 30 });
-    store.papers.upsertMany(agg.papers);
-    // seenIds 跨次去重：只把"未见过的"作为今日新增
-    const seen = new Set<string>(Array.isArray(sub && sub.seenIds) ? sub.seenIds : []);
-    const fresh = agg.papers.filter((pp: any) => !seen.has(pp.id));
-    const mode = (sub && sub.autoSummarize) || "off";
-    if (mode !== "off") {
+    llm = await llmFromConfig(settings.llm, () => secrets.get(`${settings.llm!.provider}_key`));
+  } catch {
+    aiMeta.status = "failed";
+    aiMeta.skippedReason = "llm_init_failed";
+    return { patchById, aiMeta };
+  }
+  const fullText = makeOaFullTextProvider({ email: settings.contactEmail, includeAltSources: true });
+  const cache = sqliteSummaryCache(store.db);
+
+  if (mode === "blurb") {
+    const targets = preview ? todayMerged.slice(0, DIGEST_PREVIEW_BLURB_SAMPLES) : pickBlurbTargets(todayMerged);
+    aiMeta.total = targets.length;
+    aiMeta.status = targets.length ? "partial" : "ok";
+    let i = 0;
+    for (const pp of targets) {
+      i++;
+      onProgress?.({ subId, phase: "ai", mode: "blurb", current: i, total: targets.length, label: `生成相关说明 ${i}/${targets.length}` });
       try {
-        const settings = await loadAppSettings(store);
-        if (settings.llm) {
-          const llm = await llmFromConfig(settings.llm, () => secrets.get(`${settings.llm!.provider}_key`));
-          const fullText = makeOaFullTextProvider({ email: settings.contactEmail, includeAltSources: true });
-          const cache = sqliteSummaryCache(store.db);
-          const opts: SummarizeOptions = mode === "abstract"
-            ? { ...DEFAULT_SUMMARIZE, source: "abstract_only", fetchPdf: "no", scope: "digest_hits" }
-            : { ...DEFAULT_SUMMARIZE, scope: "digest_hits" };
-          const targets = mode === "topN" ? fresh.slice(0, 3) : fresh; // 成本闸只对新增
-          for (const pp of targets) {
-            try { const r = await summarizeGrounded(pp, opts, { llm, fullText, cache, ground: {} }); if (r) saveGrounding(store.db, pp.id, r.model, r.sourceBasis, r.grounded); }
-            catch { /* 单条总结失败不阻断 */ }
-          }
+        const blurb = await generateDigestBlurb(pp, norm, llm);
+        if (blurb) {
+          patchById.set(pp.id, { _digestBlurb: blurb });
+          aiMeta.blurbs++;
         }
-      } catch { /* 成本闸总结失败不阻断 */ }
+      } catch { aiMeta.errors = (aiMeta.errors || 0) + 1; }
+      aiMeta.processed = i;
     }
-    try {
-      ensureSubsTable(store.db);
-      const newSeen = [...seen, ...fresh.map((pp: any) => pp.id)].slice(-500); // 上限 500
-      const next = { ...sub, today: fresh.slice(0, 50), lastRunAt: new Date().toISOString(), seenIds: newSeen };
-      store.db.prepare("INSERT INTO subscriptions(id,payload,updated_at) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload, updated_at=excluded.updated_at")
-        .run(next.id, JSON.stringify(next), next.lastRunAt as string);
-    } catch { /* 持久化失败不阻断返回 */ }
-    return { ok: true, hits: fresh };
-  } catch { return { ok: false, hits: [] }; }
+  } else if (mode === "abstract" || mode === "topN") {
+    const targets = preview ? fresh.slice(0, 2) : (mode === "topN" ? pickTopNTargets(fresh) : pickAbstractTargets(fresh));
+    const sumOpts = digestSummarizeOpts(mode);
+    aiMeta.total = targets.length;
+    aiMeta.status = targets.length ? "partial" : "ok";
+    let i = 0;
+    for (const pp of targets) {
+      i++;
+      onProgress?.({ subId, phase: "ai", mode: mode as "abstract" | "topN", current: i, total: targets.length, label: `自动总结 ${i}/${targets.length}` });
+      try {
+        const r = await summarizeGrounded(pp, sumOpts, { llm, fullText, cache, ground: {} });
+        if (r) {
+          saveGrounding(store.db, pp.id, r.model, r.sourceBasis, r.grounded);
+          patchById.set(pp.id, { _digestSummary: r.summaryText, _digestSummaryBasis: r.sourceBasis });
+          aiMeta.summaries++;
+        }
+      } catch { aiMeta.errors = (aiMeta.errors || 0) + 1; }
+      aiMeta.processed = i;
+    }
+  }
+  aiMeta.status = (aiMeta.errors || 0) > 0 && aiMeta.processed === 0 ? "failed" : (aiMeta.errors || 0) > 0 ? "partial" : "ok";
+  return { patchById, aiMeta };
+}
+
+async function persistSubscriptionToday(
+  store: Store,
+  norm: Record<string, unknown>,
+  todayMerged: Paper[],
+  seen: Set<string>,
+  fresh: Paper[],
+  meta: DigestRunMeta,
+): Promise<void> {
+  ensureSubsTable(store.db);
+  const deliveredFresh = fresh.filter((p) => todayMerged.some((t) => t.id === p.id)).map((p) => p.id);
+  const newSeen = [...seen, ...deliveredFresh].slice(-500);
+  const next = {
+    ...norm,
+    today: todayMerged,
+    lastRunAt: new Date().toISOString(),
+    seenIds: newSeen,
+    lastRunMeta: meta,
+  };
+  store.db.prepare("INSERT INTO subscriptions(id,payload,updated_at) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload, updated_at=excluded.updated_at")
+    .run(next.id as string, JSON.stringify(next), next.lastRunAt as string);
+}
+
+async function runSubscriptionNow(
+  sub: any,
+  store: Store,
+  secrets: SecretStore,
+  optsFactory?: (preview?: boolean) => Promise<SearchOpts>,
+  flags: { preview?: boolean; asyncAi?: boolean; sender?: WebContents } = {},
+): Promise<{ ok: boolean; hits: any[]; newCount?: number; perSource?: DigestRunMeta["perSource"]; meta?: DigestRunMeta; preview?: boolean; aiSkippedReason?: string }> {
+  const preview = !!flags.preview;
+  const asyncAi = !preview && flags.asyncAi !== false;
+  const sender = flags.sender;
+  const t0 = Date.now();
+  try {
+    const norm = normalizeSubscription(sub) as Record<string, unknown>;
+    const subId = String(norm.id || "preview");
+    const spec = buildDigestSpec(norm);
+    if (!spec) return { ok: false, hits: [], preview };
+    const getOpts = optsFactory ?? digestSearchOptsFactory;
+    const searchOpts = await getOpts(preview);
+    emitSubsProgress(sender, subId, { phase: "search", mode: "off", current: 0, total: 1, label: "检索中…" });
+    const agg = await aggregateSearch(spec, searchOpts);
+    if (!preview) store.papers.upsertMany(agg.papers);
+    const seen = new Set<string>(Array.isArray(norm.seenIds) ? (norm.seenIds as string[]) : []);
+    const prevToday = Array.isArray(norm.today) ? (norm.today as Paper[]) : [];
+    const fresh = preview ? agg.papers.slice(0, 5) : freshHits(agg.papers, [...seen]);
+    let todayMerged = preview
+      ? fresh
+      : (() => {
+          const freshIds = new Set(fresh.map((p) => p.id));
+          const carry = prevToday.filter((p) => p && p.id && !freshIds.has(p.id));
+          return [...fresh, ...carry].slice(0, 50);
+        })();
+    const mode = (norm.autoSummarize as string) || "off";
+    const meta: DigestRunMeta = {
+      perSource: agg.perSource,
+      durationMs: Date.now() - t0,
+      mergedCount: agg.mergedCount ?? agg.papers.length,
+      preview,
+    };
+
+    const onProgress: DigestAiProgressFn = (p) => emitSubsProgress(sender, subId, p);
+
+    if (mode !== "off") {
+      if (asyncAi && !preview) {
+        meta.ai = { status: "queued", mode, processed: 0, total: 0, blurbs: 0, summaries: 0 };
+        if (!preview) {
+          await persistSubscriptionToday(store, norm, todayMerged, seen, fresh, meta);
+        }
+        void (async () => {
+          try {
+            const { patchById, aiMeta } = await runDigestAiPhase(mode, norm, todayMerged, fresh, false, store, secrets, subId, onProgress);
+            todayMerged = mergeAiOntoToday(todayMerged, patchById);
+            meta.ai = aiMeta;
+            meta.durationMs = Date.now() - t0;
+            await persistSubscriptionToday(store, norm, todayMerged, seen, fresh, meta);
+            emitSubsProgress(sender, subId, { phase: "ai", mode: mode as "blurb", current: aiMeta.processed, total: aiMeta.total, label: "AI 完成" });
+            if (sender && !sender.isDestroyed()) sender.send("subs:updated", { subId, ai: aiMeta });
+          } catch {
+            if (sender && !sender.isDestroyed()) sender.send("subs:updated", { subId, ai: { status: "failed", mode } });
+          }
+        })();
+        return { ok: true, hits: todayMerged, newCount: fresh.length, perSource: meta.perSource, meta, preview, aiSkippedReason: undefined };
+      }
+      const { patchById, aiMeta } = await runDigestAiPhase(mode, norm, todayMerged, fresh, preview, store, secrets, subId, onProgress);
+      todayMerged = mergeAiOntoToday(todayMerged, patchById);
+      meta.ai = aiMeta;
+    } else {
+      meta.ai = { status: "skipped", mode: "off", processed: 0, total: 0, blurbs: 0, summaries: 0, skippedReason: "autoSummarize_off" };
+    }
+
+    meta.durationMs = Date.now() - t0;
+    if (!preview) {
+      try {
+        await persistSubscriptionToday(store, norm, todayMerged, seen, fresh, meta);
+      } catch { /* 持久化失败不阻断 */ }
+    }
+    return {
+      ok: true,
+      hits: todayMerged,
+      newCount: fresh.length,
+      perSource: meta.perSource,
+      meta,
+      preview,
+      aiSkippedReason: meta.ai?.skippedReason,
+    };
+  } catch {
+    return { ok: false, hits: [], preview };
+  }
 }
 function isSubDue(sub: any, now: Date): boolean {
   if (!sub || sub.enabled === false) return false;
@@ -492,20 +940,48 @@ function isSubDue(sub: any, now: Date): boolean {
   const ranToday = !!last && last.toDateString() === now.toDateString();
   return !ranToday && now.getTime() >= sched.getTime();
 }
-/** 订阅调度器：启动后 ~30s 跑一次，此后每 ~10 分钟检查到期订阅并真检索；有命中则系统通知。成本闸在 runSubscriptionNow 内生效。 */
+/** 订阅调度器：启动后 ~30s 跑一次，此后每 ~10 分钟检查到期订阅并真检索。通知档位见 settings.digestNotifyTier。 */
 export function startSubsScheduler(store: Store, secrets: SecretStore): void {
   const tick = async () => {
     try {
       ensureSubsTable(store.db);
+      const settings = await loadAppSettings(store);
+      const tier = settings.digestNotifyTier || "regular";
+      const notify = settings.notifications !== false;
       const rows = store.db.prepare("SELECT payload FROM subscriptions").all() as Array<{ payload: string }>;
       const now = new Date();
+      let batchTotal = 0;
+      const batchNames: string[] = [];
       for (const row of rows) {
-        let sub: any; try { sub = JSON.parse(row.payload); } catch { continue; }
+        let sub: any; try { sub = normalizeSubscription(JSON.parse(row.payload)); } catch { continue; }
         if (!isSubDue(sub, now)) continue;
-        const res = await runSubscriptionNow(sub, store, secrets);
-        if (res.ok && res.hits.length) {
-          try { if (Notification.isSupported()) new Notification({ title: `Lumina · ${sub.name || sub.q || "订阅"}`, body: `今日新增 ${res.hits.length} 条` }).show(); } catch { /* 通知失败忽略 */ }
+        const res = await runSubscriptionNow(sub, store, secrets, () => buildDigestSearchOpts(false), { asyncAi: false });
+        if (res.ok && (res.newCount ?? res.hits.length)) {
+          const n = res.newCount ?? res.hits.length;
+          if (n <= 0) continue;
+          batchTotal += n;
+          batchNames.push(String(sub.name || sub.q || "订阅").slice(0, 24));
+          if (notify && tier === "power") {
+            try {
+              if (Notification.isSupported()) {
+                new Notification({
+                  title: `Lumina · ${sub.name || sub.q || "订阅"}`,
+                  body: `新增 ${n} 条 · 打开简报查看`,
+                }).show();
+              }
+            } catch { /* ignore */ }
+          }
         }
+      }
+      if (notify && tier === "regular" && batchTotal > 0) {
+        try {
+          if (Notification.isSupported()) {
+            new Notification({
+              title: "Lumina · 今日证据简报",
+              body: `共 ${batchTotal} 条新命中${batchNames.length ? "（" + batchNames.slice(0, 3).join("、") + (batchNames.length > 3 ? "…" : "") + "）" : ""}`,
+            }).show();
+          }
+        } catch { /* ignore */ }
       }
     } catch { /* 调度循环不抛 */ }
   };

@@ -8,6 +8,8 @@ export interface SearchOpts {
   limit?: number;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch; // 注入便于测试
+  keys?: Record<string, string>; // 源 id → 钥匙串密钥（main 注入，绝不来自 AppSettings）
+  disabledSources?: string[]; // P8 · 用户禁用的源 id
 }
 
 export interface SourceAdapter {

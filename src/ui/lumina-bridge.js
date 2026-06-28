@@ -32,6 +32,7 @@ const deriveMatched = (query, hay) => {
 
 export function toCardModel(p, query) {
   const hay = `${p.title || ""} ${p.abstract || ""}`;
+  const hitSources = [...new Set((p.versions || []).map((v) => v.source).filter(Boolean))];
   return {
     id: p.id, doi: p.doi, title: p.title || "(无标题)",
     authors: Array.isArray(p.authors) ? p.authors : [],
@@ -43,6 +44,15 @@ export function toCardModel(p, query) {
     cites: p.citationCount || 0,
     matched: deriveMatched(query, hay),
     abstract: p.abstract || "",
+    matchKind: p._matchKind || null,
+    isPreprint: !!p.isPreprint,
+    peerReviewed: !!p.peerReviewed,
+    oaStatus: p.oaStatus || null,
+    versions: p.versions || [],
+    hitSources,
+    digestBlurb: p._digestBlurb || null,
+    digestSummary: p._digestSummary || null,
+    digestSummaryBasis: p._digestSummaryBasis || null,
     _live: true,
   };
 }
@@ -81,24 +91,68 @@ export const bridge = {
     const api = A(); if (!api) return null;
     const r = await api.searchOnline(raw, filters);
     const papers = (r && r.papers) || [];
-    return { perSource: r && r.perSource, count: (r && r.count) ?? papers.length, papers: papers.map((p) => toCardModel(p, raw)) };
+    return {
+      perSource: r && r.perSource,
+      count: (r && r.count) ?? papers.length,
+      papers: papers.map((p) => toCardModel(p, raw)),
+      locateMode: r && r.locateMode,
+      resolvedFrom: r && r.resolvedFrom,
+      resolveError: r && r.resolveError,
+    };
+  },
+  async resolveIdentifier(raw) {
+    const api = A(); if (!api || !api.resolveIdentifier) return null;
+    const r = await api.resolveIdentifier(raw);
+    if (!r || !r.ok) return r;
+    return { ...r, paper: r.paper ? toCardModel(r.paper, raw) : null };
+  },
+  async searchRetrySource(sourceId, raw, filters) {
+    const api = A(); if (!api || !api.searchRetrySource) return null;
+    const r = await api.searchRetrySource(sourceId, raw, filters);
+    if (!r) return null;
+    const papers = (r.papers || []).map((p) => toCardModel(p, raw));
+    return { ...r, papers };
   },
   async summarize(paperId, uiOpts) {
     const api = A(); if (!api) return null;
     const opts = {
-      source: uiOpts.source || "prefer_fulltext",
-      fetchPdf: uiOpts.pdf || uiOpts.fetchPdf || "if_oa",
-      depth: uiOpts.depth || "structured",
+      source: uiOpts.source || (uiOpts.scope === "digest_hits" ? "abstract_only" : "prefer_fulltext"),
+      fetchPdf: uiOpts.pdf || uiOpts.fetchPdf || (uiOpts.scope === "digest_hits" ? "no" : "if_oa"),
+      depth: uiOpts.depth === "brief" ? "tldr" : (uiOpts.depth || "tldr"),
       language: uiOpts.lang || uiOpts.language || "zh",
-      scope: "manual",
+      scope: uiOpts.scope || "manual",
     };
     const res = await api.summarizePaper(paperId, opts);
     if (!res) return null;
     const g = res.grounded || {};
-    return { text: res.summaryText ?? res.text ?? "", sourceBasis: res.sourceBasis, model: res.model, groundedRatio: g.groundedRatio, banner: g.banner || null };
+    return { text: res.summaryText ?? res.text ?? "", summaryText: res.summaryText ?? res.text ?? "", sourceBasis: res.sourceBasis, model: res.model, groundedRatio: g.groundedRatio, banner: g.banner || null };
   },
-  async fetchFullText(card) {
+  async getCachedSummary(paperId, uiOpts = {}) {
+    const api = A(); if (!api || !api.getCachedSummary) return null;
+    try {
+      const depth = uiOpts.depth === "brief" ? "tldr" : (uiOpts.depth || "tldr");
+      return await api.getCachedSummary(paperId, depth, uiOpts.language || "zh");
+    } catch { return null; }
+  },
+  async fetchFullText(card, onProgress) {
     const oa = O(); if (!oa) return null;
+    if (oa.fetchPaperStream && card.id) {
+      const reqId = Date.now();
+      return new Promise((resolve) => {
+        let settled = false;
+        const finish = (r) => {
+          if (settled) return;
+          settled = true;
+          stop && stop();
+          if (r && r.ok) resolve({ ok: true, url: r.url, bytes: r.bytes, source: r.source });
+          else resolve({ ok: false, reason: (r && r.reason) || "no_pdf" });
+        };
+        const stop = oa.fetchPaperStream(card.id, reqId, (ev) => {
+          if (ev && ev.steps && onProgress) onProgress(ev);
+          if (ev && ev.type === "final" && ev.result) finish(ev.result);
+        });
+      });
+    }
     if (oa.fetchPaper && card.id) {
       try {
         const r = await oa.fetchPaper(card.id);
@@ -120,6 +174,22 @@ export const bridge = {
       return { ok: false, url, reason: (e && e.message) || "fetch_failed" };
     }
   },
+  probeMirrors() {
+    const oa = O(); if (!oa || !oa.probeMirrors) return Promise.resolve(null);
+    return oa.probeMirrors();
+  },
+  onPrefetchStart(cb) {
+    const oa = O(); if (!oa || !oa.onPrefetchStart) return () => {};
+    return oa.onPrefetchStart(cb);
+  },
+  onPrefetchDone(cb) {
+    const oa = O(); if (!oa || !oa.onPrefetchDone) return () => {};
+    return oa.onPrefetchDone(cb);
+  },
+  onPrefetchFail(cb) {
+    const oa = O(); if (!oa || !oa.onPrefetchFail) return () => {};
+    return oa.onPrefetchFail(cb);
+  },
   async readerSummarize(pages) {
     const r = R(); if (!r || !r.summarize) return mockReaderSummary();
     return r.summarize({ pages });
@@ -129,8 +199,18 @@ export const bridge = {
     return r.ask({ pages, question });
   },
   async readerTranslate(text) {
-    const r = R(); if (!r || !r.translate) return mockTranslate(text);
-    try { const res = await r.translate({ text }); return (res && res.text) || ""; } catch (e) { return ""; }
+    const r = R();
+    if (!r || !r.translate) return { ok: false, error: "演示模式无法翻译", text: mockTranslate(text) };
+    try {
+      const res = await r.translate({ text });
+      if (res && res.ok === false) return { ok: false, error: res.error || "翻译失败", text: "" };
+      return { ok: true, text: (res && res.text) || "", model: res && res.model };
+    } catch (e) { return { ok: false, error: (e && e.message) || "翻译失败", text: "" }; }
+  },
+  async llmReady() {
+    const api = A();
+    if (!api || !api.llmStatus) return { ok: false, message: "未连接引擎" };
+    try { return await api.llmStatus(); } catch { return { ok: false, message: "无法读取大模型配置" }; }
   },
   async readerAnalyze(kind, pages, opts) {
     const r = R(); if (!r || !r.analyze) return mockAnalysisEnvelope(kind); // 无引擎：返回结构合法的占位信封（标「原型模拟」），不伪造接地
@@ -206,12 +286,33 @@ export const bridge = {
     if (!api || !api.subsRemove) { const i = _subsMem.findIndex((x) => x.id === id); if (i >= 0) _subsMem.splice(i, 1); return true; }
     try { return await api.subsRemove(id); } catch (e) { return false; }
   },
-  async subsRunNow(sub) {
-    const api = A(); if (!api || !api.subsRunNow) return { ok: false, mock: true, hits: [] }; // 无引擎：不伪造命中
+  async subsRunNow(sub, opts = {}) {
+    const api = A(); if (!api || !api.subsRunNow) return { ok: false, mock: true, hits: [] };
+    const q = (sub && sub.q) || "";
+    let stopProgress = null;
+    let stopUpdated = null;
+    if (api.onSubsProgress && opts.onProgress) {
+      stopProgress = api.onSubsProgress(opts.onProgress);
+    }
+    if (api.onSubsUpdated && opts.onUpdated) {
+      stopUpdated = api.onSubsUpdated(opts.onUpdated);
+    }
     try {
-      const r = (await api.subsRunNow(sub)) || { ok: true, hits: [] };
-      return { ...r, hits: (r.hits || []).map((p) => toCardModel(p, (sub && sub.q) || "")) }; // 引擎 Paper → 卡片形状
+      const r = (await api.subsRunNow(sub, { asyncAi: opts.asyncAi !== false })) || { ok: true, hits: [] };
+      return { ...r, hits: (r.hits || []).map((p) => toCardModel(p, q)) };
     } catch (e) { return { ok: false, hits: [] }; }
+    finally {
+      if (stopProgress) stopProgress();
+      if (stopUpdated) stopUpdated();
+    }
+  },
+  async subsPreview(draft) {
+    const api = A(); if (!api || !api.subsPreview) return { ok: false, hits: [], preview: true };
+    try {
+      const r = (await api.subsPreview(draft)) || { ok: true, hits: [], preview: true };
+      const q = draft?.q || draft?.journal?.name || "";
+      return { ...r, hits: (r.hits || []).map((p) => toCardModel(p, q)) };
+    } catch (e) { return { ok: false, hits: [], preview: true }; }
   },
   async libraryList() {
     const api = A(); if (!api || !api.libraryList) return _libMem.slice();
@@ -276,6 +377,23 @@ export const bridge = {
   async resetLocalData() { const api = A(); if (!api || !api.resetLocalData) return { ok: false, error: "no_backend" }; return api.resetLocalData(); },
   async getUserDataPath() { const api = A(); if (!api || !api.getUserDataPath) return null; try { return await api.getUserDataPath(); } catch { return null; } },
   async setSecret(k, v) { const api = A(); if (!api) return null; return api.setSecret(k, v); },
+  async sourcesStatus() {
+    const api = A(); if (!api || !api.sourcesStatus) return {};
+    try { return (await api.sourcesStatus()) || {}; } catch { return {}; }
+  },
+  async sourcesRegistry() {
+    const api = A(); if (!api || !api.sourcesRegistry) return null;
+    try { return await api.sourcesRegistry(); } catch { return null; }
+  },
+  async testSource(name, cand) {
+    const api = A(); if (!api || !api.testSource) return { ok: false, error: "no_backend" };
+    try { return await api.testSource(name, cand); } catch (e) { return { ok: false, error: "test_failed" }; }
+  },
+  openExternal(url) {
+    const api = A(); if (api && api.openExternal) { try { api.openExternal(url); return true; } catch { /* noop */ } }
+    if (typeof url === "string") window.open(url, "_blank");
+    return false;
+  },
   onOpenLocalPdf(cb) {
     const api = A(); if (!api || !api.onOpenLocalPdf) return;
     try { api.onOpenLocalPdf(cb); } catch (e) { /* noop */ }
@@ -292,5 +410,24 @@ export const bridge = {
       try { return api.searchOnlineStream(raw, filters, reqId, cb) || (() => {}); } catch (e) { return null; }
     }
     return null;
+  },
+  async exportCitation(items, fmt) {
+    const api = A();
+    if (api && api.exportCitation) {
+      try { return await api.exportCitation(items, fmt); } catch (e) { return { ok: false, reason: String(e && e.message || e) }; }
+    }
+    const list = Array.isArray(items) ? items : [items];
+    const text = fmt === "ris"
+      ? list.map((p) => `TY  - JOUR\r\nTI  - ${p.title || ""}\r\nDO  - ${p.doi || ""}\r\nER  - \r\n`).join("")
+      : list.map((p) => `@article{${p.id || "ref"}, title={${p.title || ""}}, doi={${p.doi || ""}}}`).join("\n");
+    try {
+      const blob = new Blob([text], { type: "text/plain" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `export.${fmt === "ris" ? "ris" : "bib"}`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      return { ok: true, mock: true };
+    } catch (e) { return { ok: false, reason: "export_failed" }; }
   },
 };

@@ -2,10 +2,13 @@
 // 复用引擎既有 settings:get/save + secrets:set（密钥仅入系统钥匙串，绝不写配置/代码 = 红线3）。
 // 主题切换由壳层 onTheme 即时应用 + 持久化；视觉读图归「隐私」；阅读偏好归「阅读」。豆包模型框支持 Model ID 或推理接入点 ep-。
 import React, { useState, useEffect, useCallback } from "react";
-import { Cpu, Palette, Bell, Mail, KeyRound, Check, Save, Info, Eye, EyeOff, Plug, ChevronDown, RefreshCw, Loader, X, BookOpen, Shield, Trash2 } from "lucide-react";
+import { Cpu, Palette, Bell, Mail, KeyRound, Check, Save, Info, Eye, EyeOff, Plug, ChevronDown, RefreshCw, Loader, X, BookOpen, Shield, Trash2, Database } from "lucide-react";
 import { bridge, hasBackend } from "../lumina-bridge.js";
 import { THEMES } from "../themes.js";
 import { CURATED_MODELS, PROVIDER_DEFAULT_MODEL, OLLAMA_MODEL_PRESETS } from "../../core/summarize/model-presets.ts";
+import SourceKeysPanel from "../components/SourceKeysPanel.jsx";
+import MirrorSettingsPanel from "../components/MirrorSettingsPanel.jsx";
+import SourceTogglesPanel, { PrefetchToggleRow } from "../components/SourceTogglesPanel.jsx";
 
 // provider 预设：id 即引擎 LlmConfig.provider；密钥名 = `${id}_key`；ollama 无需 key；自定义需 baseUrl。
 const PROVIDERS = [
@@ -32,6 +35,7 @@ const presetOf = (id) => PROVIDERS.find((p) => p.id === id) || PROVIDERS[0];
 // 设置分类（左侧导航）：随类目增长，左栏才名副其实——本版把视觉读图独立为「隐私」，并新增「阅读」「关于」。
 const CATS = [
   { id: "llm", label: "大模型", icon: Cpu },
+  { id: "sources", label: "数据源", icon: Database },
   { id: "reader", label: "阅读", icon: BookOpen },
   { id: "appearance", label: "外观", icon: Palette },
   { id: "privacy", label: "隐私", icon: Shield },
@@ -135,7 +139,7 @@ const SET_CSS = `
 @media (max-width:680px){ .set-rail{width:128px} .set-modal{max-height:none;height:100%} }
 `;
 
-export default function Settings({ theme, onTheme, pushToast, onClose }) {
+export default function Settings({ theme, onTheme, pushToast, onClose, initialCat = "llm" }) {
   const [provider, setProvider] = useState("deepseek");
   const [model, setModel] = useState(PROVIDER_DEFAULT_MODEL.deepseek);
   const [baseUrl, setBaseUrl] = useState("");
@@ -144,10 +148,10 @@ export default function Settings({ theme, onTheme, pushToast, onClose }) {
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [fetchedModels, setFetchedModels] = useState(null);
   const [modelsLoading, setModelsLoading] = useState(false);
-  const [modelsErr, setModelsErr] = useState(null);
   const [customMode, setCustomMode] = useState(false);
   const [contactEmail, setContactEmail] = useState("");
   const [notifications, setNotifications] = useState(true);
+  const [digestNotifyTier, setDigestNotifyTier] = useState("regular");
   const [bgTray, setBgTray] = useState(false);
   const [bgLogin, setBgLogin] = useState(false);
   const [savingLlm, setSavingLlm] = useState(false);
@@ -155,14 +159,23 @@ export default function Settings({ theme, onTheme, pushToast, onClose }) {
   const [testResult, setTestResult] = useState(null);
   const [visionConsent, setVisionConsent] = useState(false);
   const [savingGen, setSavingGen] = useState(false);
-  const [activeCat, setActiveCat] = useState("llm");
+  const [activeCat, setActiveCat] = useState(initialCat);
   const [rememberPos, setRememberPos] = useState(true);     // 续读位置（默认开）
   const [defaultZoom, setDefaultZoom] = useState(1.1);       // 阅读器默认缩放
   const [nightInvert, setNightInvert] = useState(false);     // 夜读反色默认
   const [savingReader, setSavingReader] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [userDataPath, setUserDataPath] = useState("");
+  const [searchDepth, setSearchDepth] = useState("standard");
+  const [altMirrors, setAltMirrors] = useState({});
+  const [prefetchOnIdentifier, setPrefetchOnIdentifier] = useState(false);
+  const [keysConfigured, setKeysConfigured] = useState({});
   const backend = hasBackend();
+
+  const refreshKeysStatus = useCallback(async () => {
+    const st = await bridge.sourcesStatus();
+    setKeysConfigured(st || {});
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -170,13 +183,18 @@ export default function Settings({ theme, onTheme, pushToast, onClose }) {
       if (!alive || !s) return;
       if (s.llm && s.llm.provider) { setProvider(s.llm.provider); setModel(s.llm.model || presetOf(s.llm.provider).model); if (s.llm.baseUrl) setBaseUrl(s.llm.baseUrl); if (typeof s.llm.visionConsent === "boolean") setVisionConsent(s.llm.visionConsent); }
       if (typeof s.contactEmail === "string") setContactEmail(s.contactEmail);
+      if (s.searchDepth === "full" || s.searchDepth === "standard") setSearchDepth(s.searchDepth);
+      if (s.altMirrors && typeof s.altMirrors === "object") setAltMirrors(s.altMirrors);
+      if (typeof s.prefetchOnIdentifier === "boolean") setPrefetchOnIdentifier(s.prefetchOnIdentifier);
       if (typeof s.notifications === "boolean") setNotifications(s.notifications);
+      if (s.digestNotifyTier === "calm" || s.digestNotifyTier === "regular" || s.digestNotifyTier === "power") setDigestNotifyTier(s.digestNotifyTier);
       if (s.app) { setBgTray(!!s.app.minimizeToTray); setBgLogin(!!s.app.openAtLogin); }
       if (s.reader) { if (typeof s.reader.rememberPos === "boolean") setRememberPos(s.reader.rememberPos); if (typeof s.reader.defaultZoom === "number") setDefaultZoom(s.reader.defaultZoom); if (typeof s.reader.nightInvert === "boolean") setNightInvert(s.reader.nightInvert); }
       bridge.setBackground && bridge.setBackground(!!(s.app && s.app.minimizeToTray), !!(s.app && s.app.openAtLogin)); // 启动同步主进程
     }).catch(() => {});
+    refreshKeysStatus();
     return () => { alive = false; };
-  }, []);
+  }, [refreshKeysStatus]);
 
   useEffect(() => {
     if (!backend) return;
@@ -195,12 +213,12 @@ export default function Settings({ theme, onTheme, pushToast, onClose }) {
 
   const fetchModels = useCallback(async () => {
     const pr = presetOf(provider);
-    setModelsLoading(true); setModelsErr(null);
+    setModelsLoading(true);
     try {
       const res = await bridge.listModels({ provider, baseUrl: pr.showBase ? (baseUrl.trim() || undefined) : undefined, apiKey: apiKey.trim() || undefined });
       if (res && res.ok && Array.isArray(res.models) && res.models.length) setFetchedModels(res.models);
-      else { setFetchedModels(null); if (res && res.error) setModelsErr(res.error); }
-    } catch (e) { setFetchedModels(null); setModelsErr("拉取失败"); }
+      else setFetchedModels(null);
+    } catch (e) { setFetchedModels(null); }
     finally { setModelsLoading(false); }
   }, [provider, baseUrl, apiKey]);
   // 切换供应商即拉取（有 key / Ollama 返回真列表；无 key 静默回落内置清单）。
@@ -255,13 +273,13 @@ export default function Settings({ theme, onTheme, pushToast, onClose }) {
     setSavingGen(true);
     try {
       const cur = (await bridge.getSettings()) || {};
-      const next = { ...cur, contactEmail: contactEmail.trim() || undefined, notifications, app: { minimizeToTray: bgTray, openAtLogin: bgLogin } };
+      const next = { ...cur, contactEmail: contactEmail.trim() || undefined, notifications, digestNotifyTier, app: { minimizeToTray: bgTray, openAtLogin: bgLogin } };
       await bridge.saveSettings(next);
       bridge.setBackground && bridge.setBackground(bgTray, bgLogin);
       pushToast && pushToast(backend ? "已保存通用设置" : "（原型）未接后端，设置未持久化");
     } catch (e) { pushToast && pushToast("保存失败"); }
     finally { setSavingGen(false); }
-  }, [contactEmail, notifications, bgTray, bgLogin, backend, pushToast]);
+  }, [contactEmail, notifications, digestNotifyTier, bgTray, bgLogin, backend, pushToast]);
 
   const onResetLocalData = useCallback(async () => {
     if (!backend) { pushToast && pushToast("需 Electron 引擎"); return; }
@@ -316,13 +334,10 @@ export default function Settings({ theme, onTheme, pushToast, onClose }) {
                     <button type="button" className="set-combo-rf" onClick={() => fetchModels()} disabled={modelsLoading} title="拉取最新模型列表"><span className={modelsLoading ? "set-spin" : ""}>{modelsLoading ? <Loader size={14} /> : <RefreshCw size={14} />}</span></button>
                     {modelMenuOpen && (
                       <div className="set-combo-menu" role="listbox">
-                        {modelsErr && <div className="set-combo-note">拉取失败：{modelsErr}——用内置清单，或直接在框内输入</div>}
-                        {!modelsErr && fetchedModels && <div className="set-combo-note">已拉取 {fetchedModels.length} 个（来自 {preset.label}）；也可直接输入</div>}
-                        {!modelsErr && !fetchedModels && availModels.length > 0 && <div className="set-combo-note">内置清单（可能过时，以官网 / 刷新为准）；也可直接输入</div>}
                         {availModels.map((m) => (
                           <button type="button" role="option" aria-selected={m === model} key={m} className={"set-combo-opt set-mono" + (m === model ? " on" : "")} onClick={() => { setModel(m); setModelMenuOpen(false); }}>{m}{m === model ? <Check size={13} /> : null}</button>
                         ))}
-                        {availModels.length === 0 && <div className="set-combo-note">无内置清单——请在框内直接输入模型名，或点刷新拉取</div>}
+                        {availModels.length === 0 && <div className="set-combo-note">可直接在框内输入模型名</div>}
                       </div>
                     )}
                   </div>
@@ -355,6 +370,59 @@ export default function Settings({ theme, onTheme, pushToast, onClose }) {
                   <button className="set-btn2" onClick={onTestLlm} disabled={testing} title="用当前填写或已存的配置做一次极小调用，验证密钥/模型/网络是否通"><Plug size={15} /> {testing ? "测试中…" : "测试连接"}</button>
                 </div>
                 {testResult && <div className={"set-test" + (testResult.ok ? " ok" : " err")}>{testResult.ok ? ("✓ 连接成功 · " + testResult.model + (testResult.ms ? " · " + testResult.ms + " ms" : "")) : ("✗ " + (testResult.error || "连接失败"))}</div>}
+              </>
+            )}
+
+            {activeCat === "sources" && (
+              <>
+                <div className="set-row">
+                  <span className="set-lbl"><Mail size={13} style={{ verticalAlign: "-2px", marginRight: 5 }} />学者联络方式（推荐）</span>
+                  <input className="set-in" type="email" value={contactEmail} placeholder="you@example.org" onChange={(e) => setContactEmail(e.target.value)} />
+                  <span className="set-hint">用于 Unpaywall、PubMed、Crossref、OpenAlex 等 API 礼貌标识；仅本机保存，不上传云端。可用机构邮箱。</span>
+                </div>
+                <div className="set-btnrow" style={{ marginBottom: 16 }}>
+                  <button className="set-btn2" onClick={saveGeneral} disabled={savingGen}><Save size={15} /> {savingGen ? "保存中…" : "保存联络邮箱"}</button>
+                </div>
+                <SourceKeysPanel
+                  configured={keysConfigured}
+                  depth={searchDepth}
+                  onSaveKey={async (name, val) => { await bridge.setSecret(name, val); await refreshKeysStatus(); pushToast && pushToast("密钥已写入钥匙串"); }}
+                  onTestKey={(name, cand) => bridge.testSource(name, cand)}
+                  onOpenUrl={(u) => bridge.openExternal(u)}
+                  onChangeDepth={async (d) => {
+                    setSearchDepth(d);
+                    const cur = (await bridge.getSettings()) || {};
+                    await bridge.saveSettings({ ...cur, searchDepth: d });
+                    pushToast && pushToast("检索深度已更新");
+                  }}
+                />
+                <MirrorSettingsPanel
+                  value={altMirrors}
+                  pushToast={pushToast}
+                  onProbe={() => bridge.probeMirrors()}
+                  onSave={async (mirrors) => {
+                    const cur = (await bridge.getSettings()) || {};
+                    await bridge.saveSettings({ ...cur, altMirrors: mirrors });
+                    setAltMirrors(mirrors);
+                  }}
+                />
+                <PrefetchToggleRow
+                  value={prefetchOnIdentifier}
+                  onChange={async (v) => {
+                    setPrefetchOnIdentifier(v);
+                    const cur = (await bridge.getSettings()) || {};
+                    await bridge.saveSettings({ ...cur, prefetchOnIdentifier: v });
+                    pushToast && pushToast(v ? "已开启标识符预取" : "已关闭标识符预取");
+                  }}
+                />
+                <SourceTogglesPanel
+                  keysConfigured={keysConfigured}
+                  pushToast={pushToast}
+                  onSaveDisabled={async (disabledSources) => {
+                    const cur = (await bridge.getSettings()) || {};
+                    await bridge.saveSettings({ ...cur, disabledSources });
+                  }}
+                />
               </>
             )}
 
@@ -436,6 +504,15 @@ export default function Settings({ theme, onTheme, pushToast, onClose }) {
                   <span className="set-lbl">桌面通知（订阅简报等）</span>
                   <button role="switch" aria-checked={notifications} className={"set-switch" + (notifications ? " on" : "")} onClick={() => setNotifications((v) => !v)} aria-label="通知开关"><i /></button>
                 </div>
+                <div className="set-row">
+                  <span className="set-lbl">订阅简报通知档位</span>
+                  <div className="set-seg">
+                    {[["calm", "安静"], ["regular", "标准"], ["power", "积极"]].map(([k, l]) => (
+                      <button key={k} type="button" className={digestNotifyTier === k ? "on" : ""} onClick={() => setDigestNotifyTier(k)}>{l}</button>
+                    ))}
+                  </div>
+                  <span className="set-hint">安静：仅 app 内简报 · 标准：每次调度汇总一条 · 积极：每个订阅单独通知</span>
+                </div>
                 <div className="set-toggle">
                   <span className="set-lbl">关闭时最小化到托盘后台运行（订阅检索与每日简报继续）</span>
                   <button role="switch" aria-checked={bgTray} className={"set-switch" + (bgTray ? " on" : "")} onClick={() => setBgTray((v) => !v)} aria-label="后台运行开关"><i /></button>
@@ -461,6 +538,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose }) {
                 <h2 className="set-pane-h"><Info size={18} /> 关于</h2>
                 <div className="set-about">
                   <p><b>Lumina Feed</b> —— 本地优先的个人文献工具：定位一篇 → 多源取全文 PDF → AI 照亮（读 / 译 / 总结 / 批注）+ 主题订阅 + 每日简报。</p>
+                  <p style={{ marginTop: 10 }}>检索覆盖 20 个来源（开放 API 与 LibGen、Anna's Archive、Sci-Hub 等）；不包含 Google Scholar 索引或 Web of Science / Scopus 等商业数据库。取文来源会在界面持久标注。</p>
                   <p style={{ marginTop: 10 }}><b>底线（始终成立）</b></p>
                   <p>· 全文按 OA → LibGen → Anna's Archive → Sci-Hub 顺序自动尝试；<br />· AI 只排序 / 总结，从不替你裁决纳入或排除；<br />· 密钥只入 OS 钥匙串，绝不写配置或代码；<br />· 每条总结都带依据徽章与页码引用，可回原文核对；<br />· 预印本标注「未经同行评议」、已撤稿明确提示；<br />· 数据、PDF 与索引都在本机。</p>
                 </div>

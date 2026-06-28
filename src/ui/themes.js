@@ -21,7 +21,7 @@ export const isLight = (id) => themeById(id).base === "day";
 /** 生成每个主题的强调色覆盖 CSS（只覆盖品牌三色 + mark/选区，复用基底表面规则）。 */
 export const THEME_CSS = THEMES.map((t) => {
   const dim = t.base === "night" ? 0.16 : 0.16;
-  const base = `.lf[data-theme="${t.id}"]{--gold:${t.gold};--goldDim:${t.goldDim};--peri:${t.peri}}
+  const base = `.lf[data-theme="${t.id}"]{--gold:${t.gold};--goldDim:${t.goldDim};--peri:${t.peri};--petrol:${t.gold};--petrol-deep:${t.goldDim}}
 .lf[data-theme="${t.id}"] .lf-mark svg{color:${t.gold}}
 .lf[data-theme="${t.id}"] mark{background:${hexA(t.gold, t.base === "night" ? 0.22 : 0.16)};color:${t.goldDim}}
 .lf[data-theme="${t.id}"] ::selection{background:${hexA(t.gold, dim + 0.02)}}`;

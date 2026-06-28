@@ -1,8 +1,9 @@
 // lumina-feed · arXiv 适配器
-// export.arxiv.org/api/query（Atom XML）。Node 无 DOM，用轻量正则解析 entry。
+// 默认 sortBy=relevance；recent 时用 submittedDate。
 import type { SearchHit } from "../model.ts";
 import type { QuerySpec } from "../querySpec.ts";
-import { toArxivQuery } from "../querySpec.ts";
+import { SOURCE_BUILDERS } from "../search/query-spec.ts";
+import { searchContext } from "../search/search-context.ts";
 import { type SourceAdapter, type SearchOpts, getText, yearOf } from "./adapter.ts";
 
 const API = "https://export.arxiv.org/api/query";
@@ -42,10 +43,15 @@ export function parseArxivAtom(xml: string): SearchHit[] {
 export const arxivAdapter: SourceAdapter = {
   id: "arxiv",
   async search(q: QuerySpec, opts: SearchOpts = {}): Promise<SearchHit[]> {
-    const p = new URLSearchParams({ search_query: toArxivQuery(q), start: "0", max_results: String(opts.limit ?? 25), sortBy: "submittedDate", sortOrder: "descending" });
+    const ctx = searchContext(q, opts);
+    const built = SOURCE_BUILDERS.arxiv(ctx.q, ctx.field, ctx.sort);
+    const p = new URLSearchParams({ ...built.params, start: "0", max_results: String(opts.limit ?? 25) });
     const xml = await getText(`${API}?${p}`, opts);
     let hits = parseArxivAtom(xml);
-    if (opts.since) { const s = new Date(opts.since).getTime(); hits = hits.filter((h) => !h.pubDate || new Date(h.pubDate).getTime() >= s); }
+    if (opts.since) {
+      const s = new Date(opts.since).getTime();
+      hits = hits.filter((h) => !h.pubDate || new Date(h.pubDate).getTime() >= s);
+    }
     return hits;
   },
 };

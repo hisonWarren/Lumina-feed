@@ -10,11 +10,12 @@ import Settings from "./modules/Settings.jsx";
 import Library from "./modules/Library.jsx";
 import Subscriptions from "./modules/Subscriptions.jsx";
 import { buildFetchedMeta, isFetched, fetchProgressUi } from "./fetch-meta.js";
+import EmailPrompt from "./components/EmailPrompt.jsx";
 
 const BASE_CSS = `
 html,body,#root{height:100%;margin:0}
 body{background:#F4F4F1;font-family:Inter,system-ui,sans-serif}
-.lf{--gold:#0E7C6F;--goldDim:#0B5F55;--ink:#12151C;--ink2:#3A3F4A;--ink3:#6B7280;--ink4:#9CA3AF;--surf:#fff;--surf2:#F8F8F6;--line:#E5E5E0;--line2:#D8D8D2;--raise:#fff;--r:13px;--amber:#BE7A18;--ok:#2C8A60;--danger:#BC3B2B;--gold-tint:color-mix(in srgb,var(--gold) 10%,transparent);--gold-line:color-mix(in srgb,var(--gold) 28%,transparent);--shadow:0 1px 2px rgba(20,22,26,.04),0 8px 24px rgba(20,22,26,.06);--shadow-lg:0 24px 60px rgba(20,22,26,.16),0 4px 12px rgba(20,22,26,.08);--sans:Inter,system-ui,sans-serif;height:100vh;width:100%;display:flex;flex-direction:column;color:var(--ink)}
+.lf{--gold:#0E7C6F;--goldDim:#0B5F55;--gold-tint:color-mix(in srgb,var(--gold) 10%,transparent);--gold-line:color-mix(in srgb,var(--gold) 28%,transparent);--petrol:var(--gold);--petrol-deep:var(--goldDim);--petrol-tint:var(--gold-tint);--petrol-line:var(--gold-line);--ink:#12151C;--ink2:#3A3F4A;--ink3:#6B7280;--ink4:#9CA3AF;--surf:#fff;--surf2:#F8F8F6;--line:#E5E5E0;--line2:#D8D8D2;--raise:#fff;--r:13px;--amber:#BE7A18;--ok:#2C8A60;--danger:#BC3B2B;--shadow:0 1px 2px rgba(20,22,26,.04),0 8px 24px rgba(20,22,26,.06);--shadow-lg:0 24px 60px rgba(20,22,26,.16),0 4px 12px rgba(20,22,26,.08);--sans:Inter,system-ui,sans-serif;height:100vh;width:100%;display:flex;flex-direction:column;color:var(--ink)}
 .lf button:focus-visible,.lf input:focus-visible,.lf [role="tab"]:focus-visible,.lf [role="menuitemradio"]:focus-visible{outline:2px solid var(--gold-line);outline-offset:2px}
 .lf-top{display:flex;align-items:center;gap:18px;padding:13px 20px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,var(--surf2),var(--surf));flex-shrink:0;position:relative;z-index:40}
 .lf-brand{display:flex;align-items:center;gap:11px;flex-shrink:0}
@@ -74,6 +75,7 @@ body{background:#F4F4F1;font-family:Inter,system-ui,sans-serif}
 .ff-b-pre{color:#9a6b2e}
 .ff-b-oa{color:var(--gold)}
 .ff-b-ft,.sd-b-ft,.dg-b-ft,.lib-b-ft{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 35%,transparent)}
+.ff-b-ready,.sd-b-ready,.dg-b-ready,.lib-b-ready{color:var(--gold);border-color:color-mix(in srgb,var(--gold) 35%,transparent);font-weight:600}
 .ff-b-alt,.sd-b-alt,.dg-b-alt,.lib-b-alt{color:var(--ink2);border-color:var(--line2)}
 .ff-b-nooa,.sd-b-nooa,.dg-b-nooa,.lib-b-nooa{color:var(--ink3)}
 .ff-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
@@ -103,10 +105,18 @@ export default function LuminaApp() {
   const [themeOpen, setThemeOpen] = useState(false);
   const [incomingPdf, setIncomingPdf] = useState(null);
   const [subsNew, setSubsNew] = useState(0);
+  const [showOnboardingEmail, setShowOnboardingEmail] = useState(false);
+  const [settingsCat, setSettingsCat] = useState("llm");
 
   useEffect(() => {
     let alive = true;
-    bridge.getSettings().then((s) => { if (alive && s && s.theme) setTheme(s.theme); }).catch(() => {});
+    bridge.getSettings().then((s) => {
+      if (!alive || !s) return;
+      if (s.theme) setTheme(s.theme);
+      if (!s.emailConfigured && !s.emailFromEnv && !s.prompts?.onboardingEmailDismissed) {
+        setShowOnboardingEmail(true);
+      }
+    }).catch(() => {});
     bridge.libraryList().then((rows) => { if (alive && Array.isArray(rows)) setLib(rows); }).catch(() => {}); // 工作集持久化载入
     bridge.listsGet().then((ls) => { if (alive && Array.isArray(ls)) setLists(ls); }).catch(() => {}); // 清单持久化载入
     if (typeof bridge.subsList === "function") bridge.subsList().then((subs) => { if (alive && Array.isArray(subs)) setSubsNew(subs.reduce((n, sub) => n + ((sub && sub.enabled && Array.isArray(sub.today)) ? sub.today.length : 0), 0)); }).catch(() => {});
@@ -136,6 +146,32 @@ export default function LuminaApp() {
   }, []);
 
   useEffect(() => {
+    if (!hasBackend() || !bridge.onPrefetchStart || !bridge.onPrefetchDone) return;
+    const offStart = bridge.onPrefetchStart(({ paperId }) => {
+      setFetchingMeta((m) => ({
+        ...m,
+        [paperId]: { startedAt: Date.now(), trace: null, prefetching: true },
+      }));
+    });
+    const offDone = bridge.onPrefetchDone(({ paperId, result }) => {
+      setFetchingMeta((m) => { const n = { ...m }; delete n[paperId]; return n; });
+      const meta = buildFetchedMeta(result, { prefetched: !result?.cached });
+      if (meta) {
+        setFetchedMeta((m) => ({ ...m, [paperId]: meta }));
+        pushToast(result?.cached ? "全文已在本地" : "全文已就绪（后台预取）");
+      }
+    });
+    const offFail = bridge.onPrefetchFail?.(({ paperId, result }) => {
+      setFetchingMeta((m) => { const n = { ...m }; delete n[paperId]; return n; });
+      const why = result?.reason || "no_pdf";
+      if (why !== "missing_email") {
+        pushToast("后台预取未成功，可手动点「获取全文」");
+      }
+    });
+    return () => { offStart && offStart(); offDone && offDone(); offFail && offFail(); };
+  }, [pushToast]);
+
+  useEffect(() => {
     if (!Object.keys(fetchingMeta).length) return;
     const t = setInterval(() => setFetchTick((x) => x + 1), 1000);
     return () => clearInterval(t);
@@ -144,31 +180,63 @@ export default function LuminaApp() {
   const inLibFn = useCallback((id) => lib.some((x) => x.id === id), [lib]);
 
   const onFetch = useCallback(async (p) => {
-    setFetchingMeta((m) => ({ ...m, [p.id]: { startedAt: Date.now() } }));
+    setFetchingMeta((m) => ({ ...m, [p.id]: { startedAt: Date.now(), trace: null } }));
     try {
       if (hasBackend()) {
-        const r = await bridge.fetchFullText(p);
+        const r = await bridge.fetchFullText(p, (ev) => {
+          if (ev && ev.steps) {
+            setFetchingMeta((m) => ({
+              ...m,
+              [p.id]: { startedAt: m[p.id]?.startedAt ?? Date.now(), trace: ev.steps },
+            }));
+          }
+        });
         const meta = buildFetchedMeta(r);
         if (meta) {
           setFetchedMeta((m) => ({ ...m, [p.id]: meta }));
           pushToast("已获取全文 · " + meta.label);
         } else {
           const why = r && r.reason;
-          pushToast(why === "no_pdf" || why === "no_oa"
-            ? "未能自动获取全文——可经机构订阅或向作者索取"
-            : "取文未成功（" + (why || "未知原因") + "）。可稍后重试或经机构访问");
+          if (why === "missing_email") {
+            pushToast("请填写联络邮箱以启用 Unpaywall 合法 OA 取文");
+          } else {
+            pushToast(why === "no_pdf" || why === "no_oa"
+              ? "未能自动获取全文——可经机构订阅或向作者索取"
+              : "取文未成功（" + (why || "未知原因") + "）。可稍后重试或经机构访问");
+          }
         }
+        return r;
       } else {
         await new Promise((res) => setTimeout(res, 500));
         const mockSource = p.oa !== "closed" ? "unpaywall_mock" : "libgen_mock";
         const meta = buildFetchedMeta({ ok: true, source: mockSource });
         setFetchedMeta((m) => ({ ...m, [p.id]: meta }));
         pushToast("（原型模拟）已取全文 · " + meta.label);
+        return { ok: true, source: mockSource };
       }
     } finally {
       setFetchingMeta((m) => { const n = { ...m }; delete n[p.id]; return n; });
     }
   }, [pushToast]);
+
+  const saveOnboardingEmail = useCallback(async (email) => {
+    const cur = (await bridge.getSettings()) || {};
+    await bridge.saveSettings({ ...cur, contactEmail: email });
+    setShowOnboardingEmail(false);
+    pushToast("联络邮箱已保存");
+  }, [pushToast]);
+
+  const dismissOnboardingEmail = useCallback(async () => {
+    const cur = (await bridge.getSettings()) || {};
+    await bridge.saveSettings({ ...cur, prompts: { ...(cur.prompts || {}), onboardingEmailDismissed: true } });
+    setShowOnboardingEmail(false);
+  }, []);
+
+  const openSettings = useCallback((cat) => {
+    if (mode !== "settings") setPrevMode(mode);
+    if (cat) setSettingsCat(cat);
+    setMode("settings");
+  }, [mode]);
 
   const onReadPaper = useCallback(async (p) => {
     const id = typeof p === "string" ? p : p.id;
@@ -252,6 +320,7 @@ export default function LuminaApp() {
               onSave={onSave}
               inLibFn={inLibFn}
               pushToast={pushToast}
+              onOpenSettings={openSettings}
             />
           ) : view === "subs" ? (
             <Subscriptions
@@ -273,11 +342,16 @@ export default function LuminaApp() {
           ) : view === "library" ? (
             <Library lib={lib} lists={lists} onCreateList={createList} onToggleInList={toggleInList} onDeleteList={deleteList} onRemove={onRemoveLib} onRead={onReadFromLib} fetchedMeta={fetchedMeta} pushToast={pushToast} />
           ) : (
-            <FindFetch fetchedMeta={fetchedMeta} fetchingMeta={fetchingMeta} fetchTick={fetchTick} onFetch={onFetch} onReadPaper={onReadPaper} onSave={onSave} inLibFn={inLibFn} pushToast={pushToast} />
+            <FindFetch fetchedMeta={fetchedMeta} fetchingMeta={fetchingMeta} fetchTick={fetchTick} onFetch={onFetch} onReadPaper={onReadPaper} onSave={onSave} inLibFn={inLibFn} pushToast={pushToast} onOpenSettings={openSettings} />
           )}
         </main>
         {mode === "settings" && (
-          <Settings theme={theme} onTheme={onTheme} pushToast={pushToast} onClose={() => setMode(prevMode)} />
+          <Settings theme={theme} onTheme={onTheme} pushToast={pushToast} onClose={() => setMode(prevMode)} initialCat={settingsCat} />
+        )}
+        {showOnboardingEmail && (
+          <div style={{ position: "fixed", inset: 0, zIndex: 100, display: "grid", placeItems: "center", background: "rgba(18,21,28,.35)" }}>
+            <EmailPrompt variant="onboarding" onSave={saveOnboardingEmail} onDismiss={dismissOnboardingEmail} />
+          </div>
         )}
         {toasts.map((t) => (
           <div key={t.id} className="lf-toast">{t.msg}</div>

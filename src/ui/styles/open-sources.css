@@ -1,0 +1,123 @@
+/* src/ui/styles/open-sources.css
+   Additive styles for the open-sources patch. Layer AFTER finish-all.css.
+   All color via existing CSS variables (doc 03 §1); selected = solid petrol + white (§2). */
+
+/* ---- HitSources v2: summary + expandable (fixes 17-chip overload) ---- */
+.lf-sources-v2{ flex-direction:column; align-items:stretch; gap:8px; }
+.lf-src-summary{ display:flex; align-items:center; gap:10px; background:transparent; border:0; cursor:pointer; font:inherit; padding:0; text-align:left; }
+.lf-src-summary .lbl{ font-size:12px; font-weight:600; color:var(--ink3); }
+.lf-src-summary .sum{ font-family:var(--mono); font-size:12.5px; color:var(--petrol-deep); }
+.lf-src-summary .caret{ margin-left:auto; font-size:12px; color:var(--ink4); }
+.lf-src-note{ font-size:11.5px; color:var(--ink4); line-height:1.5; }
+.lf-src-detail{ display:flex; flex-wrap:wrap; gap:8px 12px; padding-top:4px; }
+.lf-src .dot{ width:6px; height:6px; border-radius:50%; background:var(--line2); display:inline-block; margin-right:5px; vertical-align:middle; }
+.lf-src .dot.ok{ background:var(--petrol); }
+.lf-src .dot.warn{ background:#C68A12; }
+.lf-src .dot.need{ background:var(--ink4); }
+.lf-src.warn{ color:#8A6A12; }
+.lf-src.need{ color:var(--ink3); }
+
+/* ---- search-depth toggle (search-time, near the bar) ---- */
+.lf-depth{ display:inline-flex; align-items:center; gap:6px; }
+.lf-depth-opt{ font:inherit; font-size:13px; font-weight:500; color:var(--ink2); background:var(--surf2);
+  border:1px solid var(--line); border-radius:999px; padding:5px 13px; cursor:pointer; transition:var(--transition,140ms ease); }
+.lf-depth-opt.on{ background:var(--petrol); color:#fff; border-color:var(--petrol); font-weight:600; box-shadow:0 1px 4px var(--petrol-tint); }
+.lf-depth-hint{ font-family:var(--mono); font-size:10.5px; color:var(--ink3); margin-left:2px; }
+
+/* ---- Google Scholar fallback (end of results, quiet) ---- */
+.lf-gs{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:18px 0 6px; padding:12px 14px;
+  background:var(--surf2); border:1px dashed var(--line2); border-radius:var(--radius,12px); }
+.lf-gs-t{ font-size:13px; color:var(--ink3); }
+.lf-gs-link{ font:inherit; font-size:13px; font-weight:600; color:var(--petrol); background:transparent; border:0; cursor:pointer; }
+.lf-gs-link:hover{ color:var(--petrol-deep); text-decoration:underline; }
+
+/* ---- email prompts (T1 card / T2 bar / T3 inline) ---- */
+.lf-email-card{ background:var(--raise); border:1px solid var(--line2); border-radius:var(--radius-lg,16px);
+  box-shadow:var(--shadow-lg); padding:18px 20px; max-width:440px; }
+.lf-email-card .hd, .lf-email-inline .hd{ font-size:15px; font-weight:650; color:var(--ink); margin-bottom:6px; }
+.lf-email-card .bd{ font-size:13px; line-height:1.6; color:var(--ink2); margin:0 0 14px; }
+.lf-email-card .rw, .lf-email-inline .rw{ display:flex; gap:8px; }
+.lf-email-in{ flex:1; font:inherit; font-size:14px; padding:9px 12px; border:1px solid var(--line); border-radius:var(--radius-sm,8px); background:var(--surf); color:var(--ink); }
+.lf-email-in:focus{ outline:2px solid var(--petrol-line); border-color:var(--petrol); }
+.lf-email-save{ font:inherit; font-size:14px; font-weight:600; color:#fff; background:var(--petrol); border:0; border-radius:var(--radius-sm,8px); padding:9px 16px; cursor:pointer; }
+.lf-email-save:disabled{ opacity:.5; cursor:not-allowed; }
+.lf-email-later, .lf-email-deep{ margin-top:10px; font:inherit; font-size:13px; color:var(--ink4); background:transparent; border:0; cursor:pointer; }
+.lf-email-bar{ display:flex; align-items:center; gap:10px; background:var(--petrol-tint); border:1px solid var(--petrol-line);
+  border-radius:var(--radius,12px); padding:9px 13px; margin:10px 0; }
+.lf-email-bar .t{ font-size:13px; color:var(--petrol-deep); flex:1; }
+.lf-email-fix{ font:inherit; font-size:13px; font-weight:600; color:#fff; background:var(--petrol); border:0; border-radius:7px; padding:5px 12px; cursor:pointer; }
+.lf-email-x{ font-size:16px; line-height:1; color:var(--ink4); background:transparent; border:0; cursor:pointer; padding:2px 6px; }
+.lf-email-inline{ background:var(--surf2); border:1px solid var(--line); border-radius:var(--radius,12px); padding:14px; margin-top:10px; }
+
+/* ---- Settings → 数据源 panel ---- */
+.lf-sources-panel .set-sec{ margin-top:18px; }
+.lf-sources-panel .set-sec-t{ font-size:13px; font-weight:600; color:var(--ink2); margin-bottom:10px; }
+.lf-keyrow{ border:1px solid var(--line); border-radius:var(--radius,12px); padding:12px 14px; margin-bottom:10px; background:var(--surf); }
+.lf-keyrow-h{ display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.lf-keyrow-h .nm{ font-size:13.5px; font-weight:600; color:var(--ink); }
+.lf-keyrow-h .need{ font-family:var(--mono); font-size:10px; color:var(--ink4); border:1px solid var(--line); border-radius:5px; padding:1px 6px; }
+.lf-getkey{ margin-left:auto; font:inherit; font-size:12px; font-weight:600; color:var(--petrol); background:transparent; border:0; cursor:pointer; }
+.lf-keyrow-i{ display:flex; gap:6px; align-items:center; }
+.lf-key-in{ flex:1; font-size:13px; padding:7px 10px; border:1px solid var(--line); border-radius:var(--radius-sm,8px); background:var(--surf2); color:var(--ink); }
+.lf-key-in:focus{ outline:2px solid var(--petrol-line); border-color:var(--petrol); }
+.lf-key-eye,.lf-key-save,.lf-key-test{ font:inherit; font-size:12.5px; border:1px solid var(--line); background:var(--raise); color:var(--ink2); border-radius:7px; padding:7px 11px; cursor:pointer; }
+.lf-key-save{ background:var(--petrol); color:#fff; border-color:var(--petrol); }
+.lf-key-save:disabled{ opacity:.5; cursor:not-allowed; }
+.lf-keyrow-f{ display:flex; align-items:center; gap:10px; margin-top:7px; }
+.lf-keyrow-f .hint{ font-size:11.5px; color:var(--ink4); }
+.lf-keyrow-f .st{ margin-left:auto; font-family:var(--mono); font-size:11px; }
+.lf-keyrow-f .st.ok{ color:var(--petrol-deep); }
+.lf-keyrow-f .st.bad{ color:var(--danger); }
+
+@media (prefers-reduced-motion: reduce){ .lf-depth-opt{ transition:none !important; } }
+
+/* ---- Fetch Trace (P2) ---- */
+.lf-fetch-trace{ margin-top:8px; border:1px solid var(--line2); border-radius:10px; background:var(--surf2); overflow:hidden; }
+.lf-ft-summary{ display:flex; align-items:center; gap:8px; width:100%; border:0; background:transparent; padding:8px 11px; font:inherit; font-size:12px; color:var(--ink2); cursor:pointer; text-align:left; }
+.lf-ft-meta{ font-family:var(--mono); font-size:10.5px; color:var(--ink4); margin-left:auto; }
+.lf-ft-caret{ transition:transform .15s ease; color:var(--ink4); }
+.lf-ft-caret.open{ transform:rotate(180deg); }
+.lf-ft-steps{ list-style:none; margin:0; padding:4px 11px 10px; border-top:1px solid var(--line); }
+.lf-ft-step{ display:flex; align-items:center; gap:8px; font-size:11.5px; padding:4px 0; color:var(--ink3); }
+.lf-ft-step.running{ color:var(--petrol-deep); }
+.lf-ft-step.ok{ color:var(--petrol-deep); }
+.lf-ft-step.fail{ color:#b42318; }
+.lf-ft-step .det{ color:var(--ink4); font-family:var(--mono); font-size:10.5px; }
+.lf-ft-step .ms{ margin-left:auto; font-family:var(--mono); font-size:10px; color:var(--ink4); }
+
+/* ---- Mirror settings (P5) ---- */
+.lf-mirror-panel .lf-mirror-row{ margin-bottom:14px; }
+.lf-mirror-ta{ min-height:72px; resize:vertical; font-size:12px; line-height:1.45; }
+.lf-mirror-probes{ display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+.lf-mp{ font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:6px; background:var(--surf); border:1px solid var(--line); }
+.lf-mp.ok{ color:var(--petrol-deep); }
+.lf-mp.bad{ color:var(--ink4); }
+
+/* ---- C lane expand ---- */
+.ff-expand{ margin-top:12px; padding:12px 14px; border:1px dashed var(--line2); border-radius:10px; background:var(--surf2); }
+.ff-expand p{ font-size:12.5px; color:var(--ink2); margin:0 0 10px; line-height:1.55; }
+.ff-expand-btn{ border:1px solid var(--petrol); background:transparent; color:var(--petrol); border-radius:8px; padding:7px 12px; font-size:12.5px; cursor:pointer; font-family:inherit; }
+.ff-expand-btn:hover{ background:rgba(14,124,111,.08); }
+.ff-idtag{ font-family:var(--mono); font-size:10px; color:var(--petrol); background:rgba(14,124,111,.1); border-radius:6px; padding:2px 7px; margin-left:6px; }
+.ff-resolved{ font-size:11px; color:var(--ink4); margin-top:4px; }
+.ff-disambig{ font-size:12px; color:#9a6b2e; background:rgba(154,107,46,.1); border:1px solid rgba(154,107,46,.22); border-radius:8px; padding:8px 11px; margin-bottom:8px; line-height:1.5; }
+.lf-src-retry{ margin-left:8px; border:1px solid var(--line2); background:var(--surf); color:var(--ink3); border-radius:6px; padding:2px 7px; font-size:10px; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center; gap:4px; }
+.lf-src-retry:hover{ border-color:var(--petrol); color:var(--petrol); }
+.lf-src-retry:disabled{ opacity:.55; cursor:default; }
+.lf-src-chips{ display:flex; flex-wrap:wrap; gap:5px; margin:6px 0 4px; }
+.lf-src-chip{ font-family:var(--mono); font-size:10px; color:var(--ink3); background:var(--surf2); border:1px solid var(--line); border-radius:6px; padding:2px 7px; }
+.lf-src-chip.more{ color:var(--ink4); }
+
+/* ---- Source toggles (P8) ---- */
+.lf-src-toggles{ margin-top:18px; }
+.lf-src-grid{ display:flex; flex-direction:column; gap:6px; max-height:320px; overflow:auto; padding-right:4px; margin-top:8px; }
+.lf-src-row{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 10px; border:1px solid var(--line); border-radius:9px; background:var(--surf); }
+.lf-src-row.off{ opacity:.72; background:var(--surf2); }
+.lf-src-main{ display:flex; flex-direction:column; gap:3px; min-width:0; }
+.lf-src-name{ font-size:13px; color:var(--ink); font-weight:500; }
+.lf-src-tags{ display:flex; flex-wrap:wrap; gap:4px; }
+.lf-src-tag{ font-family:var(--mono); font-size:9.5px; padding:1px 6px; border-radius:5px; background:var(--surf2); color:var(--ink4); border:1px solid var(--line); }
+.lf-src-tag.slow{ color:#9a6b2e; border-color:rgba(154,107,46,.25); }
+.lf-src-tag.key{ color:var(--ink3); }
+.lf-src-tag.warn{ color:var(--danger,#BC3B2B); border-color:rgba(188,59,43,.25); }
+.lf-prefetch-row{ margin-top:16px; margin-bottom:4px; }

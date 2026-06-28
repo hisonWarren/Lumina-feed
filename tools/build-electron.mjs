@@ -101,12 +101,20 @@ async function build() {
     outfile: path.join(DIST, "renderer.js"),
     format: "esm",
     jsx: "automatic",
-    loader: { ".jsx": "jsx" },
+    loader: { ".jsx": "jsx", ".css": "css" },
     define: { "process.env.NODE_ENV": '"production"' },
     logLevel: "info",
   });
 
   fs.copyFileSync(path.join(ROOT, "renderer/index.html"), path.join(DIST, "index.html"));
+  const cssOut = path.join(DIST, "renderer.css");
+  if (fs.existsSync(cssOut)) {
+    let html = fs.readFileSync(path.join(DIST, "index.html"), "utf8");
+    if (!html.includes("renderer.css")) {
+      html = html.replace("</head>", '  <link rel="stylesheet" href="./renderer.css" />\n</head>');
+      fs.writeFileSync(path.join(DIST, "index.html"), html);
+    }
+  }
 
   // PDF.js worker → dist（同源加载，满足 CSP worker-src 'self'）。需先 npm install pdfjs-dist。
   const pdfWorker = path.join(ROOT, "node_modules/pdfjs-dist/build/pdf.worker.min.mjs");

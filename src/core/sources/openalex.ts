@@ -1,9 +1,9 @@
 // lumina-feed · OpenAlex 适配器
-// works?search=...&filter=from_publication_date:...&sort=publication_date:desc&mailto=(polite)
-// 含 OA 状态、被引、概念；摘要为倒排索引需重建。
+// 默认 relevance（omit sort）；仅 recent/cited 时显式 sort。
 import type { SearchHit } from "../model.ts";
 import type { QuerySpec } from "../querySpec.ts";
-import { toOpenalexParams } from "../querySpec.ts";
+import { SOURCE_BUILDERS } from "../search/query-spec.ts";
+import { searchContext } from "../search/search-context.ts";
 import { type SourceAdapter, type SearchOpts, getJson, getPoliteIdentity } from "./adapter.ts";
 
 const API = "https://api.openalex.org/works";
@@ -42,9 +42,10 @@ export function parseOpenalex(json: any): SearchHit[] {
 export const openalexAdapter: SourceAdapter = {
   id: "openalex",
   async search(q: QuerySpec, opts: SearchOpts = {}): Promise<SearchHit[]> {
-    const p = toOpenalexParams(q, opts.since);
+    const ctx = searchContext(q, opts);
+    const built = SOURCE_BUILDERS.openalex(ctx.q, ctx.field, ctx.sort, ctx.years);
+    const p = new URLSearchParams(built.params);
     p.set("per-page", String(opts.limit ?? 25));
-    p.set("sort", "publication_date:desc");
     const { email } = getPoliteIdentity();
     if (email) p.set("mailto", email);
     const json = await getJson(`${API}?${p}`, opts);

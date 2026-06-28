@@ -29,8 +29,8 @@ export function normalize(h: SearchHit): Paper {
     title: (h.title ?? "").trim(),
     abstract: h.abstract?.trim(),
     authors: h.authors ?? [],
-    journal: h.journal,
-    journalAbbrev: h.journal ? abbrev(h.journal) : undefined,
+    journal: typeof h.journal === "string" ? h.journal : (h.journal != null ? String(h.journal) : undefined),
+    journalAbbrev: h.journal != null ? abbrev(h.journal) : undefined,
     pubDate: h.pubDate,
     year: h.year ?? (h.pubDate ? new Date(h.pubDate).getUTCFullYear() : undefined),
     studyTypes,
@@ -48,7 +48,9 @@ export function normalize(h: SearchHit): Paper {
   };
 }
 
-function abbrev(journal: string): string {
+function abbrev(journal: unknown): string {
+  const j = typeof journal === "string" ? journal : String(journal ?? "");
+  if (!j) return "";
   // 极简期刊缩写：取各词首段（真实可接 ISO4 词表）
-  return journal.split(/\s+/).map((w) => (w.length > 4 ? w.slice(0, 4) + "." : w)).join(" ");
+  return j.split(/\s+/).map((w) => (w.length > 4 ? w.slice(0, 4) + "." : w)).join(" ");
 }

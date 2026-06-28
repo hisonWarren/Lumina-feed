@@ -1,14 +1,26 @@
 // Lumina Feed · 检索取文 (Find & Fetch) —— patch: find_fetch
 // 定位某一篇 → 取来全文 PDF → 入库(记 provenance)。是"查找一篇"，非"检索语料库"。
 // live(有引擎) 时走 bridge.searchOnline / bridge.fetchFullText；无引擎时用内置 mock 预览。
-import React, { useState, useRef, useEffect, useMemo } from "react";
-import { Search, FileDown, BookOpen, Bookmark, ExternalLink, Check, AlertTriangle, X, Loader, Sparkles, Calendar, ArrowUpDown, ChevronDown, Info, Quote } from "lucide-react";
-import { bridge, hasBackend } from "../lumina-bridge.js";
-import { isDoi, normDoi, escapeRe } from "../lib-store.js";
-import { STYLES, formatCitation } from "../cite.js";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { Search, FileDown, BookOpen, Bookmark, ExternalLink, Check, AlertTriangle, X, Loader, Sparkles, Calendar, ArrowUpDown, ChevronDown, Info } from "lucide-react";
+import { bridge, hasBackend, toCardModel } from "../lumina-bridge.js";
+import { isDoi, normDoi, isIdentifierLike, identifierLabel, escapeRe } from "../lib-store.js";
 import SummaryDrawer from "./SummaryDrawer.jsx";
 import FetchBadges from "../FetchBadges.jsx";
+import FetchTrace from "../components/FetchTrace.jsx";
 import { isFetched, fetchProgressUi } from "../fetch-meta.js";
+import AbstractSnippet from "../components/AbstractSnippet.jsx";
+import BadgeRow from "../components/BadgeRow.jsx";
+import MatchBadge from "../components/MatchBadge.jsx";
+import HitSources from "../components/HitSources.jsx";
+import SourceChips from "../components/SourceChips.jsx";
+import CitationActions from "../components/CitationActions.jsx";
+import SearchDepthToggle from "../components/SearchDepthToggle.jsx";
+import EmailPrompt from "../components/EmailPrompt.jsx";
+import GoogleScholarLink from "../components/GoogleScholarLink.jsx";
+import ResultsPager from "../components/ResultsPager.jsx";
+import { pageSlice, clampPage } from "../lib/paginate.js";
+import { stableMerge, adoptRanking } from "../lib/stable-order.js";
 
 // 预览用 mock（无引擎时）
 const MOCK = [
@@ -33,6 +45,8 @@ const FIELD_OPTS = [
   { id: "author", label: "作者" },
   { id: "journal", label: "期刊" },
 ];
+
+const EXPAND_SOURCES = ["libgen", "annas", "crossref", "openalex", "semanticscholar", "pubmed", "europepmc"];
 
 const FF_CSS = `
 .ff-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:9px}
@@ -70,9 +84,13 @@ const FF_CSS = `
 .ff-cite:hover{border-color:var(--gold);color:var(--gold)}
 `;
 
-// 仅对已得 ~30 条短表做呈现层重排（非分面/非收窄/非分页）；默认最新优先（引擎已按日期降序）。
+// 呈现层重排：relevance/cited 信任引擎 BM25；title/author/oldest 客户端二次排序。
 function sortResults(list, by) {
   const arr = (list || []).slice();
+  if (by === "relevance" || by === "cited") {
+    if (by === "cited") arr.sort((a, b) => (b.cites || 0) - (a.cites || 0));
+    return arr;
+  }
   if (by === "oldest") arr.sort((a, b) => (a.year || 0) - (b.year || 0));
   else if (by === "title") arr.sort((a, b) => String(a.title || "").localeCompare(String(b.title || "")));
   else if (by === "author") arr.sort((a, b) => String((a.authors && a.authors[0]) || "").localeCompare(String((b.authors && b.authors[0]) || "")));
@@ -80,8 +98,14 @@ function sortResults(list, by) {
   return arr;
 }
 
+function engineSortMode(by) {
+  if (by === "newest") return "recent";
+  if (by === "cited") return "cited";
+  return "relevance";
+}
+
 let _searchSeq = 0;
-export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetch, onReadPaper, onSave, inLibFn, pushToast }) {
+export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetch, onReadPaper, onSave, inLibFn, pushToast, onOpenSettings }) {
   const [q, setQ] = useState("");
   const [submitted, setSubmitted] = useState("");
   const [results, setResults] = useState([]);
@@ -93,13 +117,65 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
   const [sxOpen, setSxOpen] = useState(false);
   const [yearFrom, setYearFrom] = useState("");
   const [yearTo, setYearTo] = useState("");
-  const [sortBy, setSortBy] = useState("newest");
+  const [sortBy, setSortBy] = useState("relevance");
   const [field, setField] = useState("all");
   const [fieldMenuOpen, setFieldMenuOpen] = useState(false);
   const [perSource, setPerSource] = useState(null);
+  const [searchDepth, setSearchDepth] = useState("standard");
+  const [emailConfigured, setEmailConfigured] = useState(true);
+  const [showSearchEmail, setShowSearchEmail] = useState(false);
+  const [fetchEmailPaper, setFetchEmailPaper] = useState(null);
+  const [keysCfg, setKeysCfg] = useState({});
+  const [pendingSort, setPendingSort] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const latestRanked = useRef([]);
   const curReq = useRef(0);
-  const [citeFor, setCiteFor] = useState(null);
+  const [mergedCount, setMergedCount] = useState(null);
+  const [resolvedFrom, setResolvedFrom] = useState(null);
+  const [showExpand, setShowExpand] = useState(false);
+  const [expandedOnce, setExpandedOnce] = useState(false);
+  const [locateMode, setLocateMode] = useState(null);
+  const [identifierError, setIdentifierError] = useState(null);
+  const [retryingSource, setRetryingSource] = useState(null);
+  const idAutoRef = useRef("");
+  const lastFiltersRef = useRef(null);
   const ref = useRef(null);
+
+  useEffect(() => {
+    let alive = true;
+    bridge.getSettings().then((s) => {
+      if (!alive || !s) return;
+      if (s.searchDepth === "full" || s.searchDepth === "standard") setSearchDepth(s.searchDepth);
+      setEmailConfigured(!!(s.emailConfigured || s.contactEmail));
+    }).catch(() => {});
+    bridge.sourcesStatus().then((st) => { if (alive) setKeysCfg(st || {}); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const needsKey = useMemo(() => {
+    const m = {};
+    if (!keysCfg.core_key) m.core = true;
+    if (!keysCfg.lens_token) m.lens = true;
+    return m;
+  }, [keysCfg]);
+
+  const saveEmail = useCallback(async (email) => {
+    const cur = (await bridge.getSettings()) || {};
+    await bridge.saveSettings({ ...cur, contactEmail: email });
+    setEmailConfigured(true);
+    setShowSearchEmail(false);
+    setFetchEmailPaper(null);
+    pushToast && pushToast("联络邮箱已保存");
+  }, [pushToast]);
+
+  const dismissSearchEmail = useCallback(async (action) => {
+    setShowSearchEmail(false);
+    const cur = (await bridge.getSettings()) || {};
+    const prompts = { ...(cur.prompts || {}), searchEmailShown: true };
+    await bridge.saveSettings({ ...cur, prompts });
+    if (action === "open" && onOpenSettings) onOpenSettings("sources");
+  }, [onOpenSettings]);
 
   useEffect(() => {
     const onKey = (e) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); ref.current && ref.current.focus(); } };
@@ -116,36 +192,83 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
     return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("mousedown", onDown); };
   }, [fieldMenuOpen]);
 
-  const run = async (val) => {
+  // P3 · 标识符粘贴后自动检索（debounce）
+  useEffect(() => {
+    if (!hasBackend()) return;
+    const t = q.trim();
+    if (!t || !isIdentifierLike(t)) { idAutoRef.current = ""; return; }
+    if (t === idAutoRef.current || t === submitted) return;
+    const timer = setTimeout(() => {
+      if (q.trim() === t && !loading) {
+        idAutoRef.current = t;
+        run(t);
+      }
+    }, 480);
+    return () => clearTimeout(timer);
+  }, [q, submitted, loading]);
+
+  const run = async (val, opts = {}) => {
     const term = (val !== undefined ? val : q).trim();
     if (!term) return;
     if (val !== undefined) setQ(val);
-    setLoading(true); setErr(null); setResults([]); setPerSource(null);
+    setLoading(true); setErr(null); setResults([]); setPerSource(null); setMergedCount(null); setPendingSort(0); latestRanked.current = [];
+    setResolvedFrom(null); setShowExpand(false); setLocateMode(null); setIdentifierError(null);
+    if (!opts.expand) setExpandedOnce(false);
     setRecent((r) => [term, ...r.filter((x) => x !== term)].slice(0, 6));
-    const filters = {};
+    const filters = { field, sort: engineSortMode(sortBy) };
+    if (opts.expand) {
+      filters.sources = EXPAND_SOURCES;
+      setExpandedOnce(true);
+    }
     const yf = parseInt(yearFrom, 10), yt = parseInt(yearTo, 10);
     if (!Number.isNaN(yf)) filters.yearFrom = yf;
     if (!Number.isNaN(yt)) filters.yearTo = yt;
+    lastFiltersRef.current = filters;
     // 字段范围：把所选字段并入查询（DOI 直达不加；已含 [..] 标签不重复）
-    const searchTerm = (field !== "all" && !isDoi(term) && !term.includes("[")) ? (term + " [" + field + "]") : term;
+    const searchTerm = (field !== "all" && !isIdentifierLike(term) && !term.includes("[")) ? (term + " [" + field + "]") : term;
     const reqId = ++_searchSeq;
     curReq.current = reqId;
     try {
       if (hasBackend() && bridge.searchOnlineStream) {
         // 渐进式：每个开放源返回即增量显示（去重在引擎侧），慢源不拖累首屏
-        const streamed = await new Promise((resolve) => {
+          const streamed = await new Promise((resolve) => {
           let done = false;
           const stop = bridge.searchOnlineStream(searchTerm, filters, reqId, (ev) => {
             if (!ev || ev.reqId !== curReq.current) return;
-            if (Array.isArray(ev.papers)) setResults(ev.papers);
+            if (Array.isArray(ev.papers)) {
+              const cards = ev.papers.map((p) => (p && (p.matched || p._live) ? p : toCardModel(p, searchTerm)));
+              latestRanked.current = cards;
+              setResults((prev) => {
+                const { items, appended } = stableMerge(prev, cards);
+                if (appended) setPendingSort((n) => n + appended);
+                setMergedCount(items.length);
+                return items;
+              });
+            }
             if (ev.perSource) setPerSource(ev.perSource);
-            if (ev.done && !done) { done = true; stop && stop(); resolve(true); }
+            if (ev.resolvedFrom) setResolvedFrom(ev.resolvedFrom);
+            if (ev.locateMode) setLocateMode(ev.locateMode);
+            if (ev.identifierError) setIdentifierError(ev.identifierError);
+            if (ev.resolveError && curReq.current === reqId) setErr(ev.resolveError === "not_found" ? "未找到该标识符的元数据。" : String(ev.resolveError));
+            if (ev.done && !done) {
+              done = true;
+              stop && stop();
+              if (!opts.expand && !isIdentifierLike(term) && latestRanked.current.length === 0) setShowExpand(true);
+              resolve(true);
+            }
           });
           if (!stop) resolve(false); // 旧版预载/无流式支持 → 回落
         });
         if (!streamed && curReq.current === reqId) {
           const r = await bridge.searchOnline(searchTerm, filters);
           setResults((r && r.papers) || []); setPerSource((r && r.perSource) || null);
+          setMergedCount((r && r.count) ?? ((r && r.papers) || []).length);
+          if (r && r.resolvedFrom) setResolvedFrom(r.resolvedFrom);
+          if (!opts.expand && !isIdentifierLike(term) && !((r && r.papers) || []).length) setShowExpand(true);
+        }
+        if (curReq.current === reqId && !emailConfigured) {
+          const cur = (await bridge.getSettings()) || {};
+          if (!cur.prompts?.searchEmailShown) setShowSearchEmail(true);
         }
       } else if (hasBackend()) {
         const r = await bridge.searchOnline(searchTerm, filters);
@@ -165,16 +288,60 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
       }
       if (curReq.current === reqId) setSubmitted(term);
     } catch (e) {
-      if (curReq.current === reqId) { setErr("检索失败，请稍后重试。"); setResults([]); }
-    } finally { if (curReq.current === reqId) setLoading(false); }
+      if (curReq.current === reqId) { setErr("检索失败，请稍后重试。"); setResults([]); setShowExpand(false); }
+    } finally {
+      if (curReq.current === reqId) setLoading(false);
+    }
   };
 
+  const runExpand = () => run(submitted || q, { expand: true });
+
+  const retrySource = useCallback(async (srcId) => {
+    const term = submitted || q;
+    if (!term || !hasBackend() || !bridge.searchRetrySource) return;
+    setRetryingSource(srcId);
+    const filters = lastFiltersRef.current || { field, sort: engineSortMode(sortBy) };
+    const searchTerm = (field !== "all" && !isIdentifierLike(term) && !term.includes("[")) ? (term + " [" + field + "]") : term;
+    try {
+      const r = await bridge.searchRetrySource(srcId, searchTerm, filters);
+      if (r && r.perSource) setPerSource((ps) => ({ ...(ps || {}), ...r.perSource }));
+      if (r && r.papers && r.papers.length) {
+        setResults((prev) => {
+          const { items, appended } = stableMerge(prev, r.papers);
+          if (appended) setPendingSort((n) => n + appended);
+          setMergedCount(items.length);
+          return items;
+        });
+        setShowExpand(false);
+      }
+    } finally { setRetryingSource(null); }
+  }, [submitted, q, field, sortBy]);
+
   const clear = () => { setQ(""); setSubmitted(""); setResults([]); ref.current && ref.current.focus(); };
-  const copyCite = (style, p) => { try { const t = formatCitation(style, p); navigator.clipboard && navigator.clipboard.writeText(t); pushToast && pushToast("已复制 " + style.toUpperCase() + " 引用"); } catch (e) { /* noop */ } };
-  const openDoi = (doi) => { if (hasBackend() && window.luminaApi && window.luminaApi.openExternal) window.luminaApi.openExternal("https://doi.org/" + doi); else window.open("https://doi.org/" + doi, "_blank"); };
-  const doi = isDoi(q);
+  const openDoi = (doi) => { bridge.openExternal("https://doi.org/" + doi); };
+  const handleFetch = async (p) => {
+    const r = await onFetch(p);
+    if (r && r.reason === "missing_email") setFetchEmailPaper(p);
+  };
+  const idTag = identifierLabel(q);
   const shown = useMemo(() => sortResults(results, sortBy), [results, sortBy]);
+  const total = shown.length;
+  const safePage = clampPage(page, total, pageSize);
+  const pageItems = pageSlice(shown, safePage, pageSize);
   const fieldLabel = (FIELD_OPTS.find((o) => o.id === field) || FIELD_OPTS[0]).label;
+
+  useEffect(() => { setPage(1); }, [submitted, sortBy, field]);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!submitted) return;
+      if (e.target && /input|textarea|select/i.test(e.target.tagName)) return;
+      if (e.key === "ArrowRight") setPage((p) => clampPage(p + 1, shown.length, pageSize));
+      if (e.key === "ArrowLeft") setPage((p) => clampPage(p - 1, shown.length, pageSize));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [submitted, shown.length, pageSize]);
 
   return (
     <div className="ff">
@@ -198,8 +365,8 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
             )}
           </div>
           <input ref={ref} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") run(); else if (e.key === "Escape") clear(); }}
-            placeholder={doi ? "已识别 DOI — 回车直达原文" : "粘贴 DOI，或输入标题 / 作者 / 关键词找到那一篇"} />
-          {doi && <span className="ff-doitag">DOI</span>}
+            placeholder={idTag ? `已识别 ${idTag} — 回车或稍候自动检索` : "粘贴 DOI，或输入标题 / 作者 / 关键词找到那一篇"} />
+          {idTag && <span className="ff-idtag">{idTag}</span>}
           {q && <button className="ff-clr" onClick={clear} title="清除"><X size={14} /></button>}
         </div>
         {recent.length > 0 && !submitted && (
@@ -218,10 +385,22 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
             )}
           </div>
           <button className={"ff-tool" + (yearOpen ? " on" : "")} onClick={() => setYearOpen((v) => !v)} aria-expanded={yearOpen}><Calendar size={13} /> 年份{(yearFrom || yearTo) ? ("：" + (yearFrom || "…") + "–" + (yearTo || "…")) : ""} <ChevronDown size={12} /></button>
+          <SearchDepthToggle value={searchDepth} onChange={async (d) => {
+            setSearchDepth(d);
+            const cur = (await bridge.getSettings()) || {};
+            await bridge.saveSettings({ ...cur, searchDepth: d });
+          }} />
+          {pendingSort > 0 && (
+            <button type="button" className="ff-tool on" onClick={() => { setResults(adoptRanking(latestRanked.current)); setPendingSort(0); }}>
+              刷新排序 ({pendingSort})
+            </button>
+          )}
           {submitted && shown.length > 0 && (
             <label className="ff-sort"><ArrowUpDown size={13} /> 排序
               <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} aria-label="结果排序">
+                <option value="relevance">相关（默认）</option>
                 <option value="newest">最新优先</option>
+                <option value="cited">被引最多</option>
                 <option value="oldest">最早优先</option>
                 <option value="title">标题 A–Z</option>
                 <option value="author">第一作者 A–Z</option>
@@ -245,14 +424,27 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
       <div className="ff-results">
         {submitted && perSource && Object.keys(perSource).length > 0 && (
           <div className="ff-track">
-            <div className="ff-sources">
-              <span className="ff-src-label">命中来源</span>
-              {Object.entries(perSource).map(([src, stt]) => <span key={src} className={"ff-src " + (stt && stt.ok ? "ok" : "err")} title={stt && stt.error ? String(stt.error) : ""}>{src} {stt && stt.ok ? stt.count : "✕"}</span>)}
-            </div>
+            {locateMode === "disambig" && identifierError && (
+              <div className="ff-disambig">标识符解析未命中（{identifierError}）· 已回落关键词检索</div>
+            )}
+            <HitSources perSource={perSource} mergedCount={mergedCount ?? shown.length} needsKey={needsKey}
+              onRetrySource={hasBackend() ? retrySource : null} retryingSource={retryingSource} />
+            {resolvedFrom && resolvedFrom.length > 0 && (
+              <p className="ff-resolved">标识符解析自：{resolvedFrom.join(" · ")}</p>
+            )}
+          </div>
+        )}
+        {showSearchEmail && (
+          <div className="ff-track">
+            <EmailPrompt variant="search" onDismiss={dismissSearchEmail} />
           </div>
         )}
         {loading && results.length === 0 ? (
-          <div className="ff-empty"><Loader size={26} className="ff-spin" /><h2>正在定位…</h2><p>跨开放学术源检索中——边找边显示。</p></div>
+          <div className="ff-track">
+            <div className="lf-skel"><div className="ln" style={{ width: "72%" }} /><div className="ln" style={{ width: "48%" }} /><div className="ln" style={{ width: "88%" }} /></div>
+            <div className="lf-skel"><div className="ln" style={{ width: "65%" }} /><div className="ln" style={{ width: "40%" }} /></div>
+            <p className="ff-more"><Loader size={14} className="ff-spin" /> 正在定位…跨多源检索中</p>
+          </div>
         ) : err ? (
           <div className="ff-empty"><AlertTriangle size={24} /><h2>{err}</h2></div>
         ) : !submitted ? (
@@ -266,10 +458,19 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
             </div>
           </div>
         ) : results.length === 0 ? (
-          <div className="ff-empty"><Search size={24} /><h2>未找到匹配</h2><p>换个关键词，或核对 DOI 是否完整。</p></div>
+          <div className="ff-empty">
+            <Search size={24} /><h2>未找到匹配</h2>
+            <p>换个关键词，或核对 DOI 是否完整。</p>
+            {showExpand && !expandedOnce && !isIdentifierLike(submitted || q) && (
+              <div className="ff-expand">
+                <p>开放 API 未命中时，可扩大至 <b>LibGen、Anna's Archive</b> 等全文库与少量元数据源重试（可能更慢）。</p>
+                <button type="button" className="ff-expand-btn" onClick={runExpand}>扩大至全文库检索</button>
+              </div>
+            )}
+          </div>
         ) : (
           <>
-          {shown.map((p) => {
+          {pageItems.map((p) => {
             const meta = fetchedMeta[p.id];
             const got = isFetched(meta);
             const fmeta = fetchingMeta[p.id];
@@ -278,32 +479,48 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
             const saved = inLibFn(p.id);
             return (
               <div className="ff-card" key={p.id}>
+                <MatchBadge kind={p.matchKind} />
                 <div className="ff-title" onClick={() => openDoi(p.doi)}>{hi(p.title, p.matched)}</div>
-                <div className="ff-meta">{(p.authors || []).slice(0, 4).join(", ")}{(p.authors || []).length > 4 ? " et al." : ""}</div>
+                <div className="ff-meta">{(p.authors || []).slice(0, 4).join(", ")}{(p.authors || []).length > 4 ? " et al." : ""} · {p.journal || p.abbr}{p.year ? ` · ${p.year}` : ""}</div>
                 <button className="ff-doi" onClick={() => openDoi(p.doi)} title="在浏览器打开"><span>{p.doi}</span><ExternalLink size={11} /></button>
+                <BadgeRow paper={p} />
+                <SourceChips paper={p} sources={p.hitSources} />
+                <AbstractSnippet text={p.abstract} />
                 <FetchBadges p={p} fetchedMeta={meta} />
-                <div className="ff-actions">
+                {fetchEmailPaper && fetchEmailPaper.id === p.id && (
+                  <EmailPrompt variant="fetch" onSave={saveEmail} onDismiss={(a) => { if (a === "settings" && onOpenSettings) onOpenSettings("sources"); else setFetchEmailPaper(null); }} />
+                )}
+                {isFetching && fmeta && fmeta.trace && <FetchTrace steps={fmeta.trace} compact />}
+                <div className="ff-actions lf-actions">
                   <button className={"ff-act ff-ft" + (got ? " on" : "") + (isFetching ? " loading" : "")} disabled={isFetching}
-                    onClick={() => onFetch(p)}>
+                    onClick={() => handleFetch(p)}>
                     {isFetching ? <><Loader size={13} className="ff-spin" /> {prog.stageText}{prog.elapsed >= 5 ? <span className="ff-soon"> · {prog.elapsed}s</span> : null}</> : got ? <><Check size={13} /> 已取全文</> : <><FileDown size={13} /> 获取全文</>}
                   </button>
                   {got && <button className="ff-act" onClick={() => onReadPaper(p)}><BookOpen size={13} /> 阅读</button>}
                   <button className="ff-act" onClick={() => setSel(p)}><Sparkles size={13} /> AI 总结</button>
                   <button className={"ff-act" + (saved ? " on" : "")} onClick={() => onSave(p)}><Bookmark size={13} fill={saved ? "currentColor" : "none"} /> {saved ? "已收藏" : "收藏"}</button>
-                  <button className={"ff-act" + (citeFor === p.id ? " on" : "")} onClick={() => setCiteFor(citeFor === p.id ? null : p.id)} title="复制引用（含 BibTeX）"><Quote size={13} /> 引用 <ChevronDown size={12} /></button>
+                  <CitationActions paper={p} onToast={pushToast} />
                 </div>
-                {citeFor === p.id && (
-                  <div className="ff-cites">
-                    {STYLES.map((st) => <button key={st[0]} className="ff-cite" onClick={() => copyCite(st[0], p)}>{st[1]}</button>)}
-                  </div>
-                )}
                 {p.oa === "closed" && !got && (
-                  <div className="ff-wall">未标注开放获取。仍会尝试备用库与镜像站；若均失败，可经<b>机构订阅</b>或向作者索取。</div>
+                  <div className="ff-wall">未标注开放获取。仍会尝试 LibGen、Anna's Archive、Sci-Hub 等来源；若均失败，可经<b>机构订阅</b>或向作者索取。</div>
                 )}
               </div>
             );
           })}
+          <ResultsPager
+            total={total}
+            page={safePage}
+            pageSize={pageSize}
+            onPage={(p) => { setPage(p); document.querySelector(".ff-results")?.scrollTo?.({ top: 0, behavior: "smooth" }); }}
+            onPageSize={(s) => { setPageSize(s); setPage(1); }}
+            onRefine={() => ref.current && ref.current.focus()}
+          />
           {loading && <div className="ff-more"><Loader size={14} className="ff-spin" /> 还在从其他来源获取…</div>}
+          {submitted && (
+            <div className="ff-track">
+              <GoogleScholarLink query={submitted} count={shown.length} onOpen={(u) => bridge.openExternal(u)} />
+            </div>
+          )}
           </>
         )}
       </div>

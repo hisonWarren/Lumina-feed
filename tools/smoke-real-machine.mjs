@@ -115,6 +115,17 @@ try {
   `);
   hasTestBtn ? pass("设置页「测试连接」按钮可见") : fail("缺测试连接按钮");
 
+  await evalJs(cdp, `
+    const close = document.querySelector(".set-modal .set-close, button[aria-label='关闭']");
+    if (close) close.click();
+    else {
+      const ov = document.querySelector(".set-overlay");
+      if (ov) ov.click();
+    }
+    return true;
+  `);
+  await new Promise((r) => setTimeout(r, 300));
+
   const llmTest = await evalJs(cdp, `
     if (!window.luminaApi?.testLlm) throw new Error("no testLlm");
     return await window.luminaApi.testLlm({});
@@ -170,13 +181,23 @@ try {
     await clickText(cdp, "检索取文");
     await new Promise((r) => setTimeout(r, 300));
     await evalJs(cdp, `
-      const chip = [...document.querySelectorAll(".ff-chip")].find(b => (b.textContent||"").includes("主题词"));
-      if (!chip) throw new Error("no demo chip");
-      chip.click();
+      const inp = document.querySelector(".ff-bar input");
+      if (!inp) throw new Error("no search input");
+      const q = "covid vaccine efficacy";
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      if (setter) setter.call(inp, q);
+      else inp.value = q;
+      inp.dispatchEvent(new Event("input", { bubbles: true }));
+      inp.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, bubbles: true }));
       return true;
     `);
-    await new Promise((r) => setTimeout(r, 12000));
-    const cards = await evalJs(cdp, `return document.querySelectorAll(".ff-card").length;`);
+    await new Promise((r) => setTimeout(r, 300));
+    let cards = 0;
+    for (let i = 0; i < 45; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      cards = await evalJs(cdp, `return document.querySelectorAll(".ff-card").length;`);
+      if (Number(cards) > 0) break;
+    }
     Number(cards) > 0 ? pass("检索取文 UI 渲染结果卡", `${cards} 张`) : fail("UI 未渲染 ff-card");
     await screenshot(cdp, "04-findfetch");
   }

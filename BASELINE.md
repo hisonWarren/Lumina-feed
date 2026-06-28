@@ -9,7 +9,7 @@
 | 我的文献 | `Library.jsx` · `cite.js` | 工作集 · 清单 · 全文来源 badge · 跨篇分析 |
 | 阅读器 | `Reader.jsx` 等 | P1–P3 · 四区 · 双车道 · 证据/推断 · 写作 · 读图 |
 | 设置 | `Settings.jsx` · `model-presets.ts` | LLM 精选清单 · 测试连接 · 钥匙串 · 主题 |
-| 引擎取文 | `alt-sources.ts` · `provider.ts` | OA → LibGen → Anna → Sci-Hub 链 · `oa:fetchPaper` |
+| 引擎取文 | `alt-sources.ts` · `provider.ts` · `locate/` | USP 20 源（17 开放 API + LibGen + Anna + Sci-Hub 桩）· 标识符 A 车道 · 取文链 |
 | 导航 | `LuminaApp.jsx` · `brand-logo.js` | 顶栏重做（logo/tagline/居中药丸导航/徽标/主题菜单）· 深度 token |
 
 ## 已应用 patch
@@ -50,17 +50,25 @@
 | `synra_patch_lumina_background` | `verify-lumina-background.mjs` |
 | `synra_patch_lumina_reader_plus_graph` | `verify-lumina-reader-plus-graph.mjs` |
 | `synra_patch_lumina_provider_doubao` | `verify-lumina-provider-doubao.mjs` |
+| `synra_patch_lumina_finish_all` | `verify-lumina-finish-all.mjs` |
+| `synra_patch_lumina_open_sources` | `verify-lumina-open-sources.mjs`（P0+P2 共 **17** 检索源） |
+| `synra_patch_lumina_results_paging` | `verify-lumina-results-paging.mjs` · `test-paginate.mjs`（15/15） |
+| `synra_patch_lumina_reader_hilite_fix` | `verify-lumina-reader-hilite-fix.mjs`（12/12）· `apply-hilite-fix.mjs` |
+| **直推·订阅简报 2.0** | `verify-lumina-subs-digest-sync.mjs`（26/26） |
 
 ## 验收
 
 ```powershell
-npm run verify          # 扫描 tools/verify-lumina-*.mjs，零红不变量
+npm run verify          # 扫描 tools/verify-lumina-*.mjs，**43/43** 零红不变量
 npm run verify:fetch-meta
 npm run verify:model-presets
 npx @electron/rebuild
 npm start
-npm run dist:dir        # win-unpacked；NSIS 见 ISSUE-017
+npm run dist            # NSIS：Lumina Feed Setup 0.3.0.exe（Windows 可设 CSC_IDENTITY_AUTO_DISCOVERY=false）
+npm run dist:dir        # win-unpacked
 ```
+
+**本机数据**：`%APPDATA%\Lumina Feed\`（`lumina.db` · `pdfs/`）；设置「关于」可查看路径并清空。与旧 dev 目录 `%APPDATA%\lumina-feed` 分离。
 
 **本地 PDF 打开（dev）**：`npx electron . "C:\path\file.pdf"`（须已 `build:electron`）
 
@@ -81,9 +89,11 @@ node tools/smoke-untested-patches.mjs   # 新补丁：search_settings/background
 node tools/smoke-real-machine.mjs
 node tools/smoke-full-ai.mjs            # provider 须与 Key 匹配（DeepSeek 或豆包 ep-）
 node tools/smoke-post-patch.mjs
+npx tsx tools/live-smoke-sources.mjs      # 17 源活体 API（报告 sources-live.json）
+node tools/smoke-open-sources-man.mjs       # MAN-OS 开放源真机（FindFetch + 设置）
 ```
 
-报告输出：`/.smoke-artifacts/`（`untested-patches-report.json` · `post-patch-report.json` · `report.json` · `full-ai-report.json` · 截图）。
+报告输出：`/.smoke-artifacts/`（`untested-patches-report.json` · `post-patch-report.json` · `report.json` · `full-ai-report.json` · `sources-live.json` · `man-os-report.json` · 截图）。
 
 **打包烟测**：`npx electron-builder --dir` → `release/win-unpacked/`（2026-06-28 本机已通过 exe 构建）。
 

@@ -1,0 +1,105 @@
+/* src/ui/styles/finish-all.css
+   Additive rules for the finish-all patch. Layer AFTER existing stylesheets.
+   ALL color via existing CSS variables (doc 03 §1) — no hard-coded hex except a few
+   badge tints derived from the palette. Selected state = solid petrol + white (doc 03 §2).
+   Popover containers use overflow:visible (doc 03 §6 坑①). */
+
+/* ---- result card: match badge + abstract snippet ---- */
+.lf-match{ display:inline-flex; align-items:center; gap:6px; font-family:var(--mono); font-size:10.5px; font-weight:700;
+  letter-spacing:.3px; color:var(--petrol-deep); background:var(--petrol-tint); border:1px solid var(--petrol-line);
+  border-radius:7px; padding:4px 9px; margin-bottom:10px; }
+.lf-abs{ font-size:14px; line-height:1.62; color:var(--ink2); margin:0 0 12px; }
+.lf-abs .body{ overflow:hidden; transition:max-height var(--transition,140ms ease); }
+.lf-abs.clamped .body{ display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; max-height:4.9em; }
+.lf-abs .toggle{ font:inherit; font-size:13px; font-weight:600; color:var(--petrol); background:transparent; border:0;
+  cursor:pointer; padding:4px 0 0; }
+.lf-abs .toggle:hover{ color:var(--petrol-deep); }
+.lf-abs.empty{ color:var(--ink4); font-style:italic; }
+
+/* ---- badges: info, not filters (doc 03 §2) ---- */
+.lf-badges{ display:flex; gap:7px; flex-wrap:wrap; margin-bottom:12px; }
+.lf-badge{ display:inline-flex; align-items:center; gap:5px; font-size:11.5px; font-weight:500; border-radius:7px;
+  padding:3px 9px; border:1px solid; }
+.lf-badge.oa-gold  { color:#8A6A12; background:#FBF3DC; border-color:#EAD9A6; }
+.lf-badge.oa-green { color:var(--petrol-deep); background:var(--petrol-tint); border-color:var(--petrol-line); }
+.lf-badge.preprint { color:#8A5A12; background:#FBEFDD; border-color:#E7C99B; }
+.lf-badge.retracted{ color:var(--danger); background:#F8E7E2; border-color:#E7B5A8; }
+.lf-badge.peer     { color:var(--ink3); background:var(--surf2); border-color:var(--line); }
+
+/* ---- honest hit-source bar ---- */
+.lf-sources{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:var(--surf2); border:1px solid var(--line);
+  border-radius:var(--radius,12px); padding:11px 14px; margin:14px 0 18px; }
+.lf-sources .lbl{ font-size:12px; font-weight:600; color:var(--ink3); display:flex; align-items:center; gap:6px; }
+.lf-sources .lbl .q{ width:15px; height:15px; border-radius:50%; border:1.3px solid var(--ink4); color:var(--ink4);
+  display:grid; place-items:center; font-size:10px; cursor:help; }
+.lf-merged{ font-family:var(--mono); font-size:12px; color:var(--petrol-deep); background:var(--petrol-tint);
+  border:1px solid var(--petrol-line); border-radius:999px; padding:3px 10px; }
+.lf-src{ font-family:var(--mono); font-size:11.5px; color:var(--ink2); display:inline-flex; align-items:center; gap:5px; }
+.lf-src::before{ content:""; width:6px; height:6px; border-radius:50%; background:var(--petrol); }
+.lf-src.zero{ color:var(--ink4); }
+.lf-src.zero::before{ background:var(--line2); }
+
+/* ---- sort segment: relevance is the DEFAULT selected option ---- */
+.lf-seg{ display:inline-flex; background:var(--surf2); border:1px solid var(--line); border-radius:999px; padding:3px; }
+.lf-seg button{ font:inherit; font-size:13px; font-weight:500; color:var(--ink2); background:transparent; border:0;
+  cursor:pointer; padding:6px 14px; border-radius:999px; transition:var(--transition,140ms ease); white-space:nowrap; }
+.lf-seg button.on{ background:var(--petrol); color:#fff; }            /* doc 03 §2 */
+.lf-seg button .def{ font-family:var(--mono); font-size:9px; opacity:.8; margin-left:5px; }
+
+/* ---- citation menu: copy + download .ris/.bib ---- */
+.lf-cite-menu{ position:absolute; top:calc(100% + 8px); right:0; min-width:250px; background:var(--raise);
+  border:1px solid var(--line2); border-radius:var(--radius,12px); box-shadow:var(--shadow-lg); padding:8px; z-index:30; }
+.lf-cite-menu .grp{ font-size:11px; font-weight:600; letter-spacing:.3px; color:var(--ink4); text-transform:uppercase; margin:2px 4px 6px; }
+.lf-cite-styles{ display:flex; gap:5px; flex-wrap:wrap; padding-bottom:8px; margin-bottom:8px; border-bottom:1px solid var(--line); }
+.lf-cite-styles button{ font:inherit; font-size:12px; color:var(--ink2); background:var(--surf2); border:1px solid var(--line);
+  border-radius:7px; padding:5px 10px; cursor:pointer; }
+.lf-cite-styles button.on{ background:var(--petrol); color:#fff; border-color:var(--petrol); }
+.lf-dl{ width:100%; display:flex; align-items:center; gap:9px; font:inherit; font-size:13.5px; color:var(--ink);
+  background:transparent; border:0; cursor:pointer; padding:9px 10px; border-radius:var(--radius-sm,8px); text-align:left; }
+.lf-dl:hover{ background:var(--surf2); }
+.lf-dl .ext{ margin-left:auto; font-family:var(--mono); font-size:11px; color:var(--ink4); }
+/* ensure the action row never clips the popover (doc 03 §6 坑①) */
+.lf-actions{ position:relative; overflow:visible; }
+
+/* ---- collapsible history sidebar ---- */
+.lf-side{ flex:0 0 232px; border-right:1px solid var(--line); background:var(--surf); display:flex; flex-direction:column;
+  transition:flex-basis var(--transition,140ms ease); overflow:hidden; }
+.lf-side.collapsed{ flex-basis:48px; }
+.lf-side-head{ display:flex; align-items:center; justify-content:space-between; padding:14px 14px 10px; }
+.lf-side-head .ttl{ font-size:12px; font-weight:600; letter-spacing:.4px; color:var(--ink3); text-transform:uppercase; white-space:nowrap; }
+.lf-side.collapsed .ttl, .lf-side.collapsed .lf-side-scroll{ opacity:0; pointer-events:none; }
+.lf-collapse{ width:26px; height:26px; border-radius:7px; border:1px solid var(--line); background:var(--raise); cursor:pointer;
+  display:grid; place-items:center; color:var(--ink3); flex:0 0 auto; }
+.lf-collapse:hover{ color:var(--petrol); border-color:var(--petrol-line); }
+.lf-side-scroll{ flex:1; overflow-y:auto; padding:4px 10px 14px; transition:opacity var(--transition,140ms ease); }
+.lf-hist-grp{ font-family:var(--mono); font-size:10px; letter-spacing:.5px; color:var(--ink4); margin:12px 6px 6px; }
+.lf-hist{ display:flex; align-items:center; gap:8px; padding:8px 9px; border-radius:var(--radius-sm,8px); cursor:pointer;
+  color:var(--ink2); font-size:13px; border:1px solid transparent; }
+.lf-hist:hover{ background:var(--surf2); }
+.lf-hist.on{ background:var(--petrol-tint); border-color:var(--petrol-line); color:var(--petrol-deep); }
+.lf-hist span:first-child{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.lf-hist .fld{ font-family:var(--mono); font-size:9px; color:var(--ink4); margin-left:auto; flex:0 0 auto; }
+
+/* ---- loading: skeleton instead of empty-state flash ---- */
+.lf-skel{ background:var(--raise); border:1px solid var(--line); border-radius:var(--radius-lg,16px); padding:20px 22px; margin-bottom:14px; }
+.lf-skel .ln{ height:13px; border-radius:6px; margin-bottom:11px;
+  background:linear-gradient(90deg,var(--surf2) 25%,var(--line) 37%,var(--surf2) 63%); background-size:400% 100%; animation:lf-sh 1.3s ease infinite; }
+@keyframes lf-sh{ 0%{ background-position:100% 0 } 100%{ background-position:-100% 0 } }
+
+/* ---- reader: toolbar active state + themed selection bar ---- */
+.rd-toolbar{ overflow:visible; position:relative; z-index:5; flex-wrap:wrap; }   /* never overflow:auto (坑①) */
+.rd-tb.on{ background:var(--petrol); color:#fff; }                               /* the missing active highlight */
+.rd-float{ background:var(--ink); color:var(--surf); }                          /* themed dark surface, NOT pure black */
+.lf[data-theme]:not(.day) .rd-float{ background:var(--raise); color:var(--ink); box-shadow:var(--shadow-lg), 0 0 0 1px var(--line2); }
+.rd-swatches{ display:flex; gap:4px; padding-right:6px; margin-right:2px; border-right:1px solid rgba(255,255,255,.18); }
+.lf[data-theme]:not(.day) .rd-swatches{ border-right-color:var(--line); }
+.rd-swatches .sw{ width:24px; height:24px; border-radius:7px; border:2px solid transparent; cursor:pointer; }
+.rd-swatches .sw.on{ border-color:#fff; box-shadow:0 0 0 1px rgba(0,0,0,.2); }
+.lf[data-theme]:not(.day) .rd-swatches .sw.on{ border-color:var(--ink); }
+
+/* ---- briefing typography: no awkward mid-phrase wrap ---- */
+.brief-lead{ text-wrap:pretty; }
+.brief-lead b, .brief-lead .keep{ white-space:nowrap; }
+
+/* ---- quality floor ---- */
+@media (prefers-reduced-motion: reduce){ .lf-skel .ln, .lf-side, .lf-abs .body{ animation:none !important; transition:none !important; } }

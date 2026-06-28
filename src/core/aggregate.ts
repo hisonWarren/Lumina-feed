@@ -1,39 +1,37 @@
 // lumina-feed · 多源聚合
-// 并发跑各源适配器（部分成功：单源失败不拖垮整份）→ 归一化 → 去重/版本归并。
+// 并发跑各源适配器（部分成功：单源失败不拖垮整份）→ 归一化 → 清洗 → 去重 → BM25 重排。
 import type { SearchHit, Paper } from "./model.ts";
 import type { QuerySpec } from "./querySpec.ts";
+import { specToRaw } from "./querySpec.ts";
 import { selectAdapters } from "./sources/index.ts";
 import type { SearchOpts } from "./sources/adapter.ts";
 import { normalize } from "./normalize.ts";
 import { dedupeAndMerge } from "./dedupe.ts";
+import { normalizePaper } from "./paper-hygiene.ts";
+import { rerank } from "./rank/rerank.ts";
+import type { MatchKind } from "./rank/bm25.ts";
+import { withTimeout, TimeoutError } from "./sources/with-timeout.ts";
+import { timeoutFor } from "./sources/adapter-meta.ts";
+import { installDefaultLimiters } from "./sources/rate-limit.ts";
+import { enrichSparsePapers } from "./locate/enrich-metadata.ts";
+
+installDefaultLimiters();
 
 export interface AggregateResult {
   papers: Paper[];
   perSource: Record<string, { count: number; ok: boolean; error?: string }>;
   raw: SearchHit[];
+  mergedCount?: number;
 }
 
-export async function aggregateSearch(spec: QuerySpec, opts: SearchOpts = {}): Promise<AggregateResult> {
-  const adapters = selectAdapters(spec.filters.sources);
-  const perSource: AggregateResult["perSource"] = {};
-  const settled = await Promise.allSettled(
-    adapters.map((a) => a.search(spec, opts).then((hits) => ({ id: a.id, hits })))
-  );
+export type RankedPaper = Paper & { _matchKind?: MatchKind };
 
-  const all: SearchHit[] = [];
-  settled.forEach((s, i) => {
-    const id = adapters[i].id;
-    if (s.status === "fulfilled") { perSource[id] = { count: s.value.hits.length, ok: true }; all.push(...s.value.hits); }
-    else perSource[id] = { count: 0, ok: false, error: String((s.reason as Error)?.message ?? s.reason) }; // 标记失败,不抛
-  });
+function postProcess(all: SearchHit[], spec: QuerySpec): RankedPaper[] {
+  let papers: RankedPaper[] = all.map((h) => normalizePaper(normalize(h)) as RankedPaper);
+  const before = papers.length;
+  papers = dedupeAndMerge(papers) as RankedPaper[];
+  const mergedCount = before - papers.length >= 0 ? papers.length : papers.length;
 
-  return { papers: postProcess(all, spec), perSource, raw: all };
-}
-
-// 归一化 → 去重/版本归并 → 结构化过滤 → 排序（一次性与流式共用，保证两条路径结果一致）。
-function postProcess(all: SearchHit[], spec: QuerySpec): Paper[] {
-  let papers = all.map(normalize);
-  papers = dedupeAndMerge(papers);
   const f = spec.filters;
   papers = papers.filter((p) => {
     if (f.peerReviewedOnly && !p.peerReviewed) return false;
@@ -44,26 +42,78 @@ function postProcess(all: SearchHit[], spec: QuerySpec): Paper[] {
     if (f.types?.length && !p.studyTypes.some((t) => f.types!.includes(t))) return false;
     return true;
   });
-  papers.sort((a, b) => (b.pubDate ?? "").localeCompare(a.pubDate ?? ""));
+
+  const rawQ = spec.raw || specToRaw(spec);
+  const ranked = rerank(papers, rawQ, { sort: f.sort ?? "relevance", field: f.field ?? "all" });
+  return ranked.map((r) => ({ ...r.item, _matchKind: r.matchKind }));
+}
+
+async function postProcessAsync(all: SearchHit[], spec: QuerySpec, opts: SearchOpts = {}): Promise<RankedPaper[]> {
+  let papers = postProcess(all, spec);
+  papers = await enrichSparsePapers(papers, opts) as RankedPaper[];
   return papers;
 }
 
-// 渐进式聚合：每个源返回即回调当前累积快照（去重/过滤/排序后），慢源不拖累首屏。
-// 保留 aggregateSearch（一次性）供订阅等调用；本函数仅检索 UI 用。
+async function searchOne(
+  a: { id: string; search: (q: QuerySpec, o?: SearchOpts) => Promise<SearchHit[]> },
+  spec: QuerySpec,
+  opts: SearchOpts,
+): Promise<{ id: string; hits: SearchHit[]; error?: string }> {
+  try {
+    const hits = await withTimeout(a.search(spec, opts), timeoutFor(a.id));
+    return { id: a.id, hits };
+  } catch (e) {
+    const msg = e instanceof TimeoutError ? "timeout" : String((e as Error)?.message ?? e);
+    return { id: a.id, hits: [], error: msg };
+  }
+}
+
+export async function aggregateSearch(spec: QuerySpec, opts: SearchOpts = {}): Promise<AggregateResult> {
+  const adapters = selectAdapters(spec.filters.sources, opts.keys, opts.disabledSources);
+  const perSource: AggregateResult["perSource"] = {};
+  const settled = await Promise.all(adapters.map((a) => searchOne(a, spec, opts)));
+
+  const all: SearchHit[] = [];
+  for (const s of settled) {
+    if (s.error) perSource[s.id] = { count: 0, ok: false, error: s.error };
+    else { perSource[s.id] = { count: s.hits.length, ok: true }; all.push(...s.hits); }
+  }
+
+  const papers = await postProcessAsync(all, spec, opts);
+  return { papers, perSource, raw: all, mergedCount: papers.length };
+}
+
 export type StreamCb = (sourceId: string, snapshot: Paper[], perSource: AggregateResult["perSource"]) => void;
+
 export async function aggregateSearchStream(spec: QuerySpec, opts: SearchOpts = {}, onSource?: StreamCb): Promise<AggregateResult> {
-  const adapters = selectAdapters(spec.filters.sources);
+  const adapters = selectAdapters(spec.filters.sources, opts.keys, opts.disabledSources);
   const perSource: AggregateResult["perSource"] = {};
   const all: SearchHit[] = [];
   await Promise.all(adapters.map(async (a) => {
+    const s = await searchOne(a, spec, opts);
+    if (s.error) perSource[s.id] = { count: 0, ok: false, error: s.error };
+    else { perSource[s.id] = { count: s.hits.length, ok: true }; all.push(...s.hits); }
     try {
-      const hits = await a.search(spec, opts);
-      perSource[a.id] = { count: hits.length, ok: true };
-      all.push(...hits);
-    } catch (e) {
-      perSource[a.id] = { count: 0, ok: false, error: String((e as Error)?.message ?? e) };
-    }
-    try { onSource && onSource(a.id, postProcess(all, spec), { ...perSource }); } catch { /* 回调异常不影响聚合 */ }
+      const snapshot = await postProcessAsync(all, spec, opts);
+      onSource && onSource(a.id, snapshot, { ...perSource });
+    } catch { /* 回调异常不影响聚合 */ }
   }));
-  return { papers: postProcess(all, spec), perSource, raw: all };
+  const papers = await postProcessAsync(all, spec, opts);
+  return { papers, perSource, raw: all, mergedCount: papers.length };
+}
+
+/** 单源重试（P9 HitSources 重试按钮） */
+export async function searchSingleSource(
+  sourceId: string,
+  spec: QuerySpec,
+  opts: SearchOpts = {},
+): Promise<{ id: string; hits: SearchHit[]; error?: string; papers: RankedPaper[] }> {
+  const adapter = selectAdapters([sourceId], opts.keys, opts.disabledSources).find((a) => a.id === sourceId);
+  if (!adapter) {
+    const disabled = (opts.disabledSources ?? []).map((s) => s.toLowerCase()).includes(sourceId.toLowerCase());
+    return { id: sourceId, hits: [], error: disabled ? "source_disabled" : "unknown_source", papers: [] };
+  }
+  const s = await searchOne(adapter, spec, opts);
+  const papers = s.hits.length ? await postProcessAsync(s.hits, spec, opts) : [];
+  return { ...s, papers };
 }
