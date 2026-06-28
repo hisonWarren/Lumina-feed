@@ -1,5 +1,5 @@
 // lumina-feed · Electron 入口（干净基线：检索 · 取文 · 接地总结）
-import { app, BrowserWindow, ipcMain, shell, Tray, Menu, nativeImage } from "electron";
+import { app, BrowserWindow, ipcMain, shell, Tray, Menu, nativeImage, clipboard, type MenuItemConstructorOptions } from "electron";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
 
@@ -23,6 +23,61 @@ const secrets = keytarStore();
 let tray: Tray | null = null;
 let minimizeToTray = false;
 let isQuiting = false;
+
+/** 隐藏菜单栏但保留剪切/复制/粘贴快捷键；右键可编辑区弹出标准编辑菜单。 */
+function installTextEditingSupport(w: BrowserWindow) {
+  const editSubmenu: MenuItemConstructorOptions[] = [
+    { role: "undo" },
+    { role: "redo" },
+    { type: "separator" },
+    { role: "cut" },
+    { role: "copy" },
+    { role: "paste" },
+    { role: "selectAll" },
+  ];
+  const template: MenuItemConstructorOptions[] = [];
+  if (process.platform === "darwin") {
+    template.push({
+      label: app.name,
+      submenu: [
+        { role: "about" },
+        { type: "separator" },
+        { role: "hide" },
+        { role: "hideOthers" },
+        { role: "unhide" },
+        { type: "separator" },
+        { role: "quit" },
+      ],
+    });
+  }
+  template.push({ label: "Edit", submenu: editSubmenu });
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+
+  w.webContents.on("context-menu", (_e, params) => {
+    const tpl: MenuItemConstructorOptions[] = [];
+    if (params.isEditable) {
+      tpl.push(
+        { role: "undo", enabled: params.editFlags.canUndo },
+        { role: "redo", enabled: params.editFlags.canRedo },
+        { type: "separator" },
+        { role: "cut", enabled: params.editFlags.canCut },
+        { role: "copy", enabled: params.editFlags.canCopy },
+        { role: "paste", enabled: params.editFlags.canPaste },
+        { type: "separator" },
+        { role: "selectAll", enabled: params.editFlags.canSelectAll },
+      );
+    } else if (params.selectionText.trim()) {
+      tpl.push({ role: "copy", enabled: params.editFlags.canCopy });
+    } else if (params.linkURL) {
+      tpl.push(
+        { label: "打开链接", click: () => { if (/^https?:\/\//.test(params.linkURL)) void shell.openExternal(params.linkURL); } },
+        { label: "复制链接", click: () => { clipboard.writeText(params.linkURL); } },
+      );
+    }
+    if (tpl.length) Menu.buildFromTemplate(tpl).popup({ window: w });
+  });
+}
+
 function createTray() {
   if (tray) return;
   try {
@@ -76,7 +131,7 @@ async function createWindow() {
       nodeIntegration: false,
     },
   });
-  win.removeMenu();
+  installTextEditingSupport(win);
   await win.loadURL(process.env.VITE_DEV_SERVER_URL ?? `file://${path.join(__dirname, "../dist/index.html")}`);
   let firstLoad = true;
   win.webContents.on("did-finish-load", () => { if (!firstLoad) return; firstLoad = false; const p = pendingPdf || pdfFromArgv(process.argv); pendingPdf = null; if (p) void sendOpenPdf(p); });
