@@ -19,7 +19,7 @@ console.log("\n— 2. 语法/平衡 —");
 console.log("\n— 3. 大模型配置（provider/model/baseURL/key）—");
 if(exists("src/ui/modules/Settings.jsx")){ const s=read("src/ui/modules/Settings.jsx");
   /deepseek/.test(s)&&/anthropic/.test(s)&&/openai/.test(s)&&/moonshot/.test(s)&&/ollama/.test(s)&&/custom/.test(s)?ok("六提供方（DeepSeek 默认 + Claude/OpenAI/Kimi/Ollama/自定义）"):bad("提供方不全");
-  /saveSettings/.test(s)?ok("保存 llm 配置 saveSettings"):bad("未保存 llm");
+  (/saveSettings/.test(s) || /persistSettings/.test(s) || /persistLlmFields/.test(s))?ok("保存 llm 配置（persistSettings / persistLlmFields）"):bad("未保存 llm");
   /baseUrl/.test(s)?ok("自定义/Ollama baseURL"):wn("未见 baseUrl");
 }
 

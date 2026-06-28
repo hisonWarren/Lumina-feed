@@ -1,9 +1,10 @@
 // Lumina Feed · 设置 —— 弹窗 + 左侧分类（大模型 / 阅读 / 外观 / 隐私 / 通用 / 关于）
 // 复用引擎既有 settings:get/save + secrets:set（密钥仅入系统钥匙串，绝不写配置/代码 = 红线3）。
 // 主题切换由壳层 onTheme 即时应用 + 持久化；视觉读图归「隐私」；阅读偏好归「阅读」。豆包模型框支持 Model ID 或推理接入点 ep-。
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Cpu, Palette, Bell, Mail, KeyRound, Check, Save, Info, Eye, EyeOff, Plug, ChevronDown, RefreshCw, Loader, X, BookOpen, Shield, Trash2, Database } from "lucide-react";
 import { bridge, hasBackend } from "../lumina-bridge.js";
+import { persistSettings } from "../settings-persist.js";
 import { THEMES } from "../themes.js";
 import { CURATED_MODELS, PROVIDER_DEFAULT_MODEL, OLLAMA_MODEL_PRESETS } from "../../core/summarize/model-presets.ts";
 import SourceKeysPanel from "../components/SourceKeysPanel.jsx";
@@ -167,7 +168,6 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
   const [rememberPos, setRememberPos] = useState(true);     // 续读位置（默认开）
   const [defaultZoom, setDefaultZoom] = useState(1.1);       // 阅读器默认缩放
   const [nightInvert, setNightInvert] = useState(false);     // 夜读反色默认
-  const [savingReader, setSavingReader] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [userDataPath, setUserDataPath] = useState("");
@@ -191,6 +191,154 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
     setLlmKeySaved(!!has);
   }, [provider, backend]);
 
+  /** 后台/自启：切换即持久化并同步主进程。 */
+  const persistAppBackground = useCallback(async (nextTray, nextLogin) => {
+    if (!backend) return false;
+    try {
+      if (bridge.setBackground) {
+        const r = await bridge.setBackground(nextTray, nextLogin);
+        if (nextTray && (!r || r.ok === false)) {
+          pushToast && pushToast((r && r.message) || "系统托盘不可用，无法开启后台运行");
+          return false;
+        }
+      }
+      const r = await persistSettings((cur) => ({
+        ...cur,
+        app: { ...(cur.app || {}), minimizeToTray: nextTray, openAtLogin: nextLogin },
+      }));
+      if (!r.ok) { pushToast && pushToast("后台/自启设置保存失败"); return false; }
+      return true;
+    } catch {
+      pushToast && pushToast("后台/自启设置保存失败");
+      return false;
+    }
+  }, [backend, pushToast]);
+
+  const onToggleBgTray = useCallback(async () => {
+    const next = !bgTray;
+    setBgTray(next);
+    const ok = await persistAppBackground(next, bgLogin);
+    if (!ok && next) setBgTray(false);
+  }, [bgTray, bgLogin, persistAppBackground]);
+
+  const onToggleBgLogin = useCallback(async () => {
+    const next = !bgLogin;
+    setBgLogin(next);
+    await persistAppBackground(bgTray, next);
+  }, [bgTray, bgLogin, persistAppBackground]);
+
+  const persistGeneralToggle = useCallback(async (patch, rollback) => {
+    if (!backend) return;
+    const r = await persistSettings((cur) => ({ ...cur, ...patch }));
+    if (!r.ok) {
+      pushToast && pushToast("设置保存失败");
+      rollback && rollback();
+    }
+  }, [backend, pushToast]);
+
+  const onToggleAutoIngest = useCallback(async () => {
+    const next = !autoIngest;
+    setAutoIngest(next);
+    await persistGeneralToggle({ autoIngestOnFetch: next }, () => setAutoIngest(!next));
+  }, [autoIngest, persistGeneralToggle]);
+
+  const onToggleNotifications = useCallback(async () => {
+    const next = !notifications;
+    setNotifications(next);
+    await persistGeneralToggle({ notifications: next }, () => setNotifications(!next));
+  }, [notifications, persistGeneralToggle]);
+
+  const onPickDigestTier = useCallback(async (tier) => {
+    const prev = digestNotifyTier;
+    setDigestNotifyTier(tier);
+    await persistGeneralToggle({ digestNotifyTier: tier }, () => setDigestNotifyTier(prev));
+  }, [digestNotifyTier, persistGeneralToggle]);
+
+  const persistReaderPrefs = useCallback(async (patch, rollback) => {
+    if (!backend) return;
+    const r = await persistSettings((cur) => ({
+      ...cur,
+      reader: { ...(cur.reader || {}), ...patch },
+    }));
+    if (!r.ok) {
+      pushToast && pushToast("阅读设置保存失败");
+      rollback && rollback();
+    }
+  }, [backend, pushToast]);
+
+  const onToggleRememberPos = useCallback(async () => {
+    const next = !rememberPos;
+    setRememberPos(next);
+    await persistReaderPrefs({ rememberPos: next }, () => setRememberPos(!next));
+  }, [rememberPos, persistReaderPrefs]);
+
+  const onToggleNightInvert = useCallback(async () => {
+    const next = !nightInvert;
+    setNightInvert(next);
+    await persistReaderPrefs({ nightInvert: next }, () => setNightInvert(!next));
+  }, [nightInvert, persistReaderPrefs]);
+
+  const onPickDefaultZoom = useCallback(async (val) => {
+    const prev = defaultZoom;
+    setDefaultZoom(val);
+    await persistReaderPrefs({ defaultZoom: val }, () => setDefaultZoom(prev));
+  }, [defaultZoom, persistReaderPrefs]);
+
+  const onToggleVisionConsent = useCallback(async () => {
+    const next = !visionConsent;
+    const pr = presetOf(provider);
+    setVisionConsent(next);
+    if (!backend) return;
+    const r = await persistSettings((cur) => ({
+      ...cur,
+      llm: {
+        ...(cur.llm || {}),
+        provider,
+        model: (model || pr.model).trim(),
+        visionConsent: next,
+        ...(pr.showBase && baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
+      },
+    }));
+    if (!r.ok) {
+      pushToast && pushToast("隐私设置保存失败");
+      setVisionConsent(!next);
+    }
+  }, [visionConsent, provider, model, baseUrl, backend, pushToast]);
+
+  const buildLlmPayload = useCallback((overrides = {}) => {
+    const pr = presetOf(overrides.provider ?? provider);
+    const llm = {
+      provider: overrides.provider ?? provider,
+      model: String(overrides.model ?? model ?? pr.model).trim(),
+      visionConsent: overrides.visionConsent ?? visionConsent,
+    };
+    const bu = overrides.baseUrl !== undefined ? overrides.baseUrl : baseUrl;
+    if (pr.showBase && String(bu || "").trim()) llm.baseUrl = String(bu).trim();
+    return llm;
+  }, [provider, model, baseUrl, visionConsent]);
+
+  const persistLlmFields = useCallback(async (overrides = {}, rollback) => {
+    if (!backend) return false;
+    const r = await persistSettings((cur) => ({
+      ...cur,
+      llm: { ...(cur.llm || {}), ...buildLlmPayload(overrides) },
+    }));
+    if (!r.ok) {
+      pushToast && pushToast("大模型设置保存失败");
+      rollback && rollback();
+      return false;
+    }
+    return true;
+  }, [backend, buildLlmPayload, pushToast]);
+
+  const llmBlurTimer = useRef(null);
+  const scheduleLlmBlurSave = useCallback((overrides = {}) => {
+    if (!backend) return;
+    if (llmBlurTimer.current) clearTimeout(llmBlurTimer.current);
+    llmBlurTimer.current = setTimeout(() => { void persistLlmFields(overrides); }, 600);
+  }, [backend, persistLlmFields]);
+  useEffect(() => () => { if (llmBlurTimer.current) clearTimeout(llmBlurTimer.current); }, []);
+
   useEffect(() => {
     let alive = true;
     bridge.getSettings().then((s) => {
@@ -202,11 +350,26 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
       if (typeof s.prefetchOnIdentifier === "boolean") setPrefetchOnIdentifier(s.prefetchOnIdentifier);
       if (typeof s.notifications === "boolean") setNotifications(s.notifications);
       if (s.digestNotifyTier === "calm" || s.digestNotifyTier === "regular" || s.digestNotifyTier === "power") setDigestNotifyTier(s.digestNotifyTier);
-      if (s.app) { setBgTray(!!s.app.minimizeToTray); setBgLogin(!!s.app.openAtLogin); }
+      if (s.app) {
+        setBgTray(!!s.app.minimizeToTray);
+        setBgLogin(!!s.app.openAtLogin);
+        if (s.app.minimizeToTray && bridge.setBackground) {
+          bridge.setBackground(true, !!s.app.openAtLogin).then((r) => {
+            if (r && r.ok === false) setBgTray(false);
+          }).catch(() => {});
+        } else if (bridge.setBackground) {
+          bridge.setBackground(!!s.app.minimizeToTray, !!s.app.openAtLogin);
+        }
+      } else if (bridge.setBackground) {
+        bridge.setBackground(false, false);
+      }
       if (typeof s.autoIngestOnFetch === "boolean") setAutoIngest(s.autoIngestOnFetch);
       else setAutoIngest(true);
-      if (s.reader) { if (typeof s.reader.rememberPos === "boolean") setRememberPos(s.reader.rememberPos); if (typeof s.reader.defaultZoom === "number") setDefaultZoom(s.reader.defaultZoom); if (typeof s.reader.nightInvert === "boolean") setNightInvert(s.reader.nightInvert); }
-      bridge.setBackground && bridge.setBackground(!!(s.app && s.app.minimizeToTray), !!(s.app && s.app.openAtLogin)); // 启动同步主进程
+      if (s.reader) {
+        if (typeof s.reader.rememberPos === "boolean") setRememberPos(s.reader.rememberPos);
+        if (typeof s.reader.defaultZoom === "number") setDefaultZoom(s.reader.defaultZoom);
+        if (typeof s.reader.nightInvert === "boolean") setNightInvert(s.reader.nightInvert);
+      }
     }).catch(() => {});
     refreshKeysStatus();
     refreshLlmKeyStatus();
@@ -222,12 +385,19 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
     return () => { alive = false; };
   }, [backend]);
 
-  const onPickProvider = (id) => {
-    setProvider(id);
+  const onPickProvider = async (id) => {
+    const prev = { provider, model, baseUrl };
     const p = presetOf(id);
+    setProvider(id);
     setModel(p.model);
     setBaseUrl(p.showBase ? (id === "ollama" ? "" : "") : "");
     setApiKey("");
+    await persistLlmFields({ provider: id, model: p.model, baseUrl: p.showBase ? (id === "ollama" ? "" : "") : "" }, () => {
+      setProvider(prev.provider);
+      setModel(prev.model);
+      setBaseUrl(prev.baseUrl);
+    });
+    refreshLlmKeyStatus(id);
   };
 
   const fetchModels = useCallback(async () => {
@@ -249,11 +419,10 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
   const saveLlm = useCallback(async () => {
     setSavingLlm(true);
     try {
-      const llm = { provider, model: (model || preset.model).trim(), visionConsent };
-      if (preset.showBase && baseUrl.trim()) llm.baseUrl = baseUrl.trim();
-      const cur = (await bridge.getSettings()) || {};
-      const next = { ...cur, llm };
-      await bridge.saveSettings(next);
+      const pr = presetOf(provider);
+      const llm = buildLlmPayload();
+      const r = await persistSettings((cur) => ({ ...cur, llm: { ...(cur.llm || {}), ...llm } }));
+      if (!r.ok && backend) { pushToast && pushToast("保存失败"); return; }
       const wroteKey = preset.needsKey && !!apiKey.trim();
       if (wroteKey) {
         await bridge.setSecret(provider + "_key", apiKey.trim());
@@ -264,7 +433,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
       pushToast && pushToast(backend ? (wroteKey ? "已保存大模型设置，密钥已写入钥匙串" : "已保存大模型设置") : "（原型）未接后端，设置未持久化");
     } catch (e) { pushToast && pushToast("保存失败"); }
     finally { setSavingLlm(false); }
-  }, [provider, model, baseUrl, apiKey, preset, backend, pushToast, visionConsent, refreshLlmKeyStatus]);
+  }, [provider, model, baseUrl, apiKey, preset, backend, pushToast, visionConsent, refreshLlmKeyStatus, buildLlmPayload]);
 
   const onTestLlm = useCallback(async () => {
     setTesting(true); setTestResult(null);
@@ -275,16 +444,18 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
     finally { setTesting(false); }
   }, [provider, model, baseUrl, apiKey, preset]);
 
-  const saveReader = useCallback(async () => {
-    setSavingReader(true);
+  const saveGeneral = useCallback(async () => {
+    setSavingGen(true);
     try {
-      const cur = (await bridge.getSettings()) || {};
-      const reader = { ...(cur.reader || {}), rememberPos, defaultZoom, nightInvert };
-      await bridge.saveSettings({ ...cur, reader });
-      pushToast && pushToast(backend ? "已保存阅读设置" : "（原型）未接后端，设置未持久化");
+      const r = await persistSettings((cur) => ({
+        ...cur,
+        contactEmail: contactEmail.trim() || undefined,
+      }));
+      if (!r.ok && backend) { pushToast && pushToast("保存失败"); return; }
+      pushToast && pushToast(backend ? "已保存联络邮箱" : "（原型）未接后端，设置未持久化");
     } catch (e) { pushToast && pushToast("保存失败"); }
-    finally { setSavingReader(false); }
-  }, [rememberPos, defaultZoom, nightInvert, backend, pushToast]);
+    finally { setSavingGen(false); }
+  }, [contactEmail, backend, pushToast]);
 
   // 弹窗 Esc 关闭：用捕获阶段 + stopImmediatePropagation，先于阅读器(window 冒泡)处理，避免误触底层阅读器的 Esc。
   useEffect(() => {
@@ -293,18 +464,6 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
-
-  const saveGeneral = useCallback(async () => {
-    setSavingGen(true);
-    try {
-      const cur = (await bridge.getSettings()) || {};
-      const next = { ...cur, contactEmail: contactEmail.trim() || undefined, notifications, digestNotifyTier, autoIngestOnFetch: autoIngest, app: { minimizeToTray: bgTray, openAtLogin: bgLogin } };
-      await bridge.saveSettings(next);
-      bridge.setBackground && bridge.setBackground(bgTray, bgLogin);
-      pushToast && pushToast(backend ? "已保存通用设置" : "（原型）未接后端，设置未持久化");
-    } catch (e) { pushToast && pushToast("保存失败"); }
-    finally { setSavingGen(false); }
-  }, [contactEmail, notifications, digestNotifyTier, autoIngest, bgTray, bgLogin, backend, pushToast]);
 
   const onResetLocalData = useCallback(async () => {
     if (!backend) { pushToast && pushToast("需 Electron 引擎"); return; }
@@ -357,13 +516,13 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                 <div className="set-row">
                   <span className="set-lbl">模型 <span className="set-lbl-sub">· 点选；可刷新拉取最新，或自填</span></span>
                   <div className="set-combo">
-                    <input className="set-combo-in set-mono" value={model} onChange={(e) => setModel(e.target.value)} onFocus={() => setModelMenuOpen(true)} placeholder={preset.model || "模型名（点选或直接输入）"} aria-label="模型名" />
+                    <input className="set-combo-in set-mono" value={model} onChange={(e) => { setModel(e.target.value); scheduleLlmBlurSave({ model: e.target.value }); }} onBlur={() => void persistLlmFields({ model })} onFocus={() => setModelMenuOpen(true)} placeholder={preset.model || "模型名（点选或直接输入）"} aria-label="模型名" />
                     <button type="button" className="set-combo-tg" onClick={() => setModelMenuOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={modelMenuOpen} title="模型列表"><ChevronDown size={14} /></button>
                     <button type="button" className="set-combo-rf" onClick={() => fetchModels()} disabled={modelsLoading} title="拉取最新模型列表"><span className={modelsLoading ? "set-spin" : ""}>{modelsLoading ? <Loader size={14} /> : <RefreshCw size={14} />}</span></button>
                     {modelMenuOpen && (
                       <div className="set-combo-menu" role="listbox">
                         {availModels.map((m) => (
-                          <button type="button" role="option" aria-selected={m === model} key={m} className={"set-combo-opt set-mono" + (m === model ? " on" : "")} onClick={() => { setModel(m); setModelMenuOpen(false); }}>{m}{m === model ? <Check size={13} /> : null}</button>
+                          <button type="button" role="option" aria-selected={m === model} key={m} className={"set-combo-opt set-mono" + (m === model ? " on" : "")} onClick={() => { const prev = model; setModel(m); setModelMenuOpen(false); void persistLlmFields({ model: m }, () => setModel(prev)); }}>{m}{m === model ? <Check size={13} /> : null}</button>
                         ))}
                         {availModels.length === 0 && <div className="set-combo-note">可直接在框内输入模型名</div>}
                       </div>
@@ -379,7 +538,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                 {preset.showBase && (
                   <div className="set-row">
                     <span className="set-lbl">Base URL{preset.baseRequired ? "（必填）" : "（可选，默认 " + (preset.base || "") + "）"}</span>
-                    <input className="set-in set-mono" value={baseUrl} placeholder={preset.base || "https://…/v1"} onChange={(e) => setBaseUrl(e.target.value)} />
+                    <input className="set-in set-mono" value={baseUrl} placeholder={preset.base || "https://…/v1"} onChange={(e) => { setBaseUrl(e.target.value); scheduleLlmBlurSave({ baseUrl: e.target.value }); }} onBlur={() => void persistLlmFields({ baseUrl })} />
                   </div>
                 )}
                 {preset.needsKey && (
@@ -421,8 +580,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                   onOpenUrl={(u) => bridge.openExternal(u)}
                   onChangeDepth={async (d) => {
                     setSearchDepth(d);
-                    const cur = (await bridge.getSettings()) || {};
-                    await bridge.saveSettings({ ...cur, searchDepth: d });
+                    await persistSettings((cur) => ({ ...cur, searchDepth: d }));
                     pushToast && pushToast("检索深度已更新");
                   }}
                 />
@@ -431,8 +589,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                   pushToast={pushToast}
                   onProbe={() => bridge.probeMirrors()}
                   onSave={async (mirrors) => {
-                    const cur = (await bridge.getSettings()) || {};
-                    await bridge.saveSettings({ ...cur, altMirrors: mirrors });
+                    await persistSettings((cur) => ({ ...cur, altMirrors: mirrors }));
                     setAltMirrors(mirrors);
                   }}
                 />
@@ -440,8 +597,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                   value={prefetchOnIdentifier}
                   onChange={async (v) => {
                     setPrefetchOnIdentifier(v);
-                    const cur = (await bridge.getSettings()) || {};
-                    await bridge.saveSettings({ ...cur, prefetchOnIdentifier: v });
+                    await persistSettings((cur) => ({ ...cur, prefetchOnIdentifier: v }));
                     pushToast && pushToast(v ? "已开启标识符预取" : "已关闭标识符预取");
                   }}
                 />
@@ -449,8 +605,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                   keysConfigured={keysConfigured}
                   pushToast={pushToast}
                   onSaveDisabled={async (disabledSources) => {
-                    const cur = (await bridge.getSettings()) || {};
-                    await bridge.saveSettings({ ...cur, disabledSources });
+                    await persistSettings((cur) => ({ ...cur, disabledSources }));
                   }}
                 />
               </>
@@ -459,22 +614,22 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
             {activeCat === "reader" && (
               <>
                 <h2 className="set-pane-h"><BookOpen size={18} /> 阅读</h2>
-                <p className="set-sec-d">阅读器的默认行为与快捷键。改动保存后对新打开的文献生效。</p>
+                <p className="set-sec-d">阅读器的默认行为与快捷键。开关与缩放切换后立即保存，对新打开的文献生效。</p>
                 <div className="set-kv">
                   <div className="set-kv-main"><span className="set-lbl">记住阅读位置</span><span className="set-kv-d">重开同一篇时回到上次页码（按文献分别记忆）。</span></div>
-                  <button role="switch" aria-checked={rememberPos} className={"set-switch" + (rememberPos ? " on" : "")} onClick={() => setRememberPos((v) => !v)} aria-label="记住阅读位置开关"><i /></button>
+                  <button role="switch" aria-checked={rememberPos} className={"set-switch" + (rememberPos ? " on" : "")} onClick={() => void onToggleRememberPos()} aria-label="记住阅读位置开关"><i /></button>
                 </div>
                 <div className="set-kv">
                   <div className="set-kv-main"><span className="set-lbl">默认缩放</span><span className="set-kv-d">打开文献时的初始缩放比例。</span></div>
                   <div className="set-seg">
                     {[["100%", 1], ["110%", 1.1], ["125%", 1.25], ["150%", 1.5]].map(([lbl, val]) => (
-                      <button key={lbl} className={defaultZoom === val ? "on" : ""} onClick={() => setDefaultZoom(val)}>{lbl}</button>
+                      <button key={lbl} className={defaultZoom === val ? "on" : ""} onClick={() => void onPickDefaultZoom(val)}>{lbl}</button>
                     ))}
                   </div>
                 </div>
                 <div className="set-kv">
                   <div className="set-kv-main"><span className="set-lbl">夜读反色（默认）</span><span className="set-kv-d">深色环境下反相页面，减轻白底刺眼；阅读器内也可随时切换。</span></div>
-                  <button role="switch" aria-checked={nightInvert} className={"set-switch" + (nightInvert ? " on" : "")} onClick={() => setNightInvert((v) => !v)} aria-label="夜读反色默认开关"><i /></button>
+                  <button role="switch" aria-checked={nightInvert} className={"set-switch" + (nightInvert ? " on" : "")} onClick={() => void onToggleNightInvert()} aria-label="夜读反色默认开关"><i /></button>
                 </div>
                 <div className="set-row">
                   <span className="set-lbl">键盘快捷键</span>
@@ -486,7 +641,6 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                     <div className="set-kbd-row"><span>适配宽度</span><span className="set-kbd">Ctrl / ⌘ + 0</span></div>
                   </div>
                 </div>
-                <button className="set-btn" onClick={saveReader} disabled={savingReader}><Save size={15} /> {savingReader ? "保存中…" : "保存阅读设置"}</button>
               </>
             )}
 
@@ -511,9 +665,9 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                 <p className="set-sec-d">Lumina 本地优先：数据、PDF 与索引都在本机。唯一会出网的是你主动配置的云端模型调用。</p>
                 <div className="set-toggle">
                   <span className="set-lbl"><Eye size={13} style={{ verticalAlign: "-2px", marginRight: 5 }} />允许云端读图（把图表图像发送到云端视觉模型分析）</span>
-                  <button role="switch" aria-checked={visionConsent} className={"set-switch" + (visionConsent ? " on" : "")} onClick={() => setVisionConsent((v) => !v)} aria-label="云端读图开关"><i /></button>
+                  <button role="switch" aria-checked={visionConsent} className={"set-switch" + (visionConsent ? " on" : "")} onClick={() => void onToggleVisionConsent()} aria-label="云端读图开关"><i /></button>
                 </div>
-                <span className="set-hint">默认关闭，守本地优先（红线7）：关闭时图表分析仅用本地视觉模型（Ollama），图像不出本机；开启后才允许把图像发往所选云端模型。改动随「保存大模型设置」一并写入。</span>
+                <span className="set-hint">默认关闭，守本地优先（红线7）：关闭时图表分析仅用本地视觉模型（Ollama），图像不出本机；开启后才允许把图像发往所选云端模型。切换后立即保存。</span>
                 {visionConsent && provider === "doubao" && (
                   <div className="set-note"><Info size={15} /><span className="set-note-t">豆包（火山方舟）支持读图，但需选用<b>视觉 / 多模态模型</b>（如 <span className="set-mono">doubao-seed-*</span> 或 <span className="set-mono">doubao-*-vision-*</span>）；纯文本 pro 会拒绝图像。下拉仅列常用 Model ID；其他 ID 或 <span className="set-mono">ep-</span> 接入点请自填。</span></div>
                 )}
@@ -532,36 +686,36 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                 <h2 className="set-pane-h"><Bell size={18} /> 通用</h2>
                 <div className="set-toggle">
                   <span className="set-lbl">取文后自动加入「我的文献」工作集</span>
-                  <button role="switch" aria-checked={autoIngest} className={"set-switch" + (autoIngest ? " on" : "")} onClick={() => setAutoIngest((v) => !v)} aria-label="自动入库开关"><i /></button>
+                  <button role="switch" aria-checked={autoIngest} className={"set-switch" + (autoIngest ? " on" : "")} onClick={() => void onToggleAutoIngest()} aria-label="自动入库开关"><i /></button>
                 </div>
-                <span className="set-hint">开启后，获取全文成功时会自动写入工作集并记录来源；关闭则仅保存 PDF 到本机，需手动收藏。</span>
+                <span className="set-hint">开启后，获取全文成功时会自动写入工作集并记录来源；关闭则仅保存 PDF 到本机，需手动收藏。切换后立即保存。</span>
                 <div className="set-toggle">
                   <span className="set-lbl">桌面通知（订阅简报等）</span>
-                  <button role="switch" aria-checked={notifications} className={"set-switch" + (notifications ? " on" : "")} onClick={() => setNotifications((v) => !v)} aria-label="通知开关"><i /></button>
+                  <button role="switch" aria-checked={notifications} className={"set-switch" + (notifications ? " on" : "")} onClick={() => void onToggleNotifications()} aria-label="通知开关"><i /></button>
                 </div>
                 <div className="set-row">
                   <span className="set-lbl">订阅简报通知档位</span>
                   <div className="set-seg">
                     {[["calm", "安静"], ["regular", "标准"], ["power", "积极"]].map(([k, l]) => (
-                      <button key={k} type="button" className={digestNotifyTier === k ? "on" : ""} onClick={() => setDigestNotifyTier(k)}>{l}</button>
+                      <button key={k} type="button" className={digestNotifyTier === k ? "on" : ""} onClick={() => void onPickDigestTier(k)}>{l}</button>
                     ))}
                   </div>
                   <span className="set-hint">安静：仅 app 内简报 · 标准：每次调度汇总一条 · 积极：每个订阅单独通知</span>
                 </div>
                 <div className="set-toggle">
                   <span className="set-lbl">关闭时最小化到托盘后台运行（订阅检索与每日简报继续）</span>
-                  <button role="switch" aria-checked={bgTray} className={"set-switch" + (bgTray ? " on" : "")} onClick={() => setBgTray((v) => !v)} aria-label="后台运行开关"><i /></button>
+                  <button role="switch" aria-checked={bgTray} className={"set-switch" + (bgTray ? " on" : "")} onClick={() => void onToggleBgTray()} aria-label="后台运行开关"><i /></button>
                 </div>
                 <div className="set-toggle">
                   <span className="set-lbl">开机时自动启动 Lumina</span>
-                  <button role="switch" aria-checked={bgLogin} className={"set-switch" + (bgLogin ? " on" : "")} onClick={() => setBgLogin((v) => !v)} aria-label="开机自启开关"><i /></button>
+                  <button role="switch" aria-checked={bgLogin} className={"set-switch" + (bgLogin ? " on" : "")} onClick={() => void onToggleBgLogin()} aria-label="开机自启开关"><i /></button>
                 </div>
-                <span className="set-hint">后台运行：关主窗口后驻留系统托盘，订阅按计划检索、有新发表时桌面通知；从托盘可重新打开或退出。托盘/自启为系统级，需打包后真机验证（Linux 自启支持有限）。</span>
+                <span className="set-hint">后台运行：关主窗口后驻留系统托盘，订阅按计划检索、有新发表时桌面通知；从托盘可重新打开或退出。开关切换后立即生效并保存。托盘/自启为系统级，需打包后真机验证（Linux 自启支持有限）。</span>
                 <div className="set-row">
                   <span className="set-lbl"><Mail size={13} style={{ verticalAlign: "-2px", marginRight: 5 }} />联系邮箱（用于 OA 取文的礼貌池标识，可选）</span>
                   <input className="set-in" type="email" value={contactEmail} placeholder="you@example.org" onChange={(e) => setContactEmail(e.target.value)} />
                 </div>
-                <button className="set-btn" onClick={saveGeneral} disabled={savingGen}><Save size={15} /> {savingGen ? "保存中…" : "保存通用设置"}</button>
+                <button className="set-btn" onClick={saveGeneral} disabled={savingGen}><Save size={15} /> {savingGen ? "保存中…" : "保存联络邮箱"}</button>
                 <div className="set-note" style={{ marginTop: 16 }}><Info size={15} /><span className="set-note-t">本机数据保存在：<span className="set-mono">{userDataPath || "（启动后显示实际路径）"}</span> — 文献库、已下载 PDF 与阅读缓存均在此目录，不会上传云端。</span></div>
                 <button className="set-btn set-btn-danger" onClick={onResetLocalData} disabled={resetting || !backend}><Trash2 size={15} /> {resetting ? "正在清除…" : "清除本机文献数据并重启"}</button>
                 <span className="set-hint">删除文献库、订阅、收藏、已下载 PDF 与阅读缓存；不删除大模型密钥与通用设置。</span>

@@ -32,7 +32,7 @@ console.log("\n[1] 后台运行 / 托盘（main 进程）");
 ok(has(main, "Tray, Menu, nativeImage") && has(main, "function createTray()"), "导入 Tray/Menu/nativeImage + createTray");
 ok(has(main, "nativeImage.createFromPath") && has(main, "img.isEmpty()"), "托盘图标缺失时跳过（dev 未构建不报错）");
 ok(has(main, "显示 Lumina") && has(main, "退出 Lumina"), "托盘菜单：显示 / 退出");
-ok(has(main, 'win.on("close"') && has(main, "minimizeToTray && !isQuiting") && has(main, "win.hide()"), "关窗 → 最小化到托盘（启用时）");
+ok(has(main, 'win.on("close"') && has(main, "minimizeToTray") && has(main, "ensureTray()") && has(main, "win.hide()"), "关窗 → 托盘就绪则最小化，否则提示并正常关闭");
 ok(has(main, 'app.on("before-quit"') && has(main, "isQuiting = true"), "before-quit 置 isQuiting（允许真退出）");
 ok(has(main, "if (minimizeToTray) return;") && has(main, "window-all-closed"), "window-all-closed：后台开启不退出（调度器/托盘保活）");
 
@@ -45,8 +45,10 @@ ok(has(bridge, "async setBackground(minimizeToTray, openAtLogin)") && has(bridge
 
 console.log("\n[3] 设置 UI（后台/启动 开关并入「通用」卡）");
 ok(has(set, "const [bgTray, setBgTray]") && has(set, "const [bgLogin, setBgLogin]"), "bgTray / bgLogin 状态");
-ok(has(set, "if (s.app) { setBgTray(") && has(set, "bridge.setBackground && bridge.setBackground(!!(s.app"), "加载时读取 + 启动同步主进程");
-ok(has(set, "app: { minimizeToTray: bgTray, openAtLogin: bgLogin }") && has(set, "bridge.setBackground(bgTray, bgLogin)"), "保存时持久化 + 应用");
+ok(has(set, "if (s.app)") && has(set, "setBgTray(!!s.app.minimizeToTray)") && has(set, "bridge.setBackground(!!s.app.minimizeToTray"), "加载时读取 + 启动同步主进程");
+ok(has(main, "ensureTray") || has(main, "function ensureTray"), "ensureTray 托盘就绪检查");
+ok(has(main, "tray_unavailable") || has(main, "trayReady"), "setBackground 返回托盘状态");
+ok(has(set, "persistSettings") || has(set, "onToggleAutoIngest"), "通用/阅读 switch 切换即持久化");
 ok(has(set, "最小化到托盘后台运行") && has(set, "开机时自动启动"), "两个开关 UI");
 
 console.log("\n[4] 链路完整性（前置未回退）");

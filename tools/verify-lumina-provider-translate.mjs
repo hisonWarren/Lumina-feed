@@ -57,7 +57,7 @@ ok(has(preload, 'invoke("translations:save"'), "saveTranslation");
 
 console.log("\n[4] lumina-bridge.js · 桥接");
 ok(has(bridge, "async listModels(cfg)"), "bridge.listModels");
-ok(has(bridge, "(api && api.listModels) || (r && r.listModels)"), "listModels 双取 A()||R()（防命名空间不一致）");
+ok(has(bridge, "api.listModels") && !has(bridge, "r.listModels"), "listModels 仅走 luminaApi（修复演示模式误报后统一命名空间）");
 ok(has(bridge, "async getTranslations(docKey)"), "bridge.getTranslations");
 ok(has(bridge, "async saveTranslation(docKey, page, model, text)"), "bridge.saveTranslation");
 

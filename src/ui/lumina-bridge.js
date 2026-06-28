@@ -213,7 +213,7 @@ export const bridge = {
   },
   async readerTranslate(text) {
     const r = R();
-    if (!r || !r.translate) return { ok: false, error: "演示模式无法翻译", text: mockTranslate(text) };
+    if (!r || !r.translate) return { ok: false, error: "未连接本地引擎，无法翻译", text: mockTranslate(text) };
     try {
       const res = await r.translate({ text });
       if (res && res.ok === false) return { ok: false, error: res.error || "翻译失败", text: "" };
@@ -398,10 +398,9 @@ export const bridge = {
   },
   async getSettings() { const api = A(); if (!api) return null; return api.getSettings(); },
   async listModels(cfg) {
-    const api = A(); const r = R();
-    const fn = (api && api.listModels) || (r && r.listModels);
-    if (!fn) return { ok: false, error: "演示模式无法拉取模型（请在桌面应用中配置 AI）" };
-    try { return await fn(cfg); } catch (e) { return { ok: false, error: "拉取失败" }; }
+    const api = A();
+    if (!api || !api.listModels) return { ok: false, error: "未连接本地引擎，无法拉取模型列表" };
+    try { return await api.listModels(cfg); } catch (e) { return { ok: false, error: "拉取失败" }; }
   },
   async getTranslations(docKey) {
     const r = R(); if (!r || !r.getTranslations || !docKey) return {};
@@ -429,7 +428,13 @@ export const bridge = {
     if (!api || !api.secretHas || !key) return false;
     try { return !!(await api.secretHas(key)); } catch { return false; }
   },
-  async saveSettings(s) { const api = A(); if (!api) return null; return api.saveSettings(s); },
+  async saveSettings(s) {
+    const api = A(); if (!api) return null;
+    const clean = { ...(s || {}) };
+    delete clean.emailConfigured;
+    delete clean.emailFromEnv;
+    return api.saveSettings(clean);
+  },
   async resetLocalData() { const api = A(); if (!api || !api.resetLocalData) return { ok: false, error: "no_backend" }; return api.resetLocalData(); },
   async getUserDataPath() { const api = A(); if (!api || !api.getUserDataPath) return null; try { return await api.getUserDataPath(); } catch { return null; } },
   async setSecret(k, v) { const api = A(); if (!api) return null; return api.setSecret(k, v); },
@@ -456,8 +461,8 @@ export const bridge = {
   },
   // 后台/启动设置 → 主进程（关窗最小化到托盘 + 开机自启）。无后端 no-op。
   async setBackground(minimizeToTray, openAtLogin) {
-    const api = A(); if (!api || !api.setBackground) return null;
-    try { return await api.setBackground({ minimizeToTray, openAtLogin }); } catch (e) { return null; }
+    const api = A(); if (!api || !api.setBackground) return { ok: false, error: "no_backend" };
+    try { return await api.setBackground({ minimizeToTray, openAtLogin }); } catch (e) { return { ok: false, error: "set_failed" }; }
   },
   // 渐进式检索：转发到 preload；返回停止函数。无后端/旧版预载返回 null → FindFetch 回落一次性 searchOnline。
   searchOnlineStream(raw, filters, reqId, cb) {

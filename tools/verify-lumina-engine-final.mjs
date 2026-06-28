@@ -28,12 +28,12 @@ if(exists("src/core/querySpec.ts")){ const s=read("src/core/querySpec.ts");
   /primary_location\.source\.issn:/.test(s)?ok("OpenAlex source.issn"):bad("OpenAlex 未加 ISSN");
   /\? "ISSN" : map\[t\.field\]/.test(s)?ok("EuropePMC ISSN: 字段"):bad("EuropePMC 未用 ISSN");
 }
-console.log("\n— 4. 订阅 seenIds 去重（ipc）—");
+console.log("\n— 4. 订阅 seenIds 去重（ipc + digest-search）—");
 if(exists("electron/ipc.ts")){ const s=read("electron/ipc.ts");
-  /const seen = new Set<string>\(Array\.isArray\(sub && sub\.seenIds\)/.test(s)?ok("读取 seenIds"):bad("未读 seenIds");
-  /const fresh = agg\.papers\.filter\(\(pp: any\) => !seen\.has\(pp\.id\)\)/.test(s)?ok("只取新增 fresh"):bad("未去重");
+  /Array\.isArray\(norm\.seenIds\)/.test(s)?ok("读取 seenIds"):bad("未读 seenIds");
+  /freshHits\(/.test(s)?ok("只取新增 fresh（freshHits）"):bad("未去重");
   /seenIds: newSeen/.test(s)&&/slice\(-500\)/.test(s)?ok("回写 seenIds（≤500）"):bad("未回写");
-  /return \{ ok: true, hits: fresh \}/.test(s)?ok("today/hits=fresh"):bad("未返回 fresh");
+  /hits: todayMerged/.test(s)?ok("today/hits=todayMerged（含 fresh+carry）"):bad("未返回 todayMerged");
 }
 console.log("\n— 5. PDF 正文 FTS5（抽取→索引→检索）—");
 if(exists("electron/ipc.ts")){ const s=read("electron/ipc.ts");

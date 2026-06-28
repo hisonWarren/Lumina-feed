@@ -4,6 +4,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Search, FileDown, BookOpen, Bookmark, ExternalLink, Check, AlertTriangle, X, Loader, Sparkles, Calendar, ArrowUpDown, ChevronDown, Info } from "lucide-react";
 import { bridge, hasBackend, toCardModel } from "../lumina-bridge.js";
+import { persistSettings } from "../settings-persist.js";
 import { isDoi, normDoi, isIdentifierLike, identifierLabel, escapeRe } from "../lib-store.js";
 import SummaryDrawer from "./SummaryDrawer.jsx";
 import FetchBadges from "../FetchBadges.jsx";
@@ -387,8 +388,7 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
           <button className={"ff-tool" + (yearOpen ? " on" : "")} onClick={() => setYearOpen((v) => !v)} aria-expanded={yearOpen}><Calendar size={13} /> 年份{(yearFrom || yearTo) ? ("：" + (yearFrom || "…") + "–" + (yearTo || "…")) : ""} <ChevronDown size={12} /></button>
           <SearchDepthToggle value={searchDepth} onChange={async (d) => {
             setSearchDepth(d);
-            const cur = (await bridge.getSettings()) || {};
-            await bridge.saveSettings({ ...cur, searchDepth: d });
+            await persistSettings((cur) => ({ ...cur, searchDepth: d }));
           }} />
           {pendingSort > 0 && (
             <button type="button" className="ff-tool on" onClick={() => { setResults(adoptRanking(latestRanked.current)); setPendingSort(0); }}>

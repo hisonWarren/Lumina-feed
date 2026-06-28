@@ -1,5 +1,5 @@
 // P5 · 全文库镜像设置与探活
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { RefreshCw, Save } from "lucide-react";
 
 const ROWS = [
@@ -24,6 +24,14 @@ export default function MirrorSettingsPanel({ value = {}, onSave, onProbe, pushT
   }));
   const [probes, setProbes] = useState(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setDraft({
+      libgen: arrToLines(value.libgen),
+      annas: arrToLines(value.annas),
+      scihub: arrToLines(value.scihub),
+    });
+  }, [value]);
 
   const save = async () => {
     const altMirrors = {

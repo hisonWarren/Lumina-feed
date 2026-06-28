@@ -16,19 +16,20 @@ export interface AppSettings {
   prefetchOnIdentifier?: boolean;
   /** P8 · 用户禁用的检索源 id 列表（如 ["zenodo","openaire"]） */
   disabledSources?: string[];
-  /** 桌面通知总开关（Settings 通用页写入） */
+  /** 桌面通知总开关（Settings 通用页） */
   notifications?: boolean;
   /** 订阅简报系统通知：calm=仅 app 内 · regular=汇总一条 · power=每订阅一条 */
   digestNotifyTier?: "calm" | "regular" | "power";
-  /** 桌面通知总开关（Settings 通用页） */
-  notifications?: boolean;
+  /** 关窗最小化到托盘 + 开机自启（Settings 通用页） */
+  app?: { minimizeToTray?: boolean; openAtLogin?: boolean };
   prompts?: {
     onboardingEmailDismissed?: boolean;
     searchEmailShown?: boolean;
     fetchEmailShown?: boolean;
   };
   llm?: LlmConfig;
-  // app, theme, notifications — 现有（由各自分区合并写入）
+  theme?: string;
+  reader?: { rememberPos?: boolean; defaultZoom?: number; nightInvert?: boolean; positions?: Record<string, number> };
 }
 
 /** settings:get 对外返回（派生只读字段；不含任何密钥明文） */
@@ -39,6 +40,10 @@ export interface AppSettingsView extends AppSettings {
 
 const DEFAULTS: AppSettings = { searchDepth: "standard", digestNotifyTier: "regular", autoIngestOnFetch: true };
 const KEY = "app_settings";
+/** settings:get 派生字段，禁止写入 DB */
+const VIEW_ONLY_KEYS = new Set(["emailConfigured", "emailFromEnv"]);
+/** 浅合并时保留子对象字段，避免 partial save 抹掉 sibling 键 */
+const NESTED_MERGE_KEYS = ["llm", "reader", "app", "prompts", "altMirrors"] as const;
 
 export async function loadAppSettings(store: Store): Promise<AppSettings> {
   ensure(store);
@@ -64,9 +69,16 @@ export async function saveAppSettings(store: Store, s: Partial<AppSettings>): Pr
   const clean: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(s)) {
     if (/key|token|secret/i.test(k)) continue;
+    if (VIEW_ONLY_KEYS.has(k)) continue;
     clean[k] = v;
   }
-  const merged = { ...(await loadAppSettings(store)), ...clean };
+  const merged = { ...(await loadAppSettings(store)), ...clean } as Record<string, unknown>;
+  for (const k of NESTED_MERGE_KEYS) {
+    if (clean[k] && typeof clean[k] === "object" && !Array.isArray(clean[k])) {
+      merged[k] = { ...((merged[k] as object) || {}), ...(clean[k] as object) };
+    }
+  }
+  for (const k of VIEW_ONLY_KEYS) delete merged[k];
   store.db.prepare(
     `INSERT INTO sources_cache(key,payload,fetched_at) VALUES(?,?,?)
      ON CONFLICT(key) DO UPDATE SET payload=excluded.payload, fetched_at=excluded.fetched_at`

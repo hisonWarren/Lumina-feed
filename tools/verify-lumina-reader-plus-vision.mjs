@@ -34,7 +34,7 @@ ok(/const doFigure = useCallback/.test(rd) && /renderRegion\(doc, pno, bbox/.tes
 ok(/doFigure\(x1, y1, x2, y2, cap\.trim\(\)\)/.test(rd), "截取(snip)→区域读图（取区域文本作图注线索）");
 ok(/<InfCard env=\{figureEnv\}/.test(rd), "图表结果走 InfCard（env.lane inference 路由，HC-1 不破）");
 const st = R("src/ui/modules/Settings.jsx");
-ok(/const \[visionConsent/.test(st) && /visionConsent }/.test(st) && /云端读图开关/.test(st), "Settings 云端读图授权开关 + 持久化到 llm.visionConsent");
+ok(/const \[visionConsent/.test(st) && (/onToggleVisionConsent/.test(st) || /persistSettings/.test(st)) && /云端读图开关/.test(st), "Settings 云端读图授权开关 + 持久化到 llm.visionConsent");
 ok(!/&&\s*(AssistantPanel|InfCard|InfBody|EvidenceCard|EnvelopeCard|ReaderPanel|EvidencePane|InferencePane|InfAnalyzer)\(/.test(rd), "无危险 Hook 条件调用");
 console.log("\n结果：" + pass + " 通过 / " + fail + " 失败");
 process.exit(fail ? 1 : 0);

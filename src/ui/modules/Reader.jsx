@@ -6,6 +6,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { ArrowLeft, X, PanelLeft, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Minus, Plus, Maximize, RotateCw, Expand, Download, Search, Sparkles, Send, Languages, Copy, RefreshCw, List, Images, Highlighter, StickyNote, Crop, Trash2, FileDown, Loader, AlertTriangle, Square, Rows3, Columns2, Shield, Info, Layers, Lightbulb, Eye, Ban, Target, Scale, FlaskConical, ListChecks, Link2, Check, Quote, Bookmark, Workflow, Map, Moon, Hand, ScanLine } from "lucide-react";
 import { openPdf, getOutline, getPageStrings, renderTextLayer, destToPageNumber, fitWidthScale, getDocPages, splitCites, renderRegion } from "../pdf-engine.js";
 import { bridge } from "../lumina-bridge.js";
+import { persistSettings } from "../settings-persist.js";
 import { exportAnnotatedPdf, exportNotesMarkdown } from "../pdf-export.js";
 
 const READER_CSS = `
@@ -1154,11 +1155,10 @@ export default function Reader({ source, onClose, pushToast }) {
   useEffect(() => {
     if (!rememberPos || !doc) return;
     const t = setTimeout(() => {
-      bridge.getSettings && bridge.getSettings().then((s) => {
-        const cur = s || {};
+      persistSettings((cur) => {
         const reader = { ...(cur.reader || {}) };
         reader.positions = { ...(reader.positions || {}), [docKey]: page };
-        bridge.saveSettings && bridge.saveSettings({ ...cur, reader });
+        return { ...cur, reader };
       }).catch(() => {});
     }, 1200);
     return () => clearTimeout(t);

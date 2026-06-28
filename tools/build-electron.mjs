@@ -58,9 +58,11 @@ async function syncIcons() {
 
   try {
     resize(brandIcon, trayPath, 32);
+    const traySize = fs.statSync(trayPath).size;
+    if (traySize < 500) throw new Error(`tray output too small (${traySize} bytes)`);
     console.log("  ✓ icon.png → assets/icon.png + tray.png(32)");
   } catch (err) {
-    console.warn("  ! 托盘图标缩放失败，复制原图:", err.message);
+    console.warn("  ! 托盘图标缩放失败，使用原图:", err.message);
     fs.copyFileSync(brandIcon, trayPath);
   }
 }

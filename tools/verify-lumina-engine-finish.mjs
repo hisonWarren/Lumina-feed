@@ -54,7 +54,7 @@ if(exists("electron/ipc.ts")){ const s=read("electron/ipc.ts");
   /ipcMain\.handle\("subs:runNow", async \(_e, sub: any\) => runSubscriptionNow/.test(s)?ok("subs:runNow 复用核心"):wn("runNow 未复用核心");
   /export function startSubsScheduler/.test(s)?ok("startSubsScheduler 导出"):bad("缺调度器");
   /function isSubDue/.test(s)&&/setInterval/.test(s)&&/setTimeout/.test(s)?ok("到期判定 + 定时（启动后+周期）"):bad("调度时序不全");
-  /today: (agg\.papers|fresh)\.slice\(0, 50\)/.test(s)&&/lastRunAt/.test(s)?ok("持久化 today(上限50)+lastRunAt（engine_tail 后 today=去重新增 fresh）"):bad("未持久化 today/lastRunAt");
+  (/persistSubscriptionToday/.test(s) && /today: todayMerged/.test(s) && /lastRunAt/.test(s))?ok("持久化 today(上限50)+lastRunAt（persistSubscriptionToday + freshHits 去重）"):bad("未持久化 today/lastRunAt");
   /Notification\.isSupported\(\)/.test(s)?ok("命中系统通知（guarded）"):wn("无通知");
 }
 if(exists("electron/main.ts")) /startSubsScheduler\(store, secrets\)/.test(read("electron/main.ts"))?ok("main.ts 启动调度器"):bad("main.ts 未启动调度器");

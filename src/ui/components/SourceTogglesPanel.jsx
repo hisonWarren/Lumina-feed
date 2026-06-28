@@ -1,6 +1,5 @@
 // P8 · 20 源细粒度开关
 import React, { useEffect, useState, useCallback } from "react";
-import { Save } from "lucide-react";
 import { bridge, hasBackend } from "../lumina-bridge.js";
 
 const FALLBACK_REGISTRY = [
@@ -33,25 +32,31 @@ export default function SourceTogglesPanel({ keysConfigured = {}, pushToast, onS
     return () => { alive = false; };
   }, []);
 
-  const toggle = useCallback((id) => {
-    setEnabled((m) => ({ ...m, [id]: !m[id] }));
-  }, []);
-
-  const save = async () => {
+  const persistEnabled = useCallback(async (nextMap) => {
+    if (!onSaveDisabled) return;
     setSaving(true);
     try {
-      const disabledSources = registry.filter((r) => enabled[r.id] === false).map((r) => r.id);
+      const disabledSources = registry.filter((r) => nextMap[r.id] === false).map((r) => r.id);
       await onSaveDisabled(disabledSources);
-      pushToast && pushToast("检索源开关已保存");
+    } catch {
+      pushToast && pushToast("检索源开关保存失败");
     } finally { setSaving(false); }
-  };
+  }, [registry, onSaveDisabled, pushToast]);
+
+  const toggle = useCallback((id) => {
+    setEnabled((m) => {
+      const next = { ...m, [id]: !m[id] };
+      void persistEnabled(next);
+      return next;
+    });
+  }, [persistEnabled]);
 
   const enabledCount = registry.filter((r) => enabled[r.id] !== false).length;
 
   return (
     <div className="lf-src-toggles set-sec">
-      <div className="set-sec-t">检索源开关（{enabledCount}/{registry.length} 已启用）</div>
-      <p className="set-hint">关闭的源不会参与关键词检索与单源重试；标识符直达与手动取文不受影响。需密钥的源（CORE / Lens）无密钥时本就不会检索。</p>
+      <div className="set-sec-t">检索源开关（{enabledCount}/{registry.length} 已启用）{saving ? " · 保存中…" : ""}</div>
+      <p className="set-hint">关闭的源不会参与关键词检索与单源重试；标识符直达与手动取文不受影响。切换后立即保存。</p>
       <div className="lf-src-grid">
         {registry.map((row) => {
           const on = enabled[row.id] !== false;
@@ -72,6 +77,7 @@ export default function SourceTogglesPanel({ keysConfigured = {}, pushToast, onS
                 aria-checked={on}
                 className={"set-switch" + (on ? " on" : "")}
                 onClick={() => toggle(row.id)}
+                disabled={saving}
                 aria-label={`${row.label} ${on ? "已启用" : "已禁用"}`}
               >
                 <i />
@@ -79,9 +85,6 @@ export default function SourceTogglesPanel({ keysConfigured = {}, pushToast, onS
             </div>
           );
         })}
-      </div>
-      <div className="set-btnrow" style={{ marginTop: 10 }}>
-        <button className="set-btn2" onClick={save} disabled={saving}><Save size={15} /> {saving ? "保存中…" : "保存源开关"}</button>
       </div>
     </div>
   );
