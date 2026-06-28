@@ -14,8 +14,12 @@ export interface AppSettings {
   prefetchOnIdentifier?: boolean;
   /** P8 · 用户禁用的检索源 id 列表（如 ["zenodo","openaire"]） */
   disabledSources?: string[];
+  /** 桌面通知总开关（Settings 通用页写入） */
+  notifications?: boolean;
   /** 订阅简报系统通知：calm=仅 app 内 · regular=汇总一条 · power=每订阅一条 */
   digestNotifyTier?: "calm" | "regular" | "power";
+  /** 桌面通知总开关（Settings 通用页） */
+  notifications?: boolean;
   prompts?: {
     onboardingEmailDismissed?: boolean;
     searchEmailShown?: boolean;

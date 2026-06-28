@@ -713,7 +713,7 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle("app:resetLocalData", () => {
     try {
       const ud = app.getPath("userData");
-      try { store.db.close(); } catch { /* ignore */ }
+      try { store.db.close?.(); } catch { /* ignore */ }
       for (const f of ["lumina.db", "lumina.db-wal", "lumina.db-shm"]) {
         try { fs.unlinkSync(path.join(ud, f)); } catch { /* ignore */ }
       }
@@ -837,7 +837,7 @@ async function persistSubscriptionToday(
     lastRunMeta: meta,
   };
   store.db.prepare("INSERT INTO subscriptions(id,payload,updated_at) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload, updated_at=excluded.updated_at")
-    .run(next.id as string, JSON.stringify(next), next.lastRunAt as string);
+    .run(String(norm.id ?? ""), JSON.stringify(next), next.lastRunAt as string);
 }
 
 async function runSubscriptionNow(
@@ -955,7 +955,7 @@ export function startSubsScheduler(store: Store, secrets: SecretStore): void {
       for (const row of rows) {
         let sub: any; try { sub = normalizeSubscription(JSON.parse(row.payload)); } catch { continue; }
         if (!isSubDue(sub, now)) continue;
-        const res = await runSubscriptionNow(sub, store, secrets, () => buildDigestSearchOpts(false), { asyncAi: false });
+        const res = await runSubscriptionNow(sub, store, secrets, digestSearchOptsFactory, { asyncAi: false });
         if (res.ok && (res.newCount ?? res.hits.length)) {
           const n = res.newCount ?? res.hits.length;
           if (n <= 0) continue;

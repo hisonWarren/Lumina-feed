@@ -1,6 +1,6 @@
 // 订阅简报 · AI 集成（blurb / 自动总结 / 进度 / 元数据）
 import type { Paper } from "../model.ts";
-import type { SummarizeOptions } from "../summarize/types.ts";
+import type { SummarizeOptions, LlmClient } from "../summarize/types.ts";
 import { DEFAULT_SUMMARIZE } from "../summarize/types.ts";
 import type { Store } from "../store/index.ts";
 
@@ -32,10 +32,6 @@ export interface DigestAiMeta {
 }
 
 export type DigestAiProgressFn = (p: DigestAiProgress) => void;
-
-type LlmLike = {
-  complete: (m: { role: string; content: string }[], o?: { maxTokens?: number; temperature?: number }) => Promise<string>;
-};
 
 export function paperHasBlurb(p: Paper | Record<string, unknown>): boolean {
   return !!(p._digestBlurb || (p as { digestBlurb?: string }).digestBlurb);
@@ -70,7 +66,7 @@ export function mergeAiOntoToday(today: Paper[], patchById: Map<string, Record<s
 export async function generateDigestBlurb(
   pp: { title?: string; abstract?: string },
   sub: Record<string, unknown>,
-  llm: LlmLike,
+  llm: LlmClient,
 ): Promise<string | undefined> {
   const topic = String(sub.name || sub.q || "订阅主题").slice(0, 120);
   const title = String(pp.title || "").slice(0, 200);
