@@ -12,6 +12,7 @@ import Subscriptions from "./modules/Subscriptions.jsx";
 import { buildFetchedMeta, isFetched, fetchProgressUi, metaFromAsset } from "./fetch-meta.js";
 import EmailPrompt from "./components/EmailPrompt.jsx";
 import ConfirmDialog from "./components/ConfirmDialog.jsx";
+import AppContextMenu from "./components/AppContextMenu.jsx";
 
 const BASE_CSS = `
 html,body,#root{height:100%;margin:0}
@@ -109,6 +110,8 @@ export default function LuminaApp() {
   const [subsNew, setSubsNew] = useState(0);
   const [showOnboardingEmail, setShowOnboardingEmail] = useState(false);
   const [settingsCat, setSettingsCat] = useState("llm");
+  const [ctxMenu, setCtxMenu] = useState(null);
+  const ctxPlatform = (typeof window !== "undefined" && window.luminaApi && window.luminaApi.platform) || "win32";
 
   const refreshSubsBadge = useCallback(async () => {
     try {
@@ -182,6 +185,36 @@ export default function LuminaApp() {
     window.addEventListener("keydown", onKey); window.addEventListener("mousedown", onDown);
     return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("mousedown", onDown); };
   }, [themeOpen]);
+
+  useEffect(() => {
+    const api = typeof window !== "undefined" ? window.luminaApi : null;
+    if (!api || !api.onContextMenu) return;
+    return api.onContextMenu((payload) => {
+      if (payload && (payload.isEditable || String(payload.selectionText || "").trim() || payload.linkURL)) {
+        setCtxMenu(payload);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    const onKey = (e) => { if (e.key === "Escape") close(); };
+    const onDown = (e) => { if (!(e.target && e.target.closest && e.target.closest(".lf-ctx"))) close(); };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [ctxMenu]);
+
+  const onContextAction = useCallback((action, extra) => {
+    const api = typeof window !== "undefined" ? window.luminaApi : null;
+    if (api && api.contextAction) void api.contextAction(action, extra);
+  }, []);
   useEffect(() => {
     if (!bridge.onOpenLocalPdf) return;
     bridge.onOpenLocalPdf((payload) => { if (payload && payload.data) { setIncomingPdf({ name: payload.name, data: payload.data, _t: Date.now() }); setMode("read"); } });
@@ -510,6 +543,14 @@ export default function LuminaApp() {
           onConfirm={confirmPdfDelete}
           onCancel={() => setPdfDeleteConfirm(null)}
         />
+        {ctxMenu && (
+          <AppContextMenu
+            payload={ctxMenu}
+            platform={ctxPlatform}
+            onAction={onContextAction}
+            onClose={() => setCtxMenu(null)}
+          />
+        )}
       </div>
     </>
   );

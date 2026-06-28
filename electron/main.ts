@@ -1,5 +1,5 @@
 // lumina-feed · Electron 入口（干净基线：检索 · 取文 · 接地总结）
-import { app, BrowserWindow, ipcMain, shell, Tray, Menu, nativeImage, clipboard, dialog, type MenuItemConstructorOptions } from "electron";
+import { app, BrowserWindow, ipcMain, shell, Tray, Menu, nativeImage, dialog, type MenuItemConstructorOptions } from "electron";
 import path from "node:path";
 import { existsSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -11,6 +11,7 @@ import { keytarStore } from "../src/core/secrets/keyvault.ts";
 import { registerIpc, startSubsScheduler } from "./ipc.ts";
 import { loadAppSettings, saveAppSettings } from "./settings.ts";
 import { installDefaultLimiters } from "../src/core/sources/rate-limit.ts";
+import { installContextMenuBridge, runContextAction } from "./context-menu.ts";
 
 // 开发版与安装版隔离 userData，避免 npm start / 烟测数据污染正式安装包
 const userDataDir = app.isPackaged ? "Lumina Feed" : "Lumina Feed Dev";
@@ -49,16 +50,18 @@ function loadTrayImage(): Electron.NativeImage {
   return nativeImage.createEmpty();
 }
 
-/** 隐藏菜单栏但保留剪切/复制/粘贴快捷键；右键可编辑区弹出标准编辑菜单。 */
+/** 隐藏菜单栏保留快捷键；右键菜单由渲染层主题化组件展示（中文+图标）。 */
 function installTextEditingSupport(w: BrowserWindow) {
+  const mod = process.platform === "darwin" ? "Cmd" : "Ctrl";
   const editSubmenu: MenuItemConstructorOptions[] = [
-    { role: "undo" },
-    { role: "redo" },
+    { label: "撤销", accelerator: `${mod}+Z`, role: "undo" },
+    { label: "重做", accelerator: process.platform === "darwin" ? `${mod}+Shift+Z` : `${mod}+Y`, role: "redo" },
     { type: "separator" },
-    { role: "cut" },
-    { role: "copy" },
-    { role: "paste" },
-    { role: "selectAll" },
+    { label: "剪切", accelerator: `${mod}+X`, role: "cut" },
+    { label: "复制", accelerator: `${mod}+C`, role: "copy" },
+    { label: "粘贴", accelerator: `${mod}+V`, role: "paste" },
+    { type: "separator" },
+    { label: "全选", accelerator: `${mod}+A`, role: "selectAll" },
   ];
   const template: MenuItemConstructorOptions[] = [];
   if (process.platform === "darwin") {
@@ -75,32 +78,9 @@ function installTextEditingSupport(w: BrowserWindow) {
       ],
     });
   }
-  template.push({ label: "Edit", submenu: editSubmenu });
+  template.push({ label: "编辑", submenu: editSubmenu });
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
-
-  w.webContents.on("context-menu", (_e, params) => {
-    const tpl: MenuItemConstructorOptions[] = [];
-    if (params.isEditable) {
-      tpl.push(
-        { role: "undo", enabled: params.editFlags.canUndo },
-        { role: "redo", enabled: params.editFlags.canRedo },
-        { type: "separator" },
-        { role: "cut", enabled: params.editFlags.canCut },
-        { role: "copy", enabled: params.editFlags.canCopy },
-        { role: "paste", enabled: params.editFlags.canPaste },
-        { type: "separator" },
-        { role: "selectAll", enabled: params.editFlags.canSelectAll },
-      );
-    } else if (params.selectionText.trim()) {
-      tpl.push({ role: "copy", enabled: params.editFlags.canCopy });
-    } else if (params.linkURL) {
-      tpl.push(
-        { label: "打开链接", click: () => { if (/^https?:\/\//.test(params.linkURL)) void shell.openExternal(params.linkURL); } },
-        { label: "复制链接", click: () => { clipboard.writeText(params.linkURL); } },
-      );
-    }
-    if (tpl.length) Menu.buildFromTemplate(tpl).popup({ window: w });
-  });
+  installContextMenuBridge(w);
 }
 
 function createTray(): boolean {
@@ -226,6 +206,9 @@ app.whenReady().then(async () => {
     return { ok: true, trayReady: !!tray };
   });
   ipcMain.handle("app:getUserDataPath", () => app.getPath("userData"));
+  ipcMain.handle("lumina:context-action", (_e, action: string, extra?: string) => {
+    runContextAction(win?.webContents, action, extra);
+  });
   await createWindow();
   createTray();
   startSubsScheduler(store, secrets); // 订阅调度：到期自动检索 + 通知（后台开启时关窗仍继续）

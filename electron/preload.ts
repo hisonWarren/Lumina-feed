@@ -20,6 +20,13 @@ contextBridge.exposeInMainWorld("luminaApi", {
   setBackground: (opts: { minimizeToTray?: boolean; openAtLogin?: boolean }) => invoke("app:setBackground", opts),
   resetLocalData: () => invoke("app:resetLocalData"),
   getUserDataPath: () => invoke("app:getUserDataPath"),
+  platform: process.platform,
+  onContextMenu: (cb: (payload: unknown) => void) => {
+    const handler = (_e: unknown, payload: unknown) => cb(payload);
+    ipcRenderer.on("lumina:context-menu", handler);
+    return () => ipcRenderer.removeListener("lumina:context-menu", handler);
+  },
+  contextAction: (action: string, extra?: string) => invoke("lumina:context-action", action, extra),
   searchOnlineStream: (raw: string, filters: unknown, reqId: number, cb: (p: unknown) => void) => {
     const handler = (_e: unknown, payload: any) => { if (payload && payload.reqId === reqId) cb(payload); };
     ipcRenderer.on("search:stream", handler);
