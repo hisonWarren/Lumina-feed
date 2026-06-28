@@ -21,7 +21,7 @@ import EmailPrompt from "../components/EmailPrompt.jsx";
 import GoogleScholarLink from "../components/GoogleScholarLink.jsx";
 import ResultsPager from "../components/ResultsPager.jsx";
 import { pageSlice, clampPage } from "../lib/paginate.js";
-import { stableMerge, adoptRanking } from "../lib/stable-order.js";
+import { stableMerge, adoptRanking, mergeStreamResults } from "../lib/stable-order.js";
 
 // 预览用 mock（无引擎时）
 const MOCK = [
@@ -65,6 +65,10 @@ const FF_CSS = `
 .ff-field-opt{display:flex;align-items:center;justify-content:space-between;gap:8px;border:none;background:transparent;color:var(--ink2);text-align:left;padding:9px 12px;border-radius:8px;cursor:pointer;font-size:13px;font-family:inherit;line-height:1.4}
 .ff-field-opt:hover{background:var(--surf2);color:var(--gold)}
 .ff-field-opt.on{color:var(--gold);background:color-mix(in srgb,var(--gold) 10%,transparent)}
+.ff-primary-banner{display:flex;align-items:center;gap:8px;max-width:958px;margin:0 auto 12px;padding:10px 14px;background:color-mix(in srgb,var(--gold) 12%,var(--surf));border:1px solid color-mix(in srgb,var(--gold) 35%,transparent);border-radius:12px;font-size:13px;color:var(--ink2);line-height:1.45}
+.ff-primary-banner svg{color:var(--gold);flex-shrink:0}
+.ff-card.ff-primary{border-color:color-mix(in srgb,var(--gold) 45%,var(--line));box-shadow:0 0 0 1px color-mix(in srgb,var(--gold) 18%,transparent)}
+.ff-enrich{font-size:12px;color:var(--ink3);margin-left:6px}
 .ff-track{max-width:958px;margin:0 auto;width:100%}
 .ff-sources{display:inline-flex;align-items:center;flex-wrap:wrap;gap:7px;margin:0 0 16px;padding:9px 13px;width:fit-content;max-width:100%;background:var(--surf2);border:1px solid var(--line);border-radius:11px}
 .ff-src-label{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--ink3);font-weight:600;margin-right:3px}
@@ -137,6 +141,8 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
   const [showExpand, setShowExpand] = useState(false);
   const [expandedOnce, setExpandedOnce] = useState(false);
   const [locateMode, setLocateMode] = useState(null);
+  const [primaryPaperId, setPrimaryPaperId] = useState(null);
+  const [primaryAmbiguous, setPrimaryAmbiguous] = useState(false);
   const [identifierError, setIdentifierError] = useState(null);
   const [retryingSource, setRetryingSource] = useState(null);
   const idAutoRef = useRef("");
@@ -214,6 +220,7 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
     if (val !== undefined) setQ(val);
     setLoading(true); setErr(null); setResults([]); setPerSource(null); setMergedCount(null); setPendingSort(0); latestRanked.current = [];
     setResolvedFrom(null); setShowExpand(false); setLocateMode(null); setIdentifierError(null);
+    setPrimaryPaperId(null); setPrimaryAmbiguous(false);
     if (!opts.expand) setExpandedOnce(false);
     setRecent((r) => [term, ...r.filter((x) => x !== term)].slice(0, 6));
     const filters = { field, sort: engineSortMode(sortBy) };
@@ -240,7 +247,7 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
               const cards = ev.papers.map((p) => (p && (p.matched || p._live) ? p : toCardModel(p, searchTerm)));
               latestRanked.current = cards;
               setResults((prev) => {
-                const { items, appended } = stableMerge(prev, cards);
+                const { items, appended } = mergeStreamResults(prev, cards, ev.primaryPaperId);
                 if (appended) setPendingSort((n) => n + appended);
                 setMergedCount(items.length);
                 return items;
@@ -249,6 +256,8 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
             if (ev.perSource) setPerSource(ev.perSource);
             if (ev.resolvedFrom) setResolvedFrom(ev.resolvedFrom);
             if (ev.locateMode) setLocateMode(ev.locateMode);
+            if (ev.primaryPaperId) setPrimaryPaperId(ev.primaryPaperId);
+            if (typeof ev.primaryAmbiguous === "boolean") setPrimaryAmbiguous(ev.primaryAmbiguous);
             if (ev.identifierError) setIdentifierError(ev.identifierError);
             if (ev.resolveError && curReq.current === reqId) setErr(ev.resolveError === "not_found" ? "未找到该标识符的元数据。" : String(ev.resolveError));
             if (ev.done && !done) {
@@ -262,10 +271,15 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
         });
         if (!streamed && curReq.current === reqId) {
           const r = await bridge.searchOnline(searchTerm, filters);
-          setResults((r && r.papers) || []); setPerSource((r && r.perSource) || null);
-          setMergedCount((r && r.count) ?? ((r && r.papers) || []).length);
+          const list = (r && r.papers) || [];
+          setResults(list);
+          setPerSource((r && r.perSource) || null);
+          setMergedCount((r && r.count) ?? list.length);
           if (r && r.resolvedFrom) setResolvedFrom(r.resolvedFrom);
-          if (!opts.expand && !isIdentifierLike(term) && !((r && r.papers) || []).length) setShowExpand(true);
+          if (r && r.locateMode) setLocateMode(r.locateMode);
+          if (r && r.primaryPaperId) setPrimaryPaperId(r.primaryPaperId);
+          if (r && typeof r.primaryAmbiguous === "boolean") setPrimaryAmbiguous(r.primaryAmbiguous);
+          if (!opts.expand && !isIdentifierLike(term) && !list.length) setShowExpand(true);
         }
         if (curReq.current === reqId && !emailConfigured) {
           const cur = (await bridge.getSettings()) || {};
@@ -273,7 +287,17 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
         }
       } else if (hasBackend()) {
         const r = await bridge.searchOnline(searchTerm, filters);
-        if (curReq.current === reqId) { setResults((r && r.papers) || []); setPerSource((r && r.perSource) || null); }
+        const list = (r && r.papers) || [];
+        if (curReq.current === reqId) {
+          setResults(list);
+          setPerSource((r && r.perSource) || null);
+          setMergedCount((r && r.count) ?? list.length);
+          if (r && r.resolvedFrom) setResolvedFrom(r.resolvedFrom);
+          if (r && r.locateMode) setLocateMode(r.locateMode);
+          if (r && r.primaryPaperId) setPrimaryPaperId(r.primaryPaperId);
+          if (r && typeof r.primaryAmbiguous === "boolean") setPrimaryAmbiguous(r.primaryAmbiguous);
+          if (!opts.expand && !isIdentifierLike(term) && !list.length) setShowExpand(true);
+        }
       } else {
         await new Promise((res) => setTimeout(res, 380));
         const t = term.toLowerCase();
@@ -424,6 +448,16 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
       <div className="ff-results">
         {submitted && perSource && Object.keys(perSource).length > 0 && (
           <div className="ff-track">
+            {locateMode === "primary" && results.length > 0 && (
+              <div className="ff-primary-banner">
+                <Check size={16} />
+                <span>
+                  {primaryAmbiguous
+                    ? "找到多篇标题高度相似的文献，已置顶最可能的一篇；请核对作者或年份。"
+                    : "已定位到目标文献，可先获取全文；其它来源仍在后台核对。"}
+                </span>
+              </div>
+            )}
             {locateMode === "disambig" && identifierError && (
               <div className="ff-disambig">标识符解析未命中（{identifierError}）· 已回落关键词检索</div>
             )}
@@ -443,7 +477,7 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
           <div className="ff-track">
             <div className="lf-skel"><div className="ln" style={{ width: "72%" }} /><div className="ln" style={{ width: "48%" }} /><div className="ln" style={{ width: "88%" }} /></div>
             <div className="lf-skel"><div className="ln" style={{ width: "65%" }} /><div className="ln" style={{ width: "40%" }} /></div>
-            <p className="ff-more"><Loader size={14} className="ff-spin" /> 正在定位…跨多源检索中</p>
+            <p className="ff-more"><Loader size={14} className="ff-spin" /> 正在定位…首包通常来自 Crossref / OpenAlex 标题检索</p>
           </div>
         ) : err ? (
           <div className="ff-empty"><AlertTriangle size={24} /><h2>{err}</h2></div>
@@ -471,6 +505,7 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
         ) : (
           <>
           {pageItems.map((p) => {
+            const isPrimary = p.id === primaryPaperId || (locateMode === "primary" && p.matchKind === "title_exact" && pageItems[0]?.id === p.id);
             const meta = fetchedMeta[p.id];
             const got = isFetched(meta);
             const fmeta = fetchingMeta[p.id];
@@ -478,8 +513,8 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
             const prog = isFetching ? fetchProgressUi(fmeta, Date.now()) : null;
             const saved = inLibFn(p.id);
             return (
-              <div className="ff-card" key={p.id}>
-                <MatchBadge kind={p.matchKind} />
+              <div className={"ff-card" + (isPrimary ? " ff-primary" : "")} key={p.id}>
+                <MatchBadge kind={p.matchKind} primary={isPrimary && locateMode === "primary"} />
                 <div className="ff-title" onClick={() => openDoi(p.doi)}>{hi(p.title, p.matched)}</div>
                 <div className="ff-meta">{(p.authors || []).slice(0, 4).join(", ")}{(p.authors || []).length > 4 ? " et al." : ""} · {p.journal || p.abbr}{p.year ? ` · ${p.year}` : ""}</div>
                 <button className="ff-doi" onClick={() => openDoi(p.doi)} title="在浏览器打开"><span>{p.doi}</span><ExternalLink size={11} /></button>
@@ -515,7 +550,12 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
             onPageSize={(s) => { setPageSize(s); setPage(1); }}
             onRefine={() => ref.current && ref.current.focus()}
           />
-          {loading && <div className="ff-more"><Loader size={14} className="ff-spin" /> 还在从其他来源获取…</div>}
+          {loading && results.length > 0 && (
+            <div className="ff-more">
+              <Loader size={14} className="ff-spin" />
+              {locateMode === "primary" ? "已从标题快路径展示结果 · 其它来源仍在补充…" : "还在从其它来源获取…"}
+            </div>
+          )}
           {submitted && (
             <div className="ff-track">
               <GoogleScholarLink query={submitted} count={shown.length} onOpen={(u) => bridge.openExternal(u)} />

@@ -34,7 +34,7 @@ if(exists("src/ui/lumina-bridge.js")){ const s=read("src/ui/lumina-bridge.js"); 
 
 console.log("\n— 4. 划词浮条（解释/译/复制）—");
 if(exists("src/ui/modules/Reader.jsx")){ const s=read("src/ui/modules/Reader.jsx");
-  /onSelectUp/.test(s)&&/getSelection/.test(s)?ok("选区捕获（getSelection + 定位）"):bad("缺选区捕获");
+  (/onSelectUp/.test(s)&&/captureTextSelection/.test(s))?ok("选区捕获（captureTextSelection + onSelectUp）"):bad("缺选区捕获");
   /rd-pop/.test(s)?ok("浮条 UI（rd-pop）"):bad("缺浮条 UI");
   /onExplain/.test(s)&&/explainReq/.test(s)?ok("解释 → 推送助手面板（接地+页码，复用 reader:ask）"):bad("缺解释动作");
   /onTranslate/.test(s)&&/readerTranslate/.test(s)?ok("译 → readerTranslate 内联显示"):bad("缺翻译动作");

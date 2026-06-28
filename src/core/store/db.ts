@@ -50,6 +50,17 @@ CREATE TABLE IF NOT EXISTS paper_state(
   screening TEXT, starred INTEGER DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS sources_cache(key TEXT PRIMARY KEY, payload TEXT, fetched_at TEXT);
+CREATE TABLE IF NOT EXISTS reading_history(
+  entry_key TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  paper_id TEXT,
+  local_path TEXT,
+  title TEXT NOT NULL,
+  page INTEGER NOT NULL DEFAULT 1,
+  opened_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reading_history_opened ON reading_history(opened_at DESC);
 `;
 
 export function bootstrap(db: SqliteDb): void {

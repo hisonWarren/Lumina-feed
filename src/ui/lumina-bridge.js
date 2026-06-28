@@ -7,6 +7,7 @@ const _annoMem = {}; // 无后端时的会话内回退
 const _subsMem = []; // 无后端时的会话内订阅
 const _libMem = []; // 无后端时的会话内工作集
 const _listsMem = []; // 无后端时的会话内清单
+const _continueMem = []; // 无后端时的继续阅读元数据
 
 export const hasBackend = () => !!A();
 
@@ -106,6 +107,8 @@ export const bridge = {
       papers: papers.map((p) => toCardModel(p, raw)),
       locateMode: r && r.locateMode,
       resolvedFrom: r && r.resolvedFrom,
+      primaryPaperId: r && r.primaryPaperId,
+      primaryAmbiguous: r && r.primaryAmbiguous,
       resolveError: r && r.resolveError,
     };
   },
@@ -281,6 +284,90 @@ export const bridge = {
   async listDownloaded() {
     const oa = O(); if (!oa || !oa.listPdfs) return [];
     try { return (await oa.listPdfs()) || []; } catch { return []; }
+  },
+  async continueList() {
+    const r = R();
+    if (r && r.continueList) {
+      try { return (await r.continueList()) || []; } catch { return []; }
+    }
+    return _continueMem.slice().sort((a, b) => String(b.openedAt || "").localeCompare(String(a.openedAt || "")));
+  },
+  async recordReadingOpen(payload) {
+    const r = R();
+    if (r && r.recordOpen) {
+      try { return await r.recordOpen(payload); } catch { return { ok: false }; }
+    }
+    if (!payload) return { ok: false };
+    const entryKey = payload.paperId ? `paper:${payload.paperId}` : (payload.localPath ? `local:${payload.localPath}` : null);
+    if (!entryKey) return { ok: false };
+    const now = new Date().toISOString();
+    const entry = {
+      entryKey,
+      kind: payload.paperId ? "paper" : "local",
+      paperId: payload.paperId,
+      localPath: payload.localPath,
+      title: payload.title || "PDF",
+      page: payload.page || 1,
+      openedAt: now,
+    };
+    const rest = _continueMem.filter((x) => x.entryKey !== entryKey);
+    _continueMem.length = 0;
+    _continueMem.push(entry, ...rest.slice(0, 14));
+    return { ok: true, entry };
+  },
+  async recordReadingPage(entryKey, page) {
+    const r = R();
+    if (r && r.recordPage) {
+      try { return await r.recordPage(entryKey, page); } catch { return { ok: false }; }
+    }
+    const it = _continueMem.find((x) => x.entryKey === entryKey);
+    if (it) it.page = page;
+    return { ok: true };
+  },
+  async readLocalPdf(localPath) {
+    const r = R();
+    if (r && r.readLocalPdf) {
+      try { return await r.readLocalPdf(localPath); } catch { return null; }
+    }
+    return null;
+  },
+  async openContinueEntry(entry) {
+    if (!entry) return { ok: false, reason: "invalid" };
+    if (entry.missing) return { ok: false, reason: "missing" };
+    if (entry.kind === "paper" && entry.paperId) {
+      const data = await bridge.readPdf(entry.paperId);
+      if (!data || !data.byteLength) return { ok: false, reason: "missing" };
+      await bridge.recordReadingOpen({ paperId: entry.paperId, title: entry.title, page: entry.page });
+      return {
+        ok: true, data, paperId: entry.paperId, name: entry.title, entryKey: entry.entryKey, page: entry.page || 1,
+      };
+    }
+    if (entry.kind === "local" && entry.localPath) {
+      const data = await bridge.readLocalPdf(entry.localPath);
+      if (!data || !data.byteLength) return { ok: false, reason: "missing" };
+      await bridge.recordReadingOpen({ localPath: entry.localPath, title: entry.title, page: entry.page });
+      return {
+        ok: true, data, localPath: entry.localPath, name: entry.title, entryKey: entry.entryKey, page: entry.page || 1,
+      };
+    }
+    return { ok: false, reason: "invalid" };
+  },
+  async removeContinueEntry(entryKey) {
+    const r = R();
+    if (r && r.removeContinue) {
+      try { return await r.removeContinue(entryKey); } catch { return { ok: false }; }
+    }
+    const i = _continueMem.findIndex((x) => x.entryKey === entryKey);
+    if (i >= 0) _continueMem.splice(i, 1);
+    return { ok: true };
+  },
+  async clearContinueReading() {
+    const r = R();
+    if (r && r.clearContinue) {
+      try { return await r.clearContinue(); } catch { return { ok: false }; }
+    }
+    _continueMem.length = 0;
+    return { ok: true };
   },
   async subsList() {
     const api = A(); if (!api || !api.subsList) return _subsMem.slice();

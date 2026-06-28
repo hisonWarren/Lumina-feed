@@ -284,6 +284,13 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
     await persistReaderPrefs({ defaultZoom: val }, () => setDefaultZoom(prev));
   }, [defaultZoom, persistReaderPrefs]);
 
+  const onClearContinueReading = useCallback(async () => {
+    if (!backend) return;
+    const r = await bridge.clearContinueReading();
+    if (r && r.ok) pushToast && pushToast("已清除继续阅读记录");
+    else pushToast && pushToast("清除失败");
+  }, [backend, pushToast]);
+
   const onToggleVisionConsent = useCallback(async () => {
     const next = !visionConsent;
     const pr = presetOf(provider);
@@ -630,6 +637,10 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                 <div className="set-kv">
                   <div className="set-kv-main"><span className="set-lbl">夜读反色（默认）</span><span className="set-kv-d">深色环境下反相页面，减轻白底刺眼；阅读器内也可随时切换。</span></div>
                   <button role="switch" aria-checked={nightInvert} className={"set-switch" + (nightInvert ? " on" : "")} onClick={() => void onToggleNightInvert()} aria-label="夜读反色默认开关"><i /></button>
+                </div>
+                <div className="set-kv">
+                  <div className="set-kv-main"><span className="set-lbl">清除继续阅读</span><span className="set-kv-d">移除阅读落地页的「继续阅读」列表；不影响已下载 PDF、批注与页码记忆。</span></div>
+                  <button type="button" className="set-btn2 set-btn-danger" disabled={!backend} onClick={() => void onClearContinueReading()}>清除记录</button>
                 </div>
                 <div className="set-row">
                   <span className="set-lbl">键盘快捷键</span>

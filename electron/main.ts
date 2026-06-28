@@ -115,7 +115,11 @@ async function sendOpenPdf(p: string | null) {
   if (!p || !win) return;
   try {
     const buf = await readFile(p);
-    win.webContents.send("open-local-pdf", { name: p.split(/[\\/]/).pop() || "document.pdf", data: buf });
+    win.webContents.send("open-local-pdf", {
+      name: p.split(/[\\/]/).pop() || "document.pdf",
+      data: buf,
+      localPath: path.resolve(p),
+    });
     if (win.isMinimized()) win.restore();
     win.show(); win.focus();
   } catch { /* 文件不可读则忽略 */ }

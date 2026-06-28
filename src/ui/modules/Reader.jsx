@@ -3,11 +3,14 @@
 // 真实文本层(可选择) + 页内查找 + 大纲目录 + 划词解释/翻译/带页码问答/多色批注 + 截取读图 + 证据/推断分析。
 // 续读位置(按 docKey) · 键盘快捷键 · 夜读反色 · 抓手平移。真实 PDF 渲染/文本层/选择/查找/各交互仅真机可验。
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { ArrowLeft, X, PanelLeft, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Minus, Plus, Maximize, RotateCw, Expand, Download, Search, Sparkles, Send, Languages, Copy, RefreshCw, List, Images, Highlighter, StickyNote, Crop, Trash2, FileDown, Loader, AlertTriangle, Square, Rows3, Columns2, Shield, Info, Layers, Lightbulb, Eye, Ban, Target, Scale, FlaskConical, ListChecks, Link2, Check, Quote, Bookmark, Workflow, Map, Moon, Hand, ScanLine } from "lucide-react";
+import { ArrowLeft, X, PanelLeft, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Minus, Plus, Maximize, RotateCw, RotateCcw, Expand, Download, Search, Sparkles, Send, Languages, Copy, RefreshCw, List, Images, Highlighter, StickyNote, Crop, Trash2, FileDown, Loader, AlertTriangle, Square, Rows3, Columns2, Shield, Info, Layers, Lightbulb, Eye, Ban, Target, Scale, FlaskConical, ListChecks, Link2, Check, Quote, Bookmark, Workflow, Map, Moon, Hand, ScanLine } from "lucide-react";
 import { openPdf, getOutline, getPageStrings, renderTextLayer, destToPageNumber, fitWidthScale, getDocPages, splitCites, renderRegion } from "../pdf-engine.js";
 import { bridge } from "../lumina-bridge.js";
 import { persistSettings } from "../settings-persist.js";
 import { exportAnnotatedPdf, exportNotesMarkdown } from "../pdf-export.js";
+import { captureTextSelection } from "../reader-selection.js";
+import { setReaderContextHost, shouldReaderHandleContextTarget } from "../reader-context-host.js";
+import ReaderContextMenu from "../components/ReaderContextMenu.jsx";
 
 const READER_CSS = `
 /* ── reader_plus 双车道（证据=gold/已四主题派生；推断=amber 此处派生明/暗） ── */
@@ -129,7 +132,7 @@ const READER_CSS = `
 .rd-seg button.on{background:var(--gold);color:#fff}
 .rd-pageind{display:inline-flex;align-items:center;gap:6px;font-family:'Space Mono',monospace;font-size:12px;color:var(--ink2)}
 .rd-pageind input{width:42px;text-align:center;border:1px solid var(--line2);border-radius:6px;padding:4px;font-family:inherit;font-size:12px;background:var(--surf);color:var(--ink)}
-.rd-hint{font-size:11px;color:var(--ink4);font-family:'Space Mono',monospace}
+.rd-hint{display:inline-flex;align-items:center;font-size:11.5px;color:var(--ink3);font-family:inherit;white-space:nowrap;line-height:1}
 .rd-find{display:flex;align-items:center;gap:8px;padding:7px 14px;background:var(--surf);border-bottom:1px solid var(--line);flex-shrink:0}
 .rd-find svg{color:var(--ink3)}
 .rd-find input{flex:1;border:1px solid var(--line2);border-radius:8px;padding:6px 10px;font-size:13px;font-family:inherit;background:var(--surf);color:var(--ink);outline:none}
@@ -1098,9 +1101,15 @@ export default function Reader({ source, onClose, pushToast }) {
   const [snipRect, setSnipRect] = useState(null);
   const loadedRef = useRef(false);
   const snipStart = useRef(null);
-  const docKey = useMemo(() => (source && source.paperId) ? ("paper:" + source.paperId) : ((source && source.name ? source.name : "doc") + ":" + ((source && source.data && source.data.byteLength) || 0)), [source]); // 有 paperId（已下载全文/库内）按 paper:<id> 键，便于我的文献关联批注；本地文件仍按 文件名:字节数
+  const docKey = useMemo(() => {
+    if (source && source.paperId) return "paper:" + source.paperId;
+    if (source && source.localPath) return "local:" + source.localPath;
+    return ((source && source.name ? source.name : "doc") + ":" + ((source && source.data && source.data.byteLength) || 0));
+  }, [source]);
   const [sel, setSel] = useState(null);          // 划词浮条 {text,x,y}
   const [selTrans, setSelTrans] = useState(null); // 选区译文 {loading,text}（划词译走会话内存，不落库）
+  const [ctxMenu, setCtxMenu] = useState(null); // PDF 右键 { x,y, kind, selection? }
+  const ctxSelectionRef = useRef(null);
   const [llmModel, setLlmModel] = useState("");
   const [explainReq, setExplainReq] = useState(null);
   const [find, setFind] = useState(null); // { q, matches:[{page,kOnPage}], cur }
@@ -1113,6 +1122,26 @@ export default function Reader({ source, onClose, pushToast }) {
   const viewRef = useRef(null);
   const rootRef = useRef(null);
   const strCache = useRef({});
+
+  useEffect(() => {
+    setReaderContextHost(true);
+    return () => setReaderContextHost(false);
+  }, []);
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => { setCtxMenu(null); ctxSelectionRef.current = null; };
+    const onKey = (e) => { if (e.key === "Escape") close(); };
+    const onDown = (e) => { if (!(e.target && e.target.closest && e.target.closest(".rd-ctx"))) close(); };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [ctxMenu]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1141,16 +1170,21 @@ export default function Reader({ source, onClose, pushToast }) {
     return () => { alive = false; };
   }, []);
 
-  // 续读：doc 就绪后，若开启「记住位置」，恢复该 doc 上次页码（只尝试一次，之后不覆盖用户翻页）
+  // 续读：doc 就绪后恢复页码（继续阅读 startPage 优先，其次设置里按 docKey 记忆）
   useEffect(() => {
     if (!doc || posLoadedRef.current) return;
     posLoadedRef.current = true;
+    const fromContinue = source && source.startPage && source.startPage >= 1 ? source.startPage : null;
+    if (fromContinue && fromContinue <= (doc.numPages || 1)) {
+      setPage(fromContinue);
+      return;
+    }
     if (!rememberPos) return;
     bridge.getSettings && bridge.getSettings().then((s) => {
       const p = s && s.reader && s.reader.positions && s.reader.positions[docKey];
       if (p && p >= 1 && p <= (doc.numPages || 1)) setPage(p);
     }).catch(() => {});
-  }, [doc, docKey, rememberPos]);
+  }, [doc, docKey, rememberPos, source]);
 
   // 续读：翻页后防抖写回该 doc 位置（与现有设置合并，last-write-wins；关闭「记住位置」则不写）
   useEffect(() => {
@@ -1161,9 +1195,12 @@ export default function Reader({ source, onClose, pushToast }) {
         reader.positions = { ...(reader.positions || {}), [docKey]: page };
         return { ...cur, reader };
       }).catch(() => {});
+      if (source && source.entryKey) {
+        bridge.recordReadingPage(source.entryKey, page).catch(() => {});
+      }
     }, 1200);
     return () => clearTimeout(t);
-  }, [page, docKey, rememberPos, doc]);
+  }, [page, docKey, rememberPos, doc, source]);
 
   const goto = useCallback((n) => setPage((p) => Math.max(1, Math.min(numPages || 1, n || p))), [numPages]);
   const startResize = useCallback((e) => {
@@ -1190,6 +1227,9 @@ export default function Reader({ source, onClose, pushToast }) {
       else if (mod && (e.key === "=" || e.key === "+")) { e.preventDefault(); setScale((s) => Math.min(4, +(s * 1.1).toFixed(3))); }
       else if (mod && e.key === "-") { e.preventDefault(); setScale((s) => Math.max(0.3, +(s * 0.9).toFixed(3))); }
       else if (mod && e.key === "0") { e.preventDefault(); if (doc && viewRef.current) fitWidthScale(doc, page, viewRef.current.clientWidth, rotation).then(setScale).catch(() => {}); }
+      else if (!mod && (e.key === "r" || e.key === "R") && e.shiftKey) { e.preventDefault(); setRotation((r) => (r + 270) % 360); }
+      else if (!mod && (e.key === "r" || e.key === "R")) { e.preventDefault(); setRotation((r) => (r + 90) % 360); }
+      else if (mod && (e.key === "p" || e.key === "P")) { e.preventDefault(); const api = window.luminaApi; if (api && api.contextAction) api.contextAction("print"); }
       else if (e.key === "ArrowRight" || e.key === "PageDown") setPage((p) => Math.min(numPages, p + step));
       else if (e.key === "ArrowLeft" || e.key === "PageUp") setPage((p) => Math.max(1, p - step));
     };
@@ -1220,7 +1260,8 @@ export default function Reader({ source, onClose, pushToast }) {
       if (vp.height > 0) setScale(Math.max(0.3, Math.min(4, +(h / vp.height).toFixed(3))));
     } catch (e) { /* noop */ }
   }, [doc, page, rotation]);
-  const rotate = () => setRotation((r) => (r + 90) % 360);
+  const rotateCw = () => setRotation((r) => (r + 90) % 360);
+  const rotateCcw = () => setRotation((r) => (r + 270) % 360);
   const download = () => {
     try {
       const blob = new Blob([source.data], { type: "application/pdf" });
@@ -1234,27 +1275,33 @@ export default function Reader({ source, onClose, pushToast }) {
 
   const onSelectUp = useCallback(() => {
     if (snipMode) return;
-    const sObj = (typeof window !== "undefined" && window.getSelection) ? window.getSelection() : null;
-    const text = sObj && !sObj.isCollapsed ? sObj.toString().trim() : "";
-    if (!text || !rootRef.current) { setSel(null); return; }
-    try {
-      const range = sObj.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
-      const host = rootRef.current.getBoundingClientRect();
-      let node = range.commonAncestorContainer;
-      if (node && node.nodeType === 3) node = node.parentElement;
-      const pgEl = node && node.closest ? node.closest(".rd-pg") : null;
-      const pageNo = pgEl && pgEl.getAttribute("data-page") ? parseInt(pgEl.getAttribute("data-page"), 10) : page;
-      const rects = [];
-      if (pgEl) {
-        const pr = pgEl.getBoundingClientRect();
-        const crs = range.getClientRects();
-        for (let i = 0; i < crs.length; i++) { const r = crs[i]; rects.push({ x: (r.left - pr.left) / scale, y: (r.top - pr.top) / scale, w: r.width / scale, h: r.height / scale }); }
-      }
-      setSel({ text, x: rect.left - host.left + rect.width / 2, y: rect.top - host.top, page: pageNo, rects });
-      setSelTrans(null);
-    } catch (e) { setSel(null); }
+    const captured = captureTextSelection(rootRef.current, page, scale);
+    if (!captured) { setSel(null); return; }
+    setSel(captured);
+    setSelTrans(null);
   }, [snipMode, page, scale]);
+
+  const onReaderContextMenu = useCallback((e) => {
+    if (!shouldReaderHandleContextTarget(e.target)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const captured = captureTextSelection(rootRef.current, page, scale);
+    ctxSelectionRef.current = captured;
+    if (captured) setSel(captured);
+    setCtxMenu({
+      x: e.clientX,
+      y: e.clientY,
+      kind: captured ? "selection" : "blank",
+      selection: captured,
+      page,
+      numPages,
+      hasBookmark: navmarks.includes(page),
+      annoCount: annos.length,
+      night,
+      focus,
+      hand,
+    });
+  }, [page, scale, numPages, navmarks, annos.length, night, focus, hand]);
 
   // 截取（图/公式）：框选区域 → 取区域内文本层文字 → 接地解释
   const onViewMouseDown = (e) => { if (hand && viewRef.current) { panRef.current = { x: e.clientX, y: e.clientY, sl: viewRef.current.scrollLeft, st: viewRef.current.scrollTop }; e.preventDefault(); return; } if (!snipMode || !rootRef.current) return; const host = rootRef.current.getBoundingClientRect(); snipStart.current = { x: e.clientX, y: e.clientY }; setSnipRect({ x: e.clientX - host.left, y: e.clientY - host.top, w: 0, h: 0 }); };
@@ -1272,8 +1319,6 @@ export default function Reader({ source, onClose, pushToast }) {
     }
     onSelectUp();
   };
-  const onExplain = () => { if (!sel) return; setExplainReq({ text: sel.text, id: Date.now() }); setAiOpen(true); setZone("assist"); setSel(null); };
-  const onWritingObs = () => { if (!sel) return; setMoveReq({ text: sel.text, page: sel.page, id: Date.now() }); setAiOpen(true); setZone("deep"); setSel(null); };
   const doFigure = useCallback(async (x1, y1, x2, y2, caption) => {
     let canvas = null;
     try {
@@ -1295,15 +1340,6 @@ export default function Reader({ source, onClose, pushToast }) {
     } catch (er) { pushToast && pushToast("图表分析失败"); }
     finally { setFiguring(false); }
   }, [doc, page, pushToast]);
-  const onTranslate = async () => {
-    if (!sel) return;
-    setSelTrans({ loading: true, text: "" });
-    try {
-      const res = await bridge.readerTranslate(sel.text);
-      setSelTrans({ loading: false, text: (res && res.ok) ? (res.text || "（无译文）") : ((res && res.error) || "（翻译失败）") });
-    } catch (e) { setSelTrans({ loading: false, text: "（翻译失败）" }); }
-  };
-  const onCopySel = () => { if (!sel) return; try { navigator.clipboard && navigator.clipboard.writeText(sel.text); pushToast && pushToast("已复制"); } catch (e) { /* noop */ } setSel(null); };
 
   useEffect(() => {
     let alive = true; loadedRef.current = false;
@@ -1325,10 +1361,52 @@ export default function Reader({ source, onClose, pushToast }) {
   const addAnno = useCallback((a) => setAnnos((list) => [...list, a]), []);
   const updateAnno = useCallback((id, patch) => setAnnos((list) => list.map((x) => (x.id === id ? { ...x, ...patch } : x))), []);
   const removeAnno = useCallback((id) => setAnnos((list) => list.filter((x) => x.id !== id)), []);
-  const addHighlight = (color) => { if (!sel || !sel.rects || !sel.rects.length) { setSel(null); return; } addAnno({ id: "a" + Date.now(), type: "highlight", page: sel.page, color, rects: sel.rects, anchoredText: sel.text, note: "", createdAt: Date.now() }); setSel(null); };
-  const onNote = () => { if (!sel) return; addAnno({ id: "a" + Date.now(), type: "note", page: sel.page, color: "blue", rects: sel.rects || [], anchoredText: sel.text, note: "", createdAt: Date.now() }); setAiOpen(true); setZone("notes"); setTransMode(null); setSel(null); };
   const onExportPdf = useCallback(async () => { try { await exportAnnotatedPdf(source.data, annos, source.name); pushToast && pushToast("已导出带注释 PDF"); } catch (e) { pushToast && pushToast("导出失败"); } }, [annos, source, pushToast]);
   const onExportMd = useCallback(() => { try { exportNotesMarkdown(annos, source.name); pushToast && pushToast("已导出笔记 Markdown"); } catch (e) { /* noop */ } }, [annos, source, pushToast]);
+  const addHighlight = (color, fromSel) => {
+    const s = fromSel || sel;
+    if (!s || !s.rects || !s.rects.length) { setSel(null); return; }
+    addAnno({ id: "a" + Date.now(), type: "highlight", page: s.page, color, rects: s.rects, anchoredText: s.text, note: "", createdAt: Date.now() });
+    setSel(null);
+  };
+  const onNoteFromSel = (fromSel) => {
+    const s = fromSel || sel;
+    if (!s) return;
+    addAnno({ id: "a" + Date.now(), type: "note", page: s.page, color: "blue", rects: s.rects || [], anchoredText: s.text, note: "", createdAt: Date.now() });
+    setAiOpen(true); setZone("notes"); setTransMode(null); setSel(null);
+  };
+  const onNote = () => onNoteFromSel(sel);
+  const onExplainFromSel = (fromSel) => {
+    const s = fromSel || sel;
+    if (!s) return;
+    setExplainReq({ text: s.text, id: Date.now() });
+    setAiOpen(true); setZone("assist"); setSel(null);
+  };
+  const onExplain = () => onExplainFromSel(sel);
+  const onWritingObsFromSel = (fromSel) => {
+    const s = fromSel || sel;
+    if (!s) return;
+    setMoveReq({ text: s.text, page: s.page, id: Date.now() });
+    setAiOpen(true); setZone("deep"); setSel(null);
+  };
+  const onWritingObs = () => onWritingObsFromSel(sel);
+  const onTranslateFromSel = async (fromSel) => {
+    const s = fromSel || sel;
+    if (!s) return;
+    setSelTrans({ loading: true, text: "" });
+    try {
+      const res = await bridge.readerTranslate(s.text);
+      setSelTrans({ loading: false, text: (res && res.ok) ? (res.text || "（无译文）") : ((res && res.error) || "（翻译失败）") });
+    } catch (e) { setSelTrans({ loading: false, text: "（翻译失败）" }); }
+  };
+  const onCopySelFrom = (fromSel) => {
+    const s = fromSel || sel;
+    if (!s) return;
+    try { navigator.clipboard && navigator.clipboard.writeText(s.text); pushToast && pushToast("已复制"); } catch (e) { /* noop */ }
+    setSel(null);
+  };
+  const onCopySel = () => onCopySelFrom(sel);
+  const onTranslate = () => onTranslateFromSel(sel);
 
   const getStrs = async (p) => {
     if (strCache.current[p]) return strCache.current[p];
@@ -1348,6 +1426,60 @@ export default function Reader({ source, onClose, pushToast }) {
     setFind({ q, matches, cur: matches.length ? 0 : -1 });
     if (matches.length) setPage(Math.max(1, Math.min(numPages, matches[0].page)));
   };
+
+  const runCtxAction = useCallback((actionId) => {
+    const captured = ctxSelectionRef.current || sel;
+    switch (actionId) {
+      case "copy": onCopySelFrom(captured); break;
+      case "copyCite":
+        if (captured) {
+          try {
+            navigator.clipboard.writeText(`"${captured.text}" (p.${captured.page})`);
+            pushToast && pushToast("已复制带页码引用");
+          } catch { /* noop */ }
+        }
+        setSel(null);
+        break;
+      case "hl-yellow": addHighlight("yellow", captured); break;
+      case "hl-green": addHighlight("green", captured); break;
+      case "hl-pink": addHighlight("pink", captured); break;
+      case "note": onNoteFromSel(captured); break;
+      case "explain": onExplainFromSel(captured); break;
+      case "writingObs": onWritingObsFromSel(captured); break;
+      case "translate": onTranslateFromSel(captured); break;
+      case "findSelection":
+        if (captured) { setFindOpen(true); runFind(captured.text); }
+        break;
+      case "zoomIn": zoomIn(); break;
+      case "zoomOut": zoomOut(); break;
+      case "fitWidth": fit(); break;
+      case "actualSize": actualSize(); break;
+      case "fitPage": fitPage(); break;
+      case "rotateCw": rotateCw(); break;
+      case "rotateCcw": rotateCcw(); break;
+      case "prevPage": goto(page - step); break;
+      case "nextPage": goto(page + step); break;
+      case "addBookmark": addMark(); break;
+      case "removeBookmark": removeMark(page); break;
+      case "copyPage":
+        try { navigator.clipboard.writeText(String(page)); pushToast && pushToast(`已复制页码：第 ${page} 页`); } catch { /* noop */ }
+        break;
+      case "find": setFindOpen(true); break;
+      case "snip": setSnipMode(true); break;
+      case "openNotes": setAiOpen(true); setZone("notes"); setTransMode(null); break;
+      case "openAssist": setAiOpen(true); setZone("assist"); setTransMode(null); break;
+      case "toggleNight": setNight((v) => !v); break;
+      case "toggleFocus": setFocus((v) => !v); break;
+      case "toggleHand": setHand((v) => !v); break;
+      case "download": download(); break;
+      case "print": { const api = window.luminaApi; if (api && api.contextAction) api.contextAction("print"); break; }
+      case "exportPdf": onExportPdf(); break;
+      case "exportMd": onExportMd(); break;
+      default: break;
+    }
+    ctxSelectionRef.current = null;
+  }, [sel, page, step, numPages, pushToast, fit, fitPage, goto, addMark, removeMark, onExportPdf, onExportMd, runFind]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const moveFind = (delta) => {
     if (!find || !find.matches.length) return;
     const cur = (find.cur + delta + find.matches.length) % find.matches.length;
@@ -1360,7 +1492,7 @@ export default function Reader({ source, onClose, pushToast }) {
   const curFor = (n) => (curMatch && curMatch.page === n ? curMatch.kOnPage : -1);
 
   return (
-    <div className={"rd" + (focus ? " focus" : "") + (night ? " night" : "")} ref={rootRef}>
+    <div className={"rd" + (focus ? " focus" : "") + (night ? " night" : "")} ref={rootRef} onContextMenu={onReaderContextMenu}>
       <style>{READER_CSS}</style>
 
       <div className="rd-topbar">
@@ -1403,7 +1535,8 @@ export default function Reader({ source, onClose, pushToast }) {
           <button className="rd-btn" onClick={fit} title="适配宽度 (Ctrl/⌘ 0)"><Maximize size={15} /></button>
         </div>
         <div className="rd-grp">
-          <button className="rd-btn" onClick={rotate} title="旋转"><RotateCw size={15} /></button>
+          <button className="rd-btn" onClick={rotateCw} title="顺时针旋转 (R)"><RotateCw size={15} /></button>
+          <button className="rd-btn" onClick={rotateCcw} title="逆时针旋转 (Shift+R)"><RotateCcw size={15} /></button>
           <button className={"rd-btn" + (hand ? " on" : "")} onClick={() => setHand((v) => !v)} title="抓手（按住拖动平移）"><Hand size={15} /></button>
           <button className={"rd-btn" + (night ? " on" : "")} onClick={() => setNight((v) => !v)} title="夜读反色"><Moon size={15} /></button>
           <button className={"rd-btn" + (focus ? " on" : "")} onClick={() => setFocus((v) => !v)} title="专注模式"><Expand size={15} /></button>
@@ -1424,7 +1557,9 @@ export default function Reader({ source, onClose, pushToast }) {
             )}
           </span>
           <button className="rd-btn" onClick={download} title="下载"><Download size={15} /></button>
-          <span className="rd-hint">批注 · P3</span>
+          <span className="rd-hint" title="选中文本后可高亮、便签；批注随文档自动保存">
+            {annos.length > 0 ? `${annos.length} 条批注` : "划词可批注"}
+          </span>
         </div>
       </div>
 
@@ -1531,6 +1666,15 @@ export default function Reader({ source, onClose, pushToast }) {
       )}
 
       {snipRect && <div className="rd-snip" style={{ left: snipRect.x + "px", top: snipRect.y + "px", width: snipRect.w + "px", height: snipRect.h + "px" }} />}
+
+      {ctxMenu && (
+        <ReaderContextMenu
+          menu={ctxMenu}
+          platform={(typeof window !== "undefined" && window.luminaApi && window.luminaApi.platform) || "win32"}
+          onAction={runCtxAction}
+          onClose={() => { setCtxMenu(null); ctxSelectionRef.current = null; }}
+        />
+      )}
     </div>
   );
 }

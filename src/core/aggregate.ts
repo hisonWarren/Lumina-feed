@@ -54,6 +54,26 @@ async function postProcessAsync(all: SearchHit[], spec: QuerySpec, opts: SearchO
   return papers;
 }
 
+/** Title Fast Lane：合并远端命中 + 本地库，按标题 query 重排 */
+export function rankTitleLaneHits(
+  hits: SearchHit[],
+  localPapers: Paper[],
+  titleQ: string,
+  spec: QuerySpec,
+): RankedPaper[] {
+  const laneSpec: QuerySpec = { ...spec, raw: titleQ, filters: { ...spec.filters, field: "title" } };
+  let papers = postProcess(hits, laneSpec);
+  if (localPapers.length) {
+    const byId = new Map(papers.map((p) => [p.id, p]));
+    for (const lp of localPapers) {
+      if (!byId.has(lp.id)) papers.push(lp as RankedPaper);
+    }
+    const ranked = rerank(papers, titleQ, { sort: "relevance", field: "title" });
+    papers = ranked.map((r) => ({ ...r.item, _matchKind: r.matchKind }));
+  }
+  return papers;
+}
+
 async function searchOne(
   a: { id: string; search: (q: QuerySpec, o?: SearchOpts) => Promise<SearchHit[]> },
   spec: QuerySpec,

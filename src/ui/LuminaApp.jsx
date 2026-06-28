@@ -14,6 +14,7 @@ import EmailPrompt from "./components/EmailPrompt.jsx";
 import ConfirmDialog from "./components/ConfirmDialog.jsx";
 import AppContextMenu from "./components/AppContextMenu.jsx";
 import { runEditAction } from "./context-menu-actions.js";
+import { isReaderContextHost } from "./reader-context-host.js";
 
 const BASE_CSS = `
 html,body,#root{height:100%;margin:0}
@@ -192,7 +193,9 @@ export default function LuminaApp() {
     const api = typeof window !== "undefined" ? window.luminaApi : null;
     if (!api || !api.onContextMenu) return;
     return api.onContextMenu((payload) => {
-      if (payload && (payload.isEditable || String(payload.selectionText || "").trim() || payload.linkURL)) {
+      if (!payload) return;
+      if (isReaderContextHost() && !payload.isEditable && !payload.linkURL) return;
+      if (payload.isEditable || String(payload.selectionText || "").trim() || payload.linkURL) {
         ctxEditTarget.current = document.activeElement;
         setCtxMenu(payload);
       }
@@ -229,7 +232,17 @@ export default function LuminaApp() {
   }, []);
   useEffect(() => {
     if (!bridge.onOpenLocalPdf) return;
-    bridge.onOpenLocalPdf((payload) => { if (payload && payload.data) { setIncomingPdf({ name: payload.name, data: payload.data, _t: Date.now() }); setMode("read"); } });
+    bridge.onOpenLocalPdf((payload) => {
+      if (payload && payload.data) {
+        setIncomingPdf({
+          name: payload.name,
+          data: payload.data,
+          localPath: payload.localPath,
+          _t: Date.now(),
+        });
+        setMode("read");
+      }
+    });
   }, []);
 
   const pushToast = useCallback((msg) => {

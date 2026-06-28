@@ -127,6 +127,13 @@ contextBridge.exposeInMainWorld("luminaReader", {
   saveTranslation: (docKey: string, page: number, model: string, text: string) => invoke("translations:save", docKey, page, model, text),
   getNavmarks: (docKey: string) => invoke("navmarks:get", docKey),
   saveNavmarks: (docKey: string, pages: number[]) => invoke("navmarks:save", docKey, pages),
+  continueList: () => invoke("reader:continueList"),
+  recordOpen: (payload: { paperId?: string; localPath?: string; title?: string; page?: number }) =>
+    invoke("reader:recordOpen", payload),
+  recordPage: (entryKey: string, page: number) => invoke("reader:recordPage", entryKey, page),
+  readLocalPdf: (localPath: string) => invoke("reader:readLocalPdf", localPath),
+  removeContinue: (entryKey: string) => invoke("reader:removeContinue", entryKey),
+  clearContinue: () => invoke("reader:clearContinue"),
 });
 
 contextBridge.exposeInMainWorld("luminaAnno", {

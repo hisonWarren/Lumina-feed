@@ -6,8 +6,12 @@ import type { Store } from "../src/core/store/index.ts";
 import type { SecretStore } from "../src/core/secrets/keyvault.ts";
 import { rawToSpec } from "../src/core/querySpec.ts";
 import { aggregateSearch, aggregateSearchStream, searchSingleSource } from "../src/core/aggregate.ts";
+import { runLocateKeywordStream } from "../src/core/locate/locate-stream.ts";
+import { titleFastLane } from "../src/core/locate/title-fast-lane.ts";
+import { isTitleLikeQuery, titleQueryText } from "../src/core/locate/title-like.ts";
+import { pickPrimaryHit } from "../src/core/locate/primary-hit.ts";
 import { resolveIdentifierInput, classifyInput } from "../src/core/locate/resolve-identifier.ts";
-import { shouldPrefetchIdentifier } from "../src/core/locate/prefetch-eligibility.ts";
+import { shouldPrefetchOnLocate } from "../src/core/locate/prefetch-eligibility.ts";
 import { listSourceRegistry } from "../src/core/sources/index.ts";
 import { llmFromConfig, listModels } from "../src/core/summarize/llm-client.ts";
 import { makeOaFullTextProvider, fetchPaperPdf } from "../src/core/oa/provider.ts";
@@ -20,6 +24,18 @@ import { summarizeGrounded } from "../src/core/trust/index.ts";
 import { analyzeReader, analyzeFigure, analyzeCorpus, KIND_REGISTRY, type AnalysisEnvelope } from "../src/core/reader/reader-plus.ts";
 import { saveGrounding } from "../src/core/trust/audit.ts";
 import { summarizeReader, askReader, translateText, type ReaderPage } from "../src/core/reader/reader-ai.ts";
+import {
+  clearReadingHistory,
+  ensureReadingHistoryTable,
+  isSafeLocalPdfPath,
+  listContinueReading,
+  normalizeLocalPath,
+  openedAtForPaper,
+  recordReadingOpen,
+  removeReadingHistory,
+  touchReadingPage,
+  type ReadingHistoryRow,
+} from "../src/core/reader/reading-history.ts";
 import { loadAppSettings, saveAppSettings, loadAppSettingsView } from "./settings.ts";
 import type { SummarizeOptions } from "../src/core/summarize/types.ts";
 import { DEFAULT_SUMMARIZE } from "../src/core/summarize/types.ts";
@@ -115,6 +131,23 @@ export function registerIpc(deps: IpcDeps): void {
   let paperAssetDepsRef: PaperAssetDeps | null = null;
   const getPaperAssetDeps = (): PaperAssetDeps | null => paperAssetDepsRef;
 
+  function searchLocalByTitle(titleQ: string): Paper[] {
+    try {
+      const spec = rawToSpec(titleQ + "[title]", {});
+      const res = store.papers.search(spec, { limit: 8, sort: "relevance" });
+      return (res.hits || []).map((r) => r.paper);
+    } catch {
+      return [];
+    }
+  }
+
+  function mergePrimaryFirst(primaryList: Paper[], fullList: Paper[]): Paper[] {
+    const byId = new Map<string, Paper>();
+    for (const p of primaryList) byId.set(p.id, p);
+    for (const p of fullList) if (!byId.has(p.id)) byId.set(p.id, p);
+    return [...byId.values()];
+  }
+
   ipcMain.handle("search:online", async (e, raw: string, filters) => {
     const opts = await buildSearchOpts();
     const kind = classifyInput(String(raw || "").trim());
@@ -148,12 +181,42 @@ export function registerIpc(deps: IpcDeps): void {
       }
     }
     const spec = rawToSpec(raw, filters);
+    const field = spec.filters.field ?? "all";
+    const titleQ = titleQueryText(raw);
+    if (isTitleLikeQuery(raw, field) && titleQ.length >= 8) {
+      const locals = searchLocalByTitle(titleQ);
+      const fast = await titleFastLane(spec, titleQ, opts, locals);
+      if (fast.papers.length) {
+        store.papers.upsertMany(fast.papers);
+        const primary = pickPrimaryHit(fast.papers, titleQ, field);
+        const agg = await aggregateSearch(spec, opts);
+        store.papers.upsertMany(agg.papers);
+        const merged = mergePrimaryFirst(fast.papers, agg.papers);
+        if (primary?.paperId) scheduleLocatePrefetch(e.sender, primary.paperId, ["title_fast_lane"], "primary");
+        return {
+          perSource: { ...fast.perSource, ...agg.perSource },
+          count: merged.length,
+          papers: merged,
+          locateMode: primary ? "primary" : "keyword",
+          primaryPaperId: primary?.paperId,
+          primaryAmbiguous: primary?.ambiguous,
+        };
+      }
+    }
     const agg = await aggregateSearch(spec, opts);
     store.papers.upsertMany(agg.papers);
-    return { perSource: agg.perSource, count: agg.papers.length, papers: agg.papers, locateMode: "keyword" };
+    const primary = isTitleLikeQuery(raw, field) ? pickPrimaryHit(agg.papers, titleQ, field) : null;
+    return {
+      perSource: agg.perSource,
+      count: agg.papers.length,
+      papers: agg.papers,
+      locateMode: primary ? "primary" : "keyword",
+      primaryPaperId: primary?.paperId,
+      primaryAmbiguous: primary?.ambiguous,
+    };
   });
 
-  // 渐进式检索：每个源返回即把当前累积快照推给渲染层（search:stream 事件），慢源不拖累首屏。
+  // 渐进式检索：Title Fast Lane 首包 + 各源增量；慢源不拖累首屏。
   ipcMain.handle("search:online-stream", async (e, raw: string, filters, reqId) => {
     const opts = await buildSearchOpts();
     const send = (payload: unknown) => { try { e.sender.send("search:stream", payload); } catch { /* 渲染层已关则忽略 */ } };
@@ -194,12 +257,13 @@ export function registerIpc(deps: IpcDeps): void {
         return { ok: true };
       }
     }
-    const spec = rawToSpec(raw, filters);
-    const agg = await aggregateSearchStream(spec, opts, (source, snapshot, perSource) => {
-      send({ reqId, source, papers: snapshot, perSource, done: false });
-    });
+    const agg = await runLocateKeywordStream(raw, filters, opts, (payload) => {
+      send({ reqId, ...payload });
+      if (payload.done && payload.primaryPaperId && payload.locateMode === "primary") {
+        scheduleLocatePrefetch(e.sender, payload.primaryPaperId, payload.resolvedFrom ?? ["title_fast_lane"], "primary");
+      }
+    }, (titleQ) => searchLocalByTitle(titleQ));
     store.papers.upsertMany(agg.papers);
-    send({ reqId, papers: agg.papers, perSource: agg.perSource, done: true, locateMode: "keyword" });
     return { ok: true };
   });
 
@@ -289,10 +353,11 @@ export function registerIpc(deps: IpcDeps): void {
     }
   }
 
-  function scheduleIdentifierPrefetch(
+  function scheduleLocatePrefetch(
     sender: WebContents,
     paperId: string,
     resolvedFrom: string[] | undefined,
+    locateMode: "identifier" | "primary",
   ): void {
     void (async () => {
       const settings = await loadAppSettings(store);
@@ -304,7 +369,7 @@ export function registerIpc(deps: IpcDeps): void {
         } catch { /* 渲染层已关 */ }
         return;
       }
-      if (!shouldPrefetchIdentifier("identifier", resolvedFrom, paper, settings, false)) return;
+      if (!shouldPrefetchOnLocate(locateMode, resolvedFrom, paper, settings, false)) return;
       if (prefetchInflight.has(paperId)) return;
       prefetchInflight.add(paperId);
       try {
@@ -320,6 +385,14 @@ export function registerIpc(deps: IpcDeps): void {
         } catch { /* 渲染层已关 */ }
       } finally { prefetchInflight.delete(paperId); }
     })();
+  }
+
+  function scheduleIdentifierPrefetch(
+    sender: WebContents,
+    paperId: string,
+    resolvedFrom: string[] | undefined,
+  ): void {
+    scheduleLocatePrefetch(sender, paperId, resolvedFrom, "identifier");
   }
 
   ipcMain.handle("oa:fetchPaper", async (_e, paperId: string, ctx?: FetchContext) => {
@@ -449,6 +522,61 @@ export function registerIpc(deps: IpcDeps): void {
     } catch (e: any) { return { ok: false, error: (e && e.message) ? String(e.message) : "拉取失败" }; }
   });
 
+  // ── 继续阅读（持久化 LRU · 元数据 only）──
+  const enrichContinueRow = (row: ReadingHistoryRow): { title?: string; missing?: boolean; hasPdf?: boolean } => {
+    if (row.kind === "paper" && row.paper_id) {
+      const paper = store.papers.getById(row.paper_id);
+      const hasPdf = fs.existsSync(pdfPath(row.paper_id));
+      return { title: paper?.title || row.title, missing: !hasPdf, hasPdf };
+    }
+    if (row.kind === "local" && row.local_path) {
+      const ok = isSafeLocalPdfPath(row.local_path);
+      return { title: row.title, missing: !ok, hasPdf: ok };
+    }
+    return { title: row.title, missing: true, hasPdf: false };
+  };
+
+  ipcMain.handle("reader:continueList", () => {
+    ensureReadingHistoryTable(store.db);
+    return listContinueReading(store.db, enrichContinueRow);
+  });
+
+  ipcMain.handle("reader:recordOpen", (_e, payload: { paperId?: string; localPath?: string; title?: string; page?: number }) => {
+    if (!payload || (!payload.paperId && !payload.localPath)) return { ok: false };
+    if (payload.localPath && typeof (app as { addRecentDocument?: (p: string) => void }).addRecentDocument === "function") {
+      try { app.addRecentDocument(normalizeLocalPath(payload.localPath)); } catch { /* ignore */ }
+    }
+    const entry = recordReadingOpen(store.db, {
+      paperId: payload.paperId,
+      localPath: payload.localPath,
+      title: payload.title || payload.paperId || path.basename(String(payload.localPath || "")) || "PDF",
+      page: payload.page,
+    });
+    return { ok: !!entry, entry };
+  });
+
+  ipcMain.handle("reader:recordPage", (_e, entryKey: string, page: number) => {
+    if (!entryKey) return { ok: false };
+    touchReadingPage(store.db, entryKey, page);
+    return { ok: true };
+  });
+
+  ipcMain.handle("reader:readLocalPdf", (_e, localPath: string) => {
+    try {
+      if (!isSafeLocalPdfPath(localPath)) return null;
+      return new Uint8Array(fs.readFileSync(normalizeLocalPath(localPath)));
+    } catch { return null; }
+  });
+
+  ipcMain.handle("reader:removeContinue", (_e, entryKey: string) => ({
+    ok: removeReadingHistory(store.db, String(entryKey || "")),
+  }));
+
+  ipcMain.handle("reader:clearContinue", () => {
+    clearReadingHistory(store.db);
+    return { ok: true };
+  });
+
   // ── reader_engine：全文取文 / 落盘 / 读回 ──
   ipcMain.handle("oa:fetchPdf", async (_e, url: string, paperId?: string) => {
     try {
@@ -470,14 +598,21 @@ export function registerIpc(deps: IpcDeps): void {
       return new Uint8Array(fs.readFileSync(p));
     } catch { return null; }
   });
-  // 列出已下载全文（关联 store 取标题）。
+  // 列出已下载全文（关联 store 取标题；按最近打开 / 文件时间排序）。
   ipcMain.handle("oa:listPdfs", () => {
     try {
-      return fs.readdirSync(pdfDir()).filter((f) => f.endsWith(".pdf")).map((f) => {
+      ensureReadingHistoryTable(store.db);
+      const dir = pdfDir();
+      const items = fs.readdirSync(dir).filter((f) => f.endsWith(".pdf")).map((f) => {
         const id = decodeURIComponent(f.slice(0, -4));
         const paper = store.papers.getById(id);
-        return { paperId: id, title: paper ? paper.title : undefined, oaUrl: paper ? paper.oaUrl : undefined };
+        let mtime: string | undefined;
+        try { mtime = fs.statSync(path.join(dir, f)).mtime.toISOString(); } catch { /* ignore */ }
+        const openedAt = openedAtForPaper(store.db, id) || mtime;
+        return { paperId: id, title: paper ? paper.title : undefined, oaUrl: paper ? paper.oaUrl : undefined, openedAt, mtime };
       });
+      items.sort((a, b) => String(b.openedAt || "").localeCompare(String(a.openedAt || "")));
+      return items;
     } catch { return []; }
   });
 

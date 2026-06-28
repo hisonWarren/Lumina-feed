@@ -66,6 +66,9 @@ export function runContextAction(wc: WebContents | null | undefined, action: str
     case "copyLink":
       if (extra) clipboard.writeText(extra);
       break;
+    case "print":
+      wc.print({ silent: false, printBackground: true });
+      break;
     default: break;
   }
 }
