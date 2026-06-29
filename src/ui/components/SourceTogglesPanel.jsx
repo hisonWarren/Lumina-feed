@@ -92,12 +92,12 @@ export default function SourceTogglesPanel({ keysConfigured = {}, pushToast, onS
 
 /** P10 · 标识符/Primary 定位预取开关 */
 export function PrefetchToggleRow({ value, onChange }) {
-  const on = value !== false;
+  const on = value === true;
   return (
     <div className="set-kv lf-prefetch-row">
       <div className="set-kv-main">
-        <span className="set-lbl">定位命中预取全文</span>
-        <span className="set-kv-d">DOI / PMID / 标题 Primary 定位成功后，后台静默获取 PDF；卡片显示「取来中 → 全文就绪」。默认开启。</span>
+        <span className="set-lbl">DOI 定位后自动取全文</span>
+        <span className="set-kv-d">粘贴 DOI/PMID 直达命中后，后台静默获取 PDF。默认关闭；检索结果请手动点「获取全文」。</span>
       </div>
       <button role="switch" aria-checked={on} className={"set-switch" + (on ? " on" : "")} onClick={() => onChange(!on)} aria-label="定位预取开关"><i /></button>
     </div>
@@ -106,12 +106,12 @@ export function PrefetchToggleRow({ value, onChange }) {
 
 /** OA 检索结果预取 */
 export function OaPrefetchToggleRow({ value, onChange }) {
-  const on = value !== false;
+  const on = value === true;
   return (
     <div className="set-kv lf-prefetch-row">
       <div className="set-kv-main">
-        <span className="set-lbl">OA 检索结果预取</span>
-        <span className="set-kv-d">检索列表中 gold/green OA 文献进入视口后后台取文（最多 4 篇并行）。默认开启。</span>
+        <span className="set-lbl">OA 结果自动预取</span>
+        <span className="set-kv-d">检索列表中 gold/green OA 文献进入视区后后台取文。默认关闭，避免大量并行取文拖慢界面。</span>
       </div>
       <button role="switch" aria-checked={on} className={"set-switch" + (on ? " on" : "")} onClick={() => onChange(!on)} aria-label="OA 预取开关"><i /></button>
     </div>
@@ -120,12 +120,12 @@ export function OaPrefetchToggleRow({ value, onChange }) {
 
 /** Primary 定位成功后自动打开阅读器 */
 export function PrimaryAutoOpenToggleRow({ value, onChange }) {
-  const on = value !== false;
+  const on = value === true;
   return (
     <div className="set-kv lf-prefetch-row">
       <div className="set-kv-main">
-        <span className="set-lbl">定位成功自动阅读</span>
-        <span className="set-kv-d">标题 Primary / 标识符定位且全文就绪后，自动打开阅读器（不打扰时可关）。默认开启。</span>
+        <span className="set-lbl">取文成功自动阅读</span>
+        <span className="set-kv-d">手动或 DOI 自动取文成功后，自动打开阅读器。默认关闭。</span>
       </div>
       <button role="switch" aria-checked={on} className={"set-switch" + (on ? " on" : "")} onClick={() => onChange(!on)} aria-label="自动打开阅读器开关"><i /></button>
     </div>

@@ -244,9 +244,10 @@ async function drainFetchQueue(runFetch: FetchRunner): Promise<void> {
     fetchActive++;
     void (async () => {
       try {
+        const channel = job.ctx?.channel;
         const send = (payload: unknown) => {
           if (!job.sender || job.sender.isDestroyed()) return;
-          try { job.sender.send("fetch:queue", { paperId: job.paperId, ...(payload as object) }); } catch { /* ignore */ }
+          try { job.sender.send("fetch:queue", { paperId: job.paperId, channel, ...(payload as object) }); } catch { /* ignore */ }
         };
         send({ status: "running" });
         const res = await runFetch(job.paperId, (ev) => send({ trace: ev }), job.ctx);
@@ -256,6 +257,7 @@ async function drainFetchQueue(runFetch: FetchRunner): Promise<void> {
           try {
             job.sender.send("fetch:queue", {
               paperId: job.paperId,
+              channel: job.ctx?.channel,
               status: "failed",
               result: { ok: false, reason: String((e as Error)?.message || e) },
             });

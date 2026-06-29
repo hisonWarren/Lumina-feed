@@ -16,7 +16,7 @@ console.log("\n[2] IPC 接线");
 const ipc = read("electron/ipc.ts");
 ok(ipc?.includes("runLocateKeywordStream"), "流式定位");
 ok(ipc?.includes("searchLocalByTitle"), "本地标题检索");
-ok(ipc?.includes('locateMode: primary'), "primary 预取");
+ok(ipc?.includes('locateMode === "primary"') && ipc?.includes("return"), "primary 不自动预取");
 
 console.log("\n[3] 渲染层 UX");
 const ff = read("src/ui/modules/FindFetch.jsx");
@@ -27,7 +27,9 @@ const stable = read("src/ui/lib/stable-order.js");
 ok(stable?.includes("pinExactMatches") && stable?.includes("pinPrimaryId"), "精确匹配置顶");
 
 console.log("\n[4] 预取扩展");
-ok(read("src/core/locate/prefetch-eligibility.ts")?.includes('"primary"'), "primary 预取资格");
+const pe = read("src/core/locate/prefetch-eligibility.ts");
+ok(pe?.includes("prefetchOnIdentifier !== true"), "标识符预取须显式开启");
+ok(pe?.includes('locateMode !== "identifier"'), "primary/keyword 不预取");
 
 console.log(`\nlocate_primary：${pass}/${pass + fail}` + (fail ? " 失败" : " 全绿"));
 process.exit(fail ? 1 : 0);

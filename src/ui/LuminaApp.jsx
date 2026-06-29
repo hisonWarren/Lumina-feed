@@ -12,6 +12,7 @@ import Subscriptions from "./modules/Subscriptions.jsx";
 import { buildFetchedMeta, isFetched, fetchProgressUi, metaFromAsset, fetchFailHint } from "./fetch-meta.js";
 import EmailPrompt from "./components/EmailPrompt.jsx";
 import ConfirmDialog from "./components/ConfirmDialog.jsx";
+import FetchFailDialog from "./components/FetchFailDialog.jsx";
 import AppContextMenu from "./components/AppContextMenu.jsx";
 import { runEditAction } from "./context-menu-actions.js";
 import { isReaderContextHost } from "./reader-context-host.js";
@@ -275,8 +276,10 @@ export default function LuminaApp() {
     });
   }, [mode]);
 
-  const [primaryAutoOpen, setPrimaryAutoOpen] = useState(true);
-  const primaryAutoOpenRef = useRef(true);
+  const [primaryAutoOpen, setPrimaryAutoOpen] = useState(false);
+  const primaryAutoOpenRef = useRef(false);
+  const [fetchFail, setFetchFail] = useState(null);
+  const fetchingMetaRef = useRef({});
 
   const pushToast = useCallback((msg) => {
     const id = Date.now();
@@ -287,11 +290,15 @@ export default function LuminaApp() {
   useEffect(() => {
     if (!hasBackend()) return;
     bridge.getSettings().then((s) => {
-      const on = s?.primaryAutoOpenReader !== false;
+      const on = s?.primaryAutoOpenReader === true;
       setPrimaryAutoOpen(on);
       primaryAutoOpenRef.current = on;
     }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    fetchingMetaRef.current = fetchingMeta;
+  }, [fetchingMeta]);
 
   useEffect(() => {
     if (!Object.keys(fetchingMeta).length) return;
@@ -301,6 +308,17 @@ export default function LuminaApp() {
 
   useEffect(() => {
     if (!hasBackend() || !bridge.onFetchQueue) return;
+    const manualChannels = new Set(["manual", "library", "digest", "batch"]);
+    const notifyFetchFail = (id, r, channel) => {
+      const meta = fetchingMetaRef.current[id];
+      const ch = channel || meta?.channel;
+      setFetchingMeta((m) => { const n = { ...m }; delete n[id]; return n; });
+      if (ch && !manualChannels.has(ch)) return;
+      const hint = fetchFailHint(r && r.reason);
+      const msg = hint || ("取文未成功（" + (r?.reason || "未知原因") + "）。可稍后重试或经机构访问");
+      setFetchFail({ paperTitle: meta?.title, message: msg });
+      pushToast(msg);
+    };
     const stop = bridge.onFetchQueue((ev) => {
       if (!ev || !ev.paperId) return;
       const id = ev.paperId;
@@ -333,17 +351,14 @@ export default function LuminaApp() {
             void refreshLib();
             pushToast("已获取全文 · " + meta.label + " · 已保存到本机，可在阅读或我的文献打开");
           }
+          setFetchingMeta((m) => { const n = { ...m }; delete n[id]; return n; });
         } else if (r) {
-          const hint = fetchFailHint(r.reason);
-          if (hint) pushToast(hint);
-          else pushToast("取文未成功（" + (r.reason || "未知原因") + "）。可稍后重试或经机构访问");
+          notifyFetchFail(id, r, ev.channel);
+        } else {
+          setFetchingMeta((m) => { const n = { ...m }; delete n[id]; return n; });
         }
-        setFetchingMeta((m) => { const n = { ...m }; delete n[id]; return n; });
       } else if (ev.status === "failed") {
-        const r = ev.result;
-        const hint = fetchFailHint(r && r.reason);
-        pushToast(hint || "取文失败，请稍后重试");
-        setFetchingMeta((m) => { const n = { ...m }; delete n[id]; return n; });
+        notifyFetchFail(id, ev.result, ev.channel);
       }
     });
     return () => stop?.();
@@ -356,7 +371,7 @@ export default function LuminaApp() {
     const priority = channel === "manual" || channel === "library" || channel === "digest" ? 0 : channel === "batch" ? 1 : 2;
     setFetchingMeta((m) => ({
       ...m,
-      [p.id]: { startedAt: Date.now(), trace: null, queued: searchBusy },
+      [p.id]: { startedAt: Date.now(), trace: null, queued: searchBusy, title: p.title || p.id, channel },
     }));
     try {
       if (hasBackend()) {
@@ -378,8 +393,10 @@ export default function LuminaApp() {
         }
       }
     } catch {
+      const msg = "取文请求失败，请稍后重试";
       setFetchingMeta((m) => { const n = { ...m }; delete n[p.id]; return n; });
-      pushToast("取文请求失败，请稍后重试");
+      setFetchFail({ paperTitle: p.title || p.id, message: msg });
+      pushToast(msg);
       return { ok: false, reason: "enqueue_failed" };
     }
   }, [pushToast, findSession]);
@@ -656,6 +673,12 @@ export default function LuminaApp() {
           danger
           onConfirm={confirmPdfDelete}
           onCancel={() => setPdfDeleteConfirm(null)}
+        />
+        <FetchFailDialog
+          open={!!fetchFail}
+          paperTitle={fetchFail?.paperTitle}
+          message={fetchFail?.message || ""}
+          onClose={() => setFetchFail(null)}
         />
         {ctxMenu && (
           <AppContextMenu

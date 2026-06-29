@@ -273,7 +273,6 @@ export function registerIpc(deps: IpcDeps): void {
         const agg = await aggregateSearch(spec, opts);
         store.papers.upsertMany(agg.papers);
         const merged = mergePrimaryFirst(fast.papers, agg.papers);
-        if (primary?.paperId) scheduleLocatePrefetch(e.sender, primary.paperId, ["title_fast_lane"], "primary");
         return {
           perSource: { ...fast.perSource, ...agg.perSource },
           count: merged.length,
@@ -348,9 +347,6 @@ export function registerIpc(deps: IpcDeps): void {
         send({ reqId, ...payload });
         if (Array.isArray(payload.papers) && payload.papers.length) {
           scheduleOaResultsPrefetch(e.sender, payload.papers as Paper[]);
-        }
-        if (payload.done && payload.primaryPaperId && payload.locateMode === "primary") {
-          scheduleLocatePrefetch(e.sender, payload.primaryPaperId, payload.resolvedFrom ?? ["title_fast_lane"], "primary");
         }
       }, (titleQ) => searchLocalByTitle(titleQ));
       store.papers.upsertMany(agg.papers);
@@ -554,14 +550,18 @@ export function registerIpc(deps: IpcDeps): void {
   }
 
   function scheduleOaResultsPrefetch(sender: WebContents, papers: Paper[]): void {
-    for (const paper of papers) {
-      if (!paper?.id) continue;
-      if (searchInflight > 0) {
-        deferredPrefetches.push({ kind: "oa", sender, paperId: paper.id });
-      } else {
-        enqueuePrefetch(sender, paper.id, { priority: 2, oaOnly: true });
+    void (async () => {
+      const settings = await loadAppSettings(store);
+      if (settings.prefetchOaResults !== true) return;
+      for (const paper of papers) {
+        if (!paper?.id) continue;
+        if (searchInflight > 0) {
+          deferredPrefetches.push({ kind: "oa", sender, paperId: paper.id });
+        } else {
+          enqueuePrefetch(sender, paper.id, { priority: 2, oaOnly: true });
+        }
       }
-    }
+    })();
   }
 
   function scheduleLocatePrefetchNow(
@@ -570,11 +570,12 @@ export function registerIpc(deps: IpcDeps): void {
     resolvedFrom: string[] | undefined,
     locateMode: "identifier" | "primary",
   ): void {
+    if (locateMode === "primary") return; // 标题完全匹配也不后台取文
     void (async () => {
       const settings = await loadAppSettings(store);
-      const autoOpen = locateMode === "primary" && settings.primaryAutoOpenReader !== false;
+      const autoOpen = locateMode === "identifier" && settings.primaryAutoOpenReader === true;
       enqueuePrefetch(sender, paperId, {
-        priority: locateMode === "primary" ? 0 : 1,
+        priority: 1,
         locateMode,
         resolvedFrom,
         autoOpen,

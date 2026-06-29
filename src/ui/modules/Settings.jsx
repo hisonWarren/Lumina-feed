@@ -183,9 +183,9 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
   const [appVersion, setAppVersion] = useState("");
   const [searchDepth, setSearchDepth] = useState("standard");
   const [altMirrors, setAltMirrors] = useState({});
-  const [prefetchOnIdentifier, setPrefetchOnIdentifier] = useState(true);
-  const [prefetchOaResults, setPrefetchOaResults] = useState(true);
-  const [primaryAutoOpenReader, setPrimaryAutoOpenReader] = useState(true);
+  const [prefetchOnIdentifier, setPrefetchOnIdentifier] = useState(false);
+  const [prefetchOaResults, setPrefetchOaResults] = useState(false);
+  const [primaryAutoOpenReader, setPrimaryAutoOpenReader] = useState(false);
   const [keysConfigured, setKeysConfigured] = useState({});
   const [llmKeySaved, setLlmKeySaved] = useState(false);
   const backend = hasBackend();

@@ -1,4 +1,4 @@
-// P10 · 预取资格：定位命中 + OA 检索结果（默认积极预取）
+// P10 · 预取资格：须在设置中显式开启；标题完全匹配（primary）永不预取
 import type { Paper } from "../model.ts";
 import { isOaMarkedPaper } from "../oa/provider.ts";
 
@@ -11,7 +11,7 @@ export type PrefetchSettings = {
   prefetchOaResults?: boolean;
 };
 
-/** 标识符/Primary 定位预取（默认开，显式 false 才关） */
+/** 标识符定位预取（须在设置中显式开启） */
 export function shouldPrefetchOnLocate(
   locateMode: string | undefined,
   resolvedFrom: string[] | undefined,
@@ -19,25 +19,22 @@ export function shouldPrefetchOnLocate(
   settings: PrefetchSettings,
   hasPdf: boolean,
 ): boolean {
-  if (settings.prefetchOnIdentifier === false) return false;
-  if (locateMode !== "identifier" && locateMode !== "primary") return false;
+  if (settings.prefetchOnIdentifier !== true) return false;
+  if (locateMode !== "identifier") return false;
   if (!paper?.doi) return false;
   if (hasPdf) return false;
   const from = resolvedFrom ?? [];
   if (from.length === 1 && from[0] === "doi_stub") return false;
-  if (locateMode === "primary") {
-    return from.some((f) => HIGH_CONFIDENCE_SOURCES.has(f));
-  }
   return from.some((f) => HIGH_CONFIDENCE_SOURCES.has(f));
 }
 
-/** 检索结果 gold/green OA 卡片预取（默认开） */
+/** 检索结果 gold/green OA 卡片预取（须在设置中显式开启） */
 export function shouldPrefetchOaResult(
   paper: Pick<Paper, "doi" | "oaStatus" | "oaUrl" | "pmcid" | "arxivId"> | null | undefined,
   settings: PrefetchSettings,
   hasPdf: boolean,
 ): boolean {
-  if (settings.prefetchOaResults === false) return false;
+  if (settings.prefetchOaResults !== true) return false;
   if (hasPdf) return false;
   if (!paper) return false;
   if (!paper.doi && !paper.oaUrl && !paper.pmcid && !paper.arxivId) return false;

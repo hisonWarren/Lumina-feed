@@ -12,11 +12,11 @@ export interface AppSettings {
   altMirrors?: { libgen?: string[]; annas?: string[]; scihub?: string[] };
   /** 取文后自动加入我的文献（工作集）；关则仅落盘，需手动收藏 */
   autoIngestOnFetch?: boolean;
-  /** P10 · 标识符/Primary 定位后后台预取（默认开） */
+  /** P10 · 标识符定位后后台预取（默认关，须用户在设置中开启） */
   prefetchOnIdentifier?: boolean;
-  /** OA 检索命中（gold/green）后台预取（默认开） */
+  /** OA 检索命中后台预取（默认关） */
   prefetchOaResults?: boolean;
-  /** Primary 定位且全文就绪后自动打开阅读器（默认开） */
+  /** Primary 定位且全文就绪后自动打开阅读器（默认关） */
   primaryAutoOpenReader?: boolean;
   /** P8 · 用户禁用的检索源 id 列表（如 ["zenodo","openaire"]） */
   disabledSources?: string[];
@@ -49,9 +49,9 @@ const DEFAULTS: AppSettings = {
   digestNotifyTier: "regular",
   digestReportAuto: true,
   autoIngestOnFetch: true,
-  prefetchOnIdentifier: true,
-  prefetchOaResults: true,
-  primaryAutoOpenReader: true,
+  prefetchOnIdentifier: false,
+  prefetchOaResults: false,
+  primaryAutoOpenReader: false,
 };
 const KEY = "app_settings";
 /** settings:get 派生字段，禁止写入 DB */

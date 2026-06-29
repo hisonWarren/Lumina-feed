@@ -482,25 +482,6 @@ export default function FindFetch({
     return () => window.removeEventListener("keydown", onKey);
   }, [submitted, shown.length, pageSize]);
 
-  useEffect(() => {
-    if (!submitted || loading) return;
-    if (!hasBackend() || !bridge.schedulePrefetch) return;
-    const root = document.querySelector(".ff-results");
-    if (!root) return;
-    const cards = root.querySelectorAll(".ff-card[data-paper-id]");
-    if (!cards.length) return;
-    const io = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        if (!entry.isIntersecting) continue;
-        const id = entry.target.getAttribute("data-paper-id");
-        if (!id || isFetched(fetchedMeta[id]) || fetchingMeta[id]) continue;
-        void bridge.schedulePrefetch(id, { priority: "normal" });
-      }
-    }, { root, rootMargin: "100px", threshold: 0.12 });
-    cards.forEach((el) => io.observe(el));
-    return () => io.disconnect();
-  }, [submitted, loading, pageItems, fetchedMeta, fetchingMeta]);
-
   return (
     <div className="ff">
       <style>{FF_CSS}</style>
@@ -582,7 +563,7 @@ export default function FindFetch({
         {submitted && (
           <div className="ff-session-bar" role="status">
             <span><strong>本次检索</strong> · {total} 条{sessionAge ? ` · ${sessionAge}` : ""}{loading ? " · 仍在补充…" : ""}</span>
-            <span className="ff-session-h">切换模块不会清空；后台预取继续。要开始新的定位请点「新检索」。</span>
+            <span className="ff-session-h">切换模块不会清空；要开始新的定位请点「新检索」。</span>
             <button type="button" className="ff-session-new" onClick={clear}>新检索</button>
           </div>
         )}
@@ -593,8 +574,8 @@ export default function FindFetch({
                 <Check size={16} />
                 <span>
                   {primaryAmbiguous
-                    ? "找到多篇标题高度相似的文献，已置顶最可能的一篇；请核对作者或年份。"
-                    : "已定位到目标文献，可先获取全文；其它来源仍在后台核对。"}
+                    ? "找到多篇标题高度相似的文献，已置顶最可能的一篇；请核对作者或年份后手动获取全文。"
+                    : "已定位到目标文献，请点击「获取全文」下载 PDF；其它来源仍在后台核对。"}
                 </span>
               </div>
             )}
