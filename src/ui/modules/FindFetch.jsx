@@ -37,6 +37,13 @@ const MOCK = [
   { id: "m4", title: "Hydroxychloroquine for prevention of COVID-19 (RETRACTED)", authors: ["Doe A", "Smith B"], journal: "J Clin Trials", year: 2024, type: "rct", preprint: false, retracted: true, oa: "gold", oaUrl: "https://example.org/m4.pdf", doi: "10.1000/jct.2024.0099", abstract: "This article has been retracted.", matched: ["prevention"] },
 ];
 
+function formatCites(n) {
+  if (n == null || n <= 0) return null;
+  if (n >= 10000) return `${Math.round(n / 1000)}k`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k`;
+  return String(n);
+}
+
 function hi(text, terms) {
   if (!terms || !terms.length || !text) return text;
   const low = terms.map((t) => t.toLowerCase());
@@ -53,6 +60,15 @@ const FIELD_OPTS = [
   { id: "journal", label: "期刊" },
 ];
 
+const SORT_OPTS = [
+  { id: "relevance", label: "相关（默认）" },
+  { id: "newest", label: "最新优先" },
+  { id: "cited", label: "被引最多" },
+  { id: "oldest", label: "最早优先" },
+  { id: "title", label: "标题 A–Z" },
+  { id: "author", label: "第一作者 A–Z" },
+];
+
 const EXPAND_SOURCES = ["libgen", "annas", "crossref", "openalex", "semanticscholar", "pubmed", "europepmc"];
 
 const FF_CSS = `
@@ -64,6 +80,14 @@ const FF_CSS = `
 .ff-sx-pop{position:absolute;top:calc(100% + 6px);left:0;z-index:20;width:300px;max-width:calc(100vw - 40px);background:var(--raise,var(--surf));border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow-lg,0 8px 24px rgba(0,0,0,.16));padding:11px 12px;font-size:11.5px;line-height:1.7;color:var(--ink2)}
 .ff-sx-pop code{font-family:'Space Mono',monospace;font-size:10.5px;background:var(--surf2);border:1px solid var(--line2);border-radius:4px;padding:1px 5px;color:var(--ink)}
 .ff-sort{display:inline-flex;align-items:center;gap:6px;margin-left:auto;font-size:12px;color:var(--ink3)}
+.ff-sort-wrap{position:relative;display:inline-flex;align-items:center}
+.ff-sort-btn{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line2);background:var(--surf);color:var(--ink);border-radius:8px;padding:6px 10px;font-size:12px;font-family:inherit;cursor:pointer;outline:none;line-height:1.35}
+.ff-sort-btn:hover,.ff-sort-btn.on{border-color:var(--gold);color:var(--gold)}
+.ff-sort-btn:focus{border-color:var(--gold)}
+.ff-sort-menu{position:absolute;top:calc(100% + 6px);right:0;z-index:25;min-width:168px;background:var(--raise,var(--surf));border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow-lg,0 8px 24px rgba(0,0,0,.16));padding:6px;display:flex;flex-direction:column;gap:3px}
+.ff-sort-opt{display:flex;align-items:center;justify-content:space-between;gap:8px;border:none;background:transparent;color:var(--ink2);text-align:left;padding:9px 12px;border-radius:8px;cursor:pointer;font-size:13px;font-family:inherit;line-height:1.4}
+.ff-sort-opt:hover{background:var(--surf2);color:var(--gold)}
+.ff-sort-opt.on{color:var(--gold);background:color-mix(in srgb,var(--gold) 10%,transparent)}
 .ff-field-wrap{position:relative;flex-shrink:0;border-right:1px solid var(--line2);margin-right:6px;padding-right:4px}
 .ff-field-btn{display:inline-flex;align-items:center;gap:4px;border:none;background:transparent;color:var(--ink2);font-family:inherit;font-size:12.5px;padding:5px 8px 5px 4px;cursor:pointer;outline:none;min-width:76px;line-height:1.35}
 .ff-field-btn:hover,.ff-field-btn.on{color:var(--gold)}
@@ -89,8 +113,6 @@ const FF_CSS = `
 .ff-src.err{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 35%,transparent)}
 .ff-src.pending{opacity:.7}
 .ff-more{display:flex;align-items:center;justify-content:center;gap:8px;padding:16px;color:var(--ink3);font-size:12.5px}
-.ff-sort select{border:1px solid var(--line2);background:var(--surf);color:var(--ink);border-radius:8px;padding:5px 8px;font-size:12px;font-family:inherit;cursor:pointer;outline:none}
-.ff-sort select:focus{border-color:var(--gold)}
 .ff-year{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;font-size:12px;color:var(--ink2)}
 .ff-yin{width:80px;border:1px solid var(--line2);border-radius:8px;padding:6px 9px;font-size:12px;font-family:'Space Mono',monospace;background:var(--surf);color:var(--ink);outline:none}
 .ff-yin:focus{border-color:var(--gold)}
@@ -139,6 +161,7 @@ export default function FindFetch({
   const [sortBy, setSortBy] = useState("relevance");
   const [field, setField] = useState("all");
   const [fieldMenuOpen, setFieldMenuOpen] = useState(false);
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const [perSource, setPerSource] = useState(null);
   const [searchDepth, setSearchDepth] = useState("standard");
   const [emailConfigured, setEmailConfigured] = useState(true);
@@ -215,13 +238,17 @@ export default function FindFetch({
 
   useEffect(() => {
     let alive = true;
-    bridge.getSettings().then((s) => {
-      if (!alive || !s) return;
-      if (s.searchDepth === "full" || s.searchDepth === "standard") setSearchDepth(s.searchDepth);
-      setEmailConfigured(!!(s.emailConfigured || s.contactEmail));
-    }).catch(() => {});
+    const refreshEmail = () => {
+      bridge.getSettings().then((s) => {
+        if (!alive || !s) return;
+        if (s.searchDepth === "full" || s.searchDepth === "standard") setSearchDepth(s.searchDepth);
+        setEmailConfigured(!!(s.emailConfigured || s.contactEmail));
+      }).catch(() => {});
+    };
+    refreshEmail();
     bridge.sourcesStatus().then((st) => { if (alive) setKeysCfg(st || {}); }).catch(() => {});
-    return () => { alive = false; };
+    const offSettings = bridge.onSettingsChanged?.(() => refreshEmail());
+    return () => { alive = false; offSettings && offSettings(); };
   }, []);
 
   const needsKey = useMemo(() => {
@@ -232,8 +259,10 @@ export default function FindFetch({
   }, [keysCfg]);
 
   const saveEmail = useCallback(async (email) => {
-    const cur = (await bridge.getSettings()) || {};
-    await bridge.saveSettings({ ...cur, contactEmail: email });
+    const v = String(email || "").trim();
+    if (!v) return;
+    const r = await persistSettings((cur) => ({ ...cur, contactEmail: v }));
+    if (!r.ok) { pushToast && pushToast("保存失败"); return; }
     setEmailConfigured(true);
     setShowSearchEmail(false);
     setFetchEmailPaper(null);
@@ -242,9 +271,10 @@ export default function FindFetch({
 
   const dismissSearchEmail = useCallback(async (action) => {
     setShowSearchEmail(false);
-    const cur = (await bridge.getSettings()) || {};
-    const prompts = { ...(cur.prompts || {}), searchEmailShown: true };
-    await bridge.saveSettings({ ...cur, prompts });
+    await persistSettings((cur) => ({
+      ...cur,
+      prompts: { ...(cur.prompts || {}), searchEmailShown: true },
+    }));
     if (action === "open" && onOpenSettings) onOpenSettings("sources");
   }, [onOpenSettings]);
 
@@ -262,6 +292,15 @@ export default function FindFetch({
     window.addEventListener("mousedown", onDown);
     return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("mousedown", onDown); };
   }, [fieldMenuOpen]);
+
+  useEffect(() => {
+    if (!sortMenuOpen) return;
+    const onKey = (e) => { if (e.key === "Escape") setSortMenuOpen(false); };
+    const onDown = (e) => { if (!(e.target && e.target.closest && e.target.closest(".ff-sort-wrap"))) setSortMenuOpen(false); };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onDown);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("mousedown", onDown); };
+  }, [sortMenuOpen]);
 
   // P3 · 标识符粘贴后自动检索（debounce）
   useEffect(() => {
@@ -534,16 +573,24 @@ export default function FindFetch({
             </button>
           )}
           {submitted && shown.length > 0 && (
-            <label className="ff-sort"><ArrowUpDown size={13} /> 排序
-              <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} aria-label="结果排序">
-                <option value="relevance">相关（默认）</option>
-                <option value="newest">最新优先</option>
-                <option value="cited">被引最多</option>
-                <option value="oldest">最早优先</option>
-                <option value="title">标题 A–Z</option>
-                <option value="author">第一作者 A–Z</option>
-              </select>
-            </label>
+            <div className="ff-sort">
+              <ArrowUpDown size={13} /> 排序
+              <div className="ff-sort-wrap">
+                <button type="button" className={"ff-sort-btn" + (sortMenuOpen ? " on" : "")} aria-label="结果排序" aria-haspopup="listbox" aria-expanded={sortMenuOpen} onClick={() => setSortMenuOpen((v) => !v)}>
+                  {(SORT_OPTS.find((o) => o.id === sortBy) || SORT_OPTS[0]).label}<ChevronDown size={12} />
+                </button>
+                {sortMenuOpen && (
+                  <div className="ff-sort-menu" role="listbox" aria-label="结果排序">
+                    {SORT_OPTS.map((o) => (
+                      <button key={o.id} type="button" role="option" aria-selected={sortBy === o.id} className={"ff-sort-opt" + (sortBy === o.id ? " on" : "")}
+                        onClick={() => { setSortBy(o.id); setSortMenuOpen(false); }}>
+                        {o.label}{sortBy === o.id ? <Check size={14} /> : null}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           )}
         </div>
         {yearOpen && (
@@ -637,7 +684,12 @@ export default function FindFetch({
               <div className={"ff-card" + (isPrimary ? " ff-primary" : "")} key={p.id} data-paper-id={p.id}>
                 <MatchBadge kind={p.matchKind} primary={isPrimary && locateMode === "primary"} />
                 <div className="ff-title" onClick={() => openDoi(p.doi)}>{hi(p.title, p.matched)}</div>
-                <div className="ff-meta">{(() => { const a = normalizeAuthors(p.authors); return formatAuthors(a, 4) + (a.length > 4 ? " et al." : ""); })()} · {p.journal || p.abbr}{p.year ? ` · ${p.year}` : ""}</div>
+                <div className="ff-meta">{(() => {
+                  const a = normalizeAuthors(p.authors);
+                  const cite = formatCites(p.cites);
+                  const citePart = cite ? ` · 被引 ${cite}` : (sortBy === "cited" ? " · 被引 —" : "");
+                  return formatAuthors(a, 4) + (a.length > 4 ? " et al." : "") + " · " + (p.journal || p.abbr) + (p.year ? ` · ${p.year}` : "") + citePart;
+                })()}</div>
                 <button className="ff-doi" onClick={() => openDoi(p.doi)} title="在浏览器打开"><span>{p.doi}</span><ExternalLink size={11} /></button>
                 <BadgeRow paper={p} />
                 <SourceChips paper={p} sources={p.hitSources} />

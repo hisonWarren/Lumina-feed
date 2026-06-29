@@ -95,7 +95,7 @@ const ui = await evalJs(`
   return {
     cards: document.querySelectorAll(".ff-card").length,
     cite: document.querySelectorAll(".ff-act").length,
-    sort: !!document.querySelector(".ff-sort select"),
+    sort: !!document.querySelector(".ff-sort-btn"),
   };
 `);
 ui.cards > 0 ? pass("检索 UI ff-card", `${ui.cards} 张`) : fail("ff-card", "0");

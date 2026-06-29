@@ -10,6 +10,20 @@ export function shouldSignalMissingEmail(doi: string | undefined, email: string 
   return !!doi && !email;
 }
 
+/** 仅在 OA 未命中且缺邮箱时覆盖为 missing_email；其他失败保留真实 reason，避免误导用户。 */
+export function maybeMissingEmailReason(
+  doi: string | undefined,
+  email: string | undefined,
+  reason: string,
+): "missing_email" | null {
+  if (!shouldSignalMissingEmail(doi, email)) return null;
+  const r = String(reason || "").toLowerCase();
+  if (r === "identity_mismatch" || r === "publisher_blocked") return null;
+  if (/timeout|timed out|超时/.test(r)) return null;
+  if (r === "no_pdf" || r === "no_oa" || !r) return "missing_email";
+  return null;
+}
+
 type Fetch = typeof fetch;
 async function getJson(url: string, f: Fetch, signal?: AbortSignal, bearer?: string): Promise<any | null> {
   try {

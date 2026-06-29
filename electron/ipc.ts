@@ -43,7 +43,7 @@ import type { SummarizeOptions } from "../src/core/summarize/types.ts";
 import { DEFAULT_SUMMARIZE } from "../src/core/summarize/types.ts";
 import { setPoliteIdentity } from "../src/core/sources/adapter.ts";
 import type { SearchOpts } from "../src/core/sources/adapter.ts";
-import { shouldSignalMissingEmail } from "../src/core/oa/oa-extended.ts";
+import { shouldSignalMissingEmail, maybeMissingEmailReason } from "../src/core/oa/oa-extended.ts";
 import {
   applyDigestSearchOpts, buildDigestSpec, normalizeSubscription, freshHits, type DigestRunMeta,
   withPaperMarkedRead, todayPaperList, subscriptionReadIds,
@@ -132,6 +132,14 @@ function analysisError(kind: string, e: unknown, opts: { vision?: boolean; sourc
 }
 
 import { registerCiteExport } from "./ipc-cite-export.ts";
+
+function broadcastSettingsChanged(): void {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) {
+      try { w.webContents.send("settings:changed", {}); } catch { /* ignore */ }
+    }
+  }
+}
 
 export function registerIpc(deps: IpcDeps): void {
   const { store, secrets } = deps;
@@ -435,8 +443,11 @@ export function registerIpc(deps: IpcDeps): void {
         perAttemptTimeoutMs: 22_000,
         deferAltSources: isOaMarkedPaper(paper),
       });
-      if (!res.ok && shouldSignalMissingEmail(paper.doi, email)) {
-        return { ok: false as const, reason: "missing_email", hint: "configure_contact_email" };
+      if (!res.ok) {
+        const emailReason = maybeMissingEmailReason(paper.doi, email, res.reason);
+        if (emailReason) {
+          return { ok: false as const, reason: emailReason, hint: "configure_contact_email" };
+        }
       }
       if (res.ok) {
         try { fs.writeFileSync(pdfPath(paperId), Buffer.from(res.bytes)); } catch { /* 落盘失败不阻断 */ }
@@ -620,8 +631,9 @@ export function registerIpc(deps: IpcDeps): void {
       const paper = store.papers.getById(paperId);
       const settings = await loadAppSettings(store);
       const email = settings.contactEmail ?? process.env.LUMINA_CONTACT_EMAIL;
-      if (paper && shouldSignalMissingEmail(paper.doi, email)) {
-        return { ok: false, reason: "missing_email", hint: "configure_contact_email" };
+      const emailReason = paper ? maybeMissingEmailReason(paper.doi, email, msg) : null;
+      if (emailReason) {
+        return { ok: false, reason: emailReason, hint: "configure_contact_email" };
       }
       return { ok: false, reason: msg };
     }
@@ -653,6 +665,7 @@ export function registerIpc(deps: IpcDeps): void {
     await saveAppSettings(store, s);
     const cur = await loadAppSettings(store);
     setPoliteIdentity({ tool: "lumina-feed", email: cur.contactEmail ?? process.env.LUMINA_CONTACT_EMAIL });
+    broadcastSettingsChanged();
     return true;
   });
   ipcMain.handle("sources:status", async () => {

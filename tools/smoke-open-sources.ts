@@ -6,7 +6,7 @@ import { stableMerge, adoptRanking } from "../src/core/rank/stable-order.ts";
 import { dedupeKeyExt } from "../src/core/dedupe-keys.ts";
 import { withTimeout, TimeoutError } from "../src/core/sources/with-timeout.ts";
 import { fetchWithRetry, installDefaultLimiters, DEFAULT_INTERVALS } from "../src/core/sources/rate-limit.ts";
-import { fromZenodo, fromCore, shouldSignalMissingEmail, MISSING_EMAIL } from "../src/core/oa/oa-extended.ts";
+import { fromZenodo, fromCore, shouldSignalMissingEmail, maybeMissingEmailReason, MISSING_EMAIL } from "../src/core/oa/oa-extended.ts";
 import { parseCore } from "../src/core/sources/core.ts";
 import { parseHal } from "../src/core/sources/hal.ts";
 import { parseDblp } from "../src/core/sources/dblp.ts";
@@ -137,9 +137,11 @@ installDefaultLimiters();
   const r2 = await fetchWithRetry("datacite", "https://x", {}, always429, { maxRetries: 2, baseMs: 2, maxMs: 6 });
   t("fetchWithRetry 超限放弃返回 429", r2.status === 429 && c2 === 3);
 
-  t("missing_email：有 doi 无邮箱", shouldSignalMissingEmail("10.1/x", undefined) === true);
-  t("missing_email：有邮箱则否", shouldSignalMissingEmail("10.1/x", "a@b.org") === false);
-  t("MISSING_EMAIL 哨兵", MISSING_EMAIL.kind === "missing_email" && MISSING_EMAIL.priority === 999);
+t("missing_email：有 doi 无邮箱", shouldSignalMissingEmail("10.1/x", undefined) === true);
+t("missing_email：有邮箱则否", shouldSignalMissingEmail("10.1/x", "a@b.org") === false);
+t("maybeMissingEmail: 出版商拦截不冒充", maybeMissingEmailReason("10.1/x", undefined, "publisher_blocked") === null);
+t("maybeMissingEmail: no_pdf 可提示", maybeMissingEmailReason("10.1/x", undefined, "no_pdf") === "missing_email");
+t("MISSING_EMAIL 哨兵", MISSING_EMAIL.kind === "missing_email" && MISSING_EMAIL.priority === 999);
 
   const zf = (async () => new Response(JSON.stringify({ hits: { hits: [{ files: [{ key: "p.pdf", links: { self: "PDFURL" } }] }] } }), { status: 200 })) as unknown as typeof fetch;
   const z = await fromZenodo("10.5281/zenodo.99", zf);

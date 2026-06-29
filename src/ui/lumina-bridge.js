@@ -506,6 +506,10 @@ export const bridge = {
     const api = A(); if (!api || !api.onPapersChanged) return () => {};
     return api.onPapersChanged(() => { try { cb(); } catch { /* ignore */ } });
   },
+  onSettingsChanged(cb) {
+    const api = A(); if (!api || !api.onSettingsChanged) return () => {};
+    return api.onSettingsChanged(() => { try { cb(); } catch { /* ignore */ } });
+  },
   onFetchQueue(cb) {
     const api = A(); if (!api || !api.onFetchQueue) return () => {};
     return api.onFetchQueue((p) => { try { cb(p); } catch { /* ignore */ } });

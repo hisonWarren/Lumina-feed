@@ -5,8 +5,10 @@
 //   · 选中页 = 实心 petrol + 白字（doc 03 §2）。
 import React from "react";
 import { pageCount, rangeLabel, pageWindow } from "../lib/paginate.js";
+import PopoverSelect from "./PopoverSelect.jsx";
 
 const SIZES = [10, 20, 50];
+const SIZE_OPTS = SIZES.map((s) => ({ id: s, label: String(s) }));
 
 export default function ResultsPager({ total, page, pageSize = 20, onPage, onPageSize, onRefine }) {
   const count = pageCount(total, pageSize);
@@ -37,12 +39,16 @@ export default function ResultsPager({ total, page, pageSize = 20, onPage, onPag
           第 <b>{from}–{to}</b> 项 · 共 {total} 篇
           <span className="lf-pg-q" title="本次检索已取的合并去重结果数，不是数据库命中总数。开放学术源按相关性返回有界结果（lookup）。">本次检索</span>
         </span>
-        <label className="lf-pg-size">
-          每页
-          <select value={pageSize} onChange={(e) => onPageSize && onPageSize(Number(e.target.value))} aria-label="每页结果数">
-            {SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </label>
+        <PopoverSelect
+          className="lf-pg-size"
+          label="每页"
+          value={pageSize}
+          options={SIZE_OPTS}
+          onChange={(v) => onPageSize && onPageSize(Number(v))}
+          ariaLabel="每页结果数"
+          align="right"
+          menuMinWidth={96}
+        />
       </div>
 
       {deep && (

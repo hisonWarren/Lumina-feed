@@ -12,7 +12,7 @@ import Subscriptions from "./modules/Subscriptions.jsx";
 import { buildFetchedMeta, isFetched, fetchProgressUi, metaFromAsset, fetchFailHint } from "./fetch-meta.js";
 import EmailPrompt from "./components/EmailPrompt.jsx";
 import ConfirmDialog from "./components/ConfirmDialog.jsx";
-import FetchFailDialog from "./components/FetchFailDialog.jsx";
+import { persistSettings } from "./settings-persist.js";
 import AppContextMenu from "./components/AppContextMenu.jsx";
 import { runEditAction } from "./context-menu-actions.js";
 import { isReaderContextHost } from "./reader-context-host.js";
@@ -421,15 +421,19 @@ export default function LuminaApp() {
   const inLibFn = useCallback((id) => lib.some((x) => x.id === id), [lib]);
 
   const saveOnboardingEmail = useCallback(async (email) => {
-    const cur = (await bridge.getSettings()) || {};
-    await bridge.saveSettings({ ...cur, contactEmail: email });
+    const v = String(email || "").trim();
+    if (!v) return;
+    const r = await persistSettings((cur) => ({ ...cur, contactEmail: v }));
+    if (!r.ok) { pushToast("保存失败"); return; }
     setShowOnboardingEmail(false);
     pushToast("联络邮箱已保存");
   }, [pushToast]);
 
   const dismissOnboardingEmail = useCallback(async () => {
-    const cur = (await bridge.getSettings()) || {};
-    await bridge.saveSettings({ ...cur, prompts: { ...(cur.prompts || {}), onboardingEmailDismissed: true } });
+    await persistSettings((cur) => ({
+      ...cur,
+      prompts: { ...(cur.prompts || {}), onboardingEmailDismissed: true },
+    }));
     setShowOnboardingEmail(false);
   }, []);
 

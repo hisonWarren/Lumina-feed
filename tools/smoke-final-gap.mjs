@@ -49,7 +49,7 @@ await new Promise((r) => setTimeout(r, 15000));
 const ff = await evalJs(`
   return {
     cards: document.querySelectorAll(".ff-card").length,
-    sort: !!document.querySelector(".ff-sort select"),
+    sort: !!document.querySelector(".ff-sort-btn"),
     cite: document.querySelectorAll("button.ff-act").length,
     err: document.querySelector(".ff-empty h2")?.textContent,
     loading: !!document.querySelector(".ff-spin"),

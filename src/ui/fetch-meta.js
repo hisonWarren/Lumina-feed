@@ -47,7 +47,7 @@ export function fetchFailHint(reason) {
   if (r === "no_pdf" || r === "no_oa") return "各来源均未成功下载 PDF（备用库可能暂时不可用）";
   if (/timeout|timed out|超时/.test(r)) return "链接可能可用但下载超时，请稍后重试";
   if (/403|forbidden/.test(r)) return "服务器拒绝自动下载（403），请在浏览器打开原文页";
-  if (r === "missing_email") return "请填写联络邮箱以启用 Unpaywall";
+  if (r === "missing_email") return "请填写联络邮箱以启用 Unpaywall（保存后请重试获取全文）";
   return "";
 }
 

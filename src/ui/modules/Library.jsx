@@ -9,7 +9,14 @@ import { STYLES, formatCitation, exportBib, exportRis, exportCslJson } from "../
 import { isFetched, oaStatusBadge, fetchProgressUi } from "../fetch-meta.js";
 import { formatAuthors, normalizeAuthors } from "../lib/format-authors.js";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
+import PopoverSelect from "../components/PopoverSelect.jsx";
 import { loadJsonPref, patchJsonPref, corpusCacheKey } from "../ui-prefs.js";
+
+const LIB_SORT_OPTS = [
+  { id: "recent", label: "最近加入" },
+  { id: "year", label: "年份" },
+  { id: "title", label: "标题" },
+];
 
 const LIB_PREFS_KEY = "lumina_library_prefs";
 const _libPref0 = loadJsonPref("local", LIB_PREFS_KEY, {});
@@ -43,8 +50,7 @@ const LIB_CSS = `
 .lib-chip{border:1px solid var(--line2);background:var(--surf2);color:var(--ink2);border-radius:8px;padding:5px 10px;font-size:12px;cursor:pointer;font-family:inherit}
 .lib-chip:hover{border-color:var(--gold);color:var(--gold)}
 .lib-chip.on{background:var(--gold);color:#fff;border-color:var(--gold)}
-.lib-sort{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink3)}
-.lib-sort select{border:1px solid var(--line2);border-radius:8px;padding:5px 8px;font-size:12px;font-family:inherit;background:var(--surf);color:var(--ink);cursor:pointer}
+.lib-sort{margin-left:auto}
 .lib-body{flex:1;min-height:0;overflow-y:auto;padding:6px 20px 28px}
 .lib-group-h{font-size:11px;font-family:'Space Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);margin:14px 0 8px}
 .lib-card{border:1px solid var(--line);border-radius:13px;padding:14px 16px;margin-bottom:11px;background:var(--surf);transition:box-shadow .16s,border-color .16s}
@@ -406,14 +412,15 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
           <button className={"lib-chip" + (fOa ? " on" : "")} onClick={() => setFOa((v) => !v)}>OA</button>
           <button className={"lib-chip" + (grouped ? " on" : "")} onClick={() => setGrouped((v) => !v)}><Layers size={12} style={{ verticalAlign: "-2px", marginRight: 4 }} />按来源分组</button>
           <button aria-pressed={selMode} className={"lib-chip" + (selMode ? " on" : "")} onClick={() => { const nx = !selMode; setSelMode(nx); setCorpusEnv(null); if (!nx) setSel(new Set()); }}><Sparkles size={12} style={{ verticalAlign: "-2px", marginRight: 4 }} />跨篇分析</button>
-          <div className="lib-sort">
-            排序
-            <select value={sort} onChange={(e) => setSort(e.target.value)}>
-              <option value="recent">最近加入</option>
-              <option value="year">年份</option>
-              <option value="title">标题</option>
-            </select>
-          </div>
+          <PopoverSelect
+            className="lib-sort"
+            label="排序"
+            value={sort}
+            options={LIB_SORT_OPTS}
+            onChange={setSort}
+            ariaLabel="文献排序"
+            align="right"
+          />
         </div>
       </div>
 

@@ -533,6 +533,12 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
     finally { setSavingGen(false); }
   }, [contactEmail, backend, pushToast]);
 
+  const saveEmailOnBlur = useCallback(() => {
+    const v = contactEmail.trim();
+    if (!/\S+@\S+\.\S+/.test(v) || savingGen) return;
+    void saveGeneral();
+  }, [contactEmail, savingGen, saveGeneral]);
+
   // 弹窗 Esc 关闭：用捕获阶段 + stopImmediatePropagation，先于阅读器(window 冒泡)处理，避免误触底层阅读器的 Esc。
   useEffect(() => {
     if (!onClose) return;
@@ -642,7 +648,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
               <>
                 <div className="set-row">
                   <span className="set-lbl"><Mail size={13} style={{ verticalAlign: "-2px", marginRight: 5 }} />学者联络方式（推荐）</span>
-                  <input className="set-in" type="email" value={contactEmail} placeholder="you@example.org" onChange={(e) => setContactEmail(e.target.value)} />
+                  <input className="set-in" type="email" value={contactEmail} placeholder="you@example.org" onChange={(e) => setContactEmail(e.target.value)} onBlur={saveEmailOnBlur} />
                   <span className="set-hint">用于 Unpaywall、PubMed、Crossref、OpenAlex 等 API 礼貌标识；仅本机保存，不上传云端。可用机构邮箱。</span>
                 </div>
                 <div className="set-btnrow" style={{ marginBottom: 16 }}>
@@ -834,7 +840,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                 <span className="set-hint">后台运行：关主窗口后驻留系统托盘，订阅按计划检索、有新发表时桌面通知；从托盘可重新打开或退出。开关切换后立即生效并保存。托盘/自启为系统级，需打包后真机验证（Linux 自启支持有限）。</span>
                 <div className="set-row">
                   <span className="set-lbl"><Mail size={13} style={{ verticalAlign: "-2px", marginRight: 5 }} />联系邮箱（用于 OA 取文的礼貌池标识，可选）</span>
-                  <input className="set-in" type="email" value={contactEmail} placeholder="you@example.org" onChange={(e) => setContactEmail(e.target.value)} />
+                  <input className="set-in" type="email" value={contactEmail} placeholder="you@example.org" onChange={(e) => setContactEmail(e.target.value)} onBlur={saveEmailOnBlur} />
                 </div>
                 <button className="set-btn" onClick={saveGeneral} disabled={savingGen}><Save size={15} /> {savingGen ? "保存中…" : "保存联络邮箱"}</button>
                 <div className="set-note" style={{ marginTop: 16 }}><Info size={15} /><span className="set-note-t">本机数据保存在：<span className="set-mono">{userDataPath || "（启动后显示实际路径）"}</span> — 文献库、已下载 PDF 与阅读缓存均在此目录，不会上传云端。</span></div>

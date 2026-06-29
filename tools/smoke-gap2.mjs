@@ -48,7 +48,7 @@ await new Promise((r) => setTimeout(r, 400));
 await evalJs(`[...document.querySelectorAll(".ff-chip")].find(b=>(b.textContent||"").includes("主题词"))?.click();`);
 await new Promise((r) => setTimeout(r, 14000));
 const cards = await evalJs(`return document.querySelectorAll(".ff-card").length;`);
-const sort = await evalJs(`return !!document.querySelector(".ff-sort select");`);
+const sort = await evalJs(`return !!document.querySelector(".ff-sort-btn");`);
 const cite = await evalJs(`return document.querySelectorAll("button.ff-act").length;`);
 console.log(cards > 0 ? `  ✓ ff-card ${cards}` : `  ✗ ff-card 0`);
 console.log(sort ? `  ✓ 排序 select` : `  ✗ 排序 select`);

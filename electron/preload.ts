@@ -96,6 +96,11 @@ contextBridge.exposeInMainWorld("luminaApi", {
     ipcRenderer.on("papers:changed", handler);
     return () => ipcRenderer.removeListener("papers:changed", handler);
   },
+  onSettingsChanged: (cb: () => void) => {
+    const handler = () => cb();
+    ipcRenderer.on("settings:changed", handler);
+    return () => ipcRenderer.removeListener("settings:changed", handler);
+  },
   onFetchQueue: (cb: (p: unknown) => void) => {
     const handler = (_e: unknown, payload: unknown) => cb(payload);
     ipcRenderer.on("fetch:queue", handler);

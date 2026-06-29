@@ -124,7 +124,7 @@ try {
       citeBtn: cards > 0 && [...document.querySelectorAll("button")].some(b => (b.textContent||"").includes("引用")),
       sxHelp: !!document.querySelector(".ff-tools") && [...document.querySelectorAll("button")].some(b => (b.textContent||"").includes("检索语法")),
       yearToggle: [...document.querySelectorAll("button")].some(b => (b.textContent||"").includes("年份")),
-      sortSel: !!document.querySelector(".ff-sort select, select.ff-sort, .ff-tools select"),
+      sortSel: !!document.querySelector(".ff-sort-btn, .ff-sort-wrap"),
       lfWidth: getComputedStyle(document.querySelector(".lf")||document.body).width,
     };
   `);
