@@ -36,7 +36,11 @@ export function stableMerge(prevOrder, freshRanked) {
   const shownIds = new Set();
   for (const prev of prevOrder) {
     const updated = freshById.get(prev.id);
-    if (updated) { shown.push(updated); shownIds.add(prev.id); }
+    if (updated) {
+      const cites = Math.max(Number(prev.cites) || 0, Number(updated.cites) || 0);
+      shown.push(cites > 0 ? { ...updated, cites } : updated);
+      shownIds.add(prev.id);
+    }
   }
   const appended = [];
   for (const p of pinned) if (!shownIds.has(p.id)) appended.push(p);

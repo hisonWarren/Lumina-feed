@@ -687,7 +687,7 @@ export default function FindFetch({
                 <div className="ff-meta">{(() => {
                   const a = normalizeAuthors(p.authors);
                   const cite = formatCites(p.cites);
-                  const citePart = cite ? ` · 被引 ${cite}` : (sortBy === "cited" ? " · 被引 —" : "");
+                  const citePart = ` · 被引 ${cite ?? "—"}`;
                   return formatAuthors(a, 4) + (a.length > 4 ? " et al." : "") + " · " + (p.journal || p.abbr) + (p.year ? ` · ${p.year}` : "") + citePart;
                 })()}</div>
                 <button className="ff-doi" onClick={() => openDoi(p.doi)} title="在浏览器打开"><span>{p.doi}</span><ExternalLink size={11} /></button>
