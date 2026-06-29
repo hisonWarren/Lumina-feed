@@ -523,7 +523,7 @@ export default function LuminaApp() {
     setLib((l) => l.filter((x) => x.id !== id));
     const next = lists.map((L) => ({ ...L, ids: L.ids.filter((x) => x !== id) }));
     setLists(next); bridge.listsSave(next);
-    pushToast("已从工作集移除（PDF 仍保留在阅读·已下载）");
+    pushToast("已从工作集移除（PDF 仍保留；可在 设置→通用 查看并清理未收藏 PDF）");
   }, [lists, pushToast]);
 
   const confirmPdfDelete = useCallback(async () => {

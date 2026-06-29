@@ -14,6 +14,9 @@ import {
   libraryHas,
   listFetchLogs,
   recordFetchLog,
+  recordLibraryDetach,
+  clearLibraryDetach,
+  isLibraryDetached,
   type FetchContext,
   type PaperAssetSnapshot,
 } from "../src/core/store/paper-asset.ts";
@@ -145,7 +148,7 @@ export async function reconcileOrphans(deps: PaperAssetDeps): Promise<{ added: n
       if (!getFetchLog(deps.store.db, paperId)) {
         recordFetchLog(deps.store.db, paperId, "cached", { channel: "recovered", provenance: "recovered" });
       }
-      if (settings.autoIngestOnFetch !== false && !libraryHas(deps.store.db, paperId)) {
+      if (settings.autoIngestOnFetch !== false && !libraryHas(deps.store.db, paperId) && !isLibraryDetached(deps.store.db, paperId)) {
         ensureStubPaper(deps, paperId);
         libraryAdd(deps.store.db, paperId, "recovered", true);
         added++;
@@ -163,6 +166,7 @@ export function deleteLocalPdf(deps: PaperAssetDeps, paperId: string, removeFrom
     if (fs.existsSync(p)) fs.unlinkSync(p);
   } catch { return false; }
   deleteFetchLog(deps.store.db, paperId);
+  clearLibraryDetach(deps.store.db, paperId);
   try {
     deps.ensureFts();
     deps.store.db.prepare("DELETE FROM fulltext_fts WHERE paper_id=?").run(paperId);
@@ -175,6 +179,72 @@ export function deleteLocalPdf(deps: PaperAssetDeps, paperId: string, removeFrom
   }
   broadcastPapersChanged({ paperId, action: "pdf_deleted", removeFromLibrary });
   return true;
+}
+
+export interface DetachedPdfItem {
+  paperId: string;
+  bytes: number;
+  title?: string;
+  detachedAt?: string | null;
+}
+
+/** 磁盘上有 PDF、但不在工作集中的条目（含用户主动「移除」保留的 PDF）。 */
+export function listDetachedPdfs(deps: PaperAssetDeps): DetachedPdfItem[] {
+  ensurePaperAssetTables(deps.store.db);
+  deps.ensureLib();
+  const out: DetachedPdfItem[] = [];
+  try {
+    const detachRows = deps.store.db.prepare("SELECT paper_id, detached_at FROM library_detach_log").all() as { paper_id: string; detached_at: string }[];
+    const detachMap = new Map(detachRows.map((r) => [r.paper_id, r.detached_at]));
+    for (const f of fs.readdirSync(deps.pdfDir())) {
+      if (!f.endsWith(".pdf")) continue;
+      const paperId = decodeURIComponent(f.slice(0, -4));
+      if (libraryHas(deps.store.db, paperId)) continue;
+      let bytes = 0;
+      try { bytes = fs.statSync(path.join(deps.pdfDir(), f)).size; } catch { /* ignore */ }
+      const paper = deps.store.papers.getById(paperId);
+      out.push({
+        paperId,
+        bytes,
+        title: paper?.title,
+        detachedAt: detachMap.get(paperId) ?? null,
+      });
+    }
+    out.sort((a, b) => b.bytes - a.bytes);
+  } catch { /* ignore */ }
+  return out;
+}
+
+/** 删除未收藏 PDF（默认全部；可传 paperIds 选择性清理）。 */
+export function pruneDetachedPdfs(deps: PaperAssetDeps, paperIds?: string[]): { removed: number; freedBytes: number } {
+  const targets = new Set(
+    (paperIds?.length ? paperIds : listDetachedPdfs(deps).map((x) => x.paperId)),
+  );
+  let removed = 0;
+  let freedBytes = 0;
+  for (const paperId of targets) {
+    if (libraryHas(deps.store.db, paperId)) continue;
+    let size = 0;
+    try { size = fs.statSync(deps.pdfPath(paperId)).size; } catch { /* ignore */ }
+    if (deleteLocalPdf(deps, paperId, false)) {
+      removed++;
+      freedBytes += size;
+    }
+  }
+  if (removed > 0) broadcastPapersChanged({ action: "prune_detached", removed, freedBytes });
+  return { removed, freedBytes };
+}
+
+export function detachFromLibrary(deps: PaperAssetDeps, paperId: string): boolean {
+  try {
+    deps.ensureLib();
+    deps.store.db.prepare("DELETE FROM library WHERE paper_id=?").run(paperId);
+    recordLibraryDetach(deps.store.db, paperId);
+    broadcastPapersChanged({ paperId, action: "library_detached" });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ── 取文队列（检索进行中降为 1 路并行，避免与多源检索抢主进程）──

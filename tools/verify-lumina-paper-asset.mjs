@@ -17,12 +17,15 @@ console.log("=== verify-lumina-paper-asset ===\n");
 if (exists("src/core/store/paper-asset.ts")) {
   const s = read("src/core/store/paper-asset.ts");
   /ensurePaperAssetTables/.test(s) && /recordFetchLog/.test(s) && /fetch_log/.test(s) ? ok("paper-asset.ts 表与 record") : bad("paper-asset.ts 不完整");
+  /recordLibraryDetach/.test(s) && /library_detach_log/.test(s) ? ok("library_detach_log 表") : bad("缺 library_detach_log");
 } else bad("缺 src/core/store/paper-asset.ts");
 
 if (exists("electron/paper-asset-ipc.ts")) {
   const s = read("electron/paper-asset-ipc.ts");
   /postFetchSuccess/.test(s) && /hydrateAssets/.test(s) && /reconcileOrphans/.test(s) && /enqueueFetch/.test(s) && /deleteLocalPdf/.test(s)
+    && /listDetachedPdfs/.test(s) && /pruneDetachedPdfs/.test(s) && /detachFromLibrary/.test(s)
     ? ok("paper-asset-ipc 核心函数") : bad("paper-asset-ipc 不完整");
+  /isLibraryDetached/.test(s) ? ok("reconcile 尊重 library_detach_log") : bad("reconcile 未跳过 detached");
   (/FETCH_CONCURRENCY = 2/.test(s) || (/FETCH_CONCURRENCY_IDLE = 2/.test(s) && /fetchConcurrencyLimit/.test(s)))
     ? ok("取文队列并发上限 2") : bad("缺队列并发限制");
   /assertSafePaperId/.test(s) && /ensureStubPaper/.test(s) ? ok("paperId 校验 + stub 入库") : bad("缺 assertSafePaperId 或 ensureStubPaper");
@@ -30,7 +33,7 @@ if (exists("electron/paper-asset-ipc.ts")) {
 
 if (exists("electron/ipc.ts")) {
   const s = read("electron/ipc.ts");
-  [["papers:hydrate", 1], ["papers:reconcile", 1], ["papers:asset", 1], ["pdf:delete", 1], ["papers:enqueueFetch", 1], ["papers:fetchQueueStatus", 1]].forEach(([h]) => {
+  [["papers:hydrate", 1], ["papers:reconcile", 1], ["papers:asset", 1], ["pdf:delete", 1], ["pdf:listDetached", 1], ["pdf:pruneDetached", 1], ["papers:enqueueFetch", 1], ["papers:fetchQueueStatus", 1]].forEach(([h]) => {
     s.includes(`"${h}"`) ? ok("IPC " + h) : bad("缺 IPC " + h);
   });
   /postFetchSuccess/.test(s) && /getFetchLog/.test(s) ? ok("runFetchPaper 接 postFetch") : bad("runFetchPaper 未接 postFetch");

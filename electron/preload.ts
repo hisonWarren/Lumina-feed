@@ -87,6 +87,8 @@ contextBridge.exposeInMainWorld("luminaApi", {
   papersReconcile: () => invoke("papers:reconcile"),
   papersAsset: (paperId: string) => invoke("papers:asset", paperId),
   pdfDelete: (paperId: string, opts?: unknown) => invoke("pdf:delete", paperId, opts),
+  pdfListDetached: () => invoke("pdf:listDetached"),
+  pdfPruneDetached: (paperIds?: string[]) => invoke("pdf:pruneDetached", paperIds),
   papersEnqueueFetch: (jobs: unknown) => invoke("papers:enqueueFetch", jobs),
   papersFetchQueueStatus: () => invoke("papers:fetchQueueStatus"),
   onPapersChanged: (cb: (p: unknown) => void) => {

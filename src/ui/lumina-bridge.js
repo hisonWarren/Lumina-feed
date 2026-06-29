@@ -482,6 +482,14 @@ export const bridge = {
     const api = A(); if (!api || !api.pdfDelete) return false;
     try { return await api.pdfDelete(paperId, opts); } catch { return false; }
   },
+  async listDetachedPdfs() {
+    const api = A(); if (!api || !api.pdfListDetached) return [];
+    try { return (await api.pdfListDetached()) || []; } catch { return []; }
+  },
+  async pruneDetachedPdfs(paperIds) {
+    const api = A(); if (!api || !api.pdfPruneDetached) return { removed: 0, freedBytes: 0 };
+    try { return (await api.pdfPruneDetached(paperIds)) || { removed: 0, freedBytes: 0 }; } catch { return { removed: 0, freedBytes: 0 }; }
+  },
   async hydratePaperAssets() {
     const api = A(); if (!api || !api.papersHydrate) return {};
     try { return (await api.papersHydrate()) || {}; } catch { return {}; }

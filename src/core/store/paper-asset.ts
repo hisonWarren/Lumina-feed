@@ -33,6 +33,10 @@ export function ensurePaperAssetTables(db: Database): void {
       channel TEXT NOT NULL DEFAULT 'manual',
       provenance TEXT NOT NULL DEFAULT 'find_fetch'
     );
+    CREATE TABLE IF NOT EXISTS library_detach_log(
+      paper_id TEXT PRIMARY KEY,
+      detached_at TEXT NOT NULL
+    );
   `);
 }
 
@@ -105,6 +109,7 @@ export function libraryAdd(
   touchAddedAt = true,
 ): void {
   db.exec("CREATE TABLE IF NOT EXISTS library(paper_id TEXT PRIMARY KEY, provenance TEXT, added_at TEXT);");
+  clearLibraryDetach(db, paperId);
   if (touchAddedAt) {
     db.prepare(`
       INSERT INTO library(paper_id, provenance, added_at) VALUES(?,?,?)
@@ -115,5 +120,40 @@ export function libraryAdd(
       INSERT INTO library(paper_id, provenance, added_at) VALUES(?,?,?)
       ON CONFLICT(paper_id) DO UPDATE SET provenance=excluded.provenance
     `).run(paperId, provenance, new Date().toISOString());
+  }
+}
+
+/** 用户从工作集移除但保留 PDF 时记录，防止启动 reconcile 再次自动入库。 */
+export function recordLibraryDetach(db: Database, paperId: string): void {
+  ensurePaperAssetTables(db);
+  db.prepare(`
+    INSERT INTO library_detach_log(paper_id, detached_at) VALUES(?,?)
+    ON CONFLICT(paper_id) DO UPDATE SET detached_at=excluded.detached_at
+  `).run(paperId, new Date().toISOString());
+}
+
+export function clearLibraryDetach(db: Database, paperId: string): void {
+  try {
+    ensurePaperAssetTables(db);
+    db.prepare("DELETE FROM library_detach_log WHERE paper_id=?").run(paperId);
+  } catch { /* ignore */ }
+}
+
+export function isLibraryDetached(db: Database, paperId: string): boolean {
+  try {
+    ensurePaperAssetTables(db);
+    return !!db.prepare("SELECT 1 FROM library_detach_log WHERE paper_id=?").get(paperId);
+  } catch {
+    return false;
+  }
+}
+
+export function listLibraryDetached(db: Database): string[] {
+  try {
+    ensurePaperAssetTables(db);
+    const rows = db.prepare("SELECT paper_id FROM library_detach_log ORDER BY detached_at DESC").all() as { paper_id: string }[];
+    return rows.map((r) => r.paper_id);
+  } catch {
+    return [];
   }
 }

@@ -56,11 +56,14 @@ import {
   broadcastPapersChanged,
   buildAssetSnapshot,
   deleteLocalPdf,
+  detachFromLibrary,
   enqueueFetch,
   ensureStubPaper,
   fetchQueueStatus,
   hydrateAssets,
+  listDetachedPdfs,
   postFetchSuccess,
+  pruneDetachedPdfs,
   reconcileOrphans,
   assertSafePaperId,
   bindFetchRunner,
@@ -1138,7 +1141,9 @@ export function registerIpc(deps: IpcDeps): void {
     try { ensureLib(); store.db.prepare("INSERT INTO library(paper_id,provenance,added_at) VALUES(?,?,?) ON CONFLICT(paper_id) DO UPDATE SET provenance=excluded.provenance").run(paperId, provenance || "find_fetch", new Date().toISOString()); return true; } catch { return false; }
   });
   ipcMain.handle("library:remove", (_e, paperId: string) => {
-    try { ensureLib(); store.db.prepare("DELETE FROM library WHERE paper_id=?").run(paperId); return true; } catch { return false; }
+    const deps = getPaperAssetDeps();
+    if (!deps) return false;
+    return detachFromLibrary(deps, paperId);
   });
   ipcMain.handle("lists:get", () => {
     try { ensureLib(); const r = store.db.prepare("SELECT payload FROM sources_cache WHERE key=?").get("lists:all") as { payload?: string } | undefined; return r && r.payload ? JSON.parse(r.payload) : []; } catch { return []; }
@@ -1218,6 +1223,20 @@ export function registerIpc(deps: IpcDeps): void {
       if (!deps) return false;
       return deleteLocalPdf(deps, paperId, opts?.removeFromLibrary !== false);
     } catch { return false; }
+  });
+  ipcMain.handle("pdf:listDetached", () => {
+    try {
+      const deps = getPaperAssetDeps();
+      if (!deps) return [];
+      return listDetachedPdfs(deps);
+    } catch { return []; }
+  });
+  ipcMain.handle("pdf:pruneDetached", (_e, paperIds?: string[]) => {
+    try {
+      const deps = getPaperAssetDeps();
+      if (!deps) return { removed: 0, freedBytes: 0 };
+      return pruneDetachedPdfs(deps, paperIds);
+    } catch { return { removed: 0, freedBytes: 0 }; }
   });
   ipcMain.handle("papers:enqueueFetch", (e, jobs: Array<{ paperId: string; provenance?: string; channel?: string; priority?: number }>) => {
     try {

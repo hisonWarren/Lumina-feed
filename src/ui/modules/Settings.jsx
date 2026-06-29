@@ -179,6 +179,9 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
   const [nightInvert, setNightInvert] = useState(false);     // 夜读反色默认
   const [resetting, setResetting] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [pruneDetachedOpen, setPruneDetachedOpen] = useState(false);
+  const [pruningDetached, setPruningDetached] = useState(false);
+  const [detachedSummary, setDetachedSummary] = useState({ count: 0, bytes: 0 });
   const [userDataPath, setUserDataPath] = useState("");
   const [appVersion, setAppVersion] = useState("");
   const [searchDepth, setSearchDepth] = useState("standard");
@@ -409,6 +412,39 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
   }, [refreshKeysStatus, refreshLlmKeyStatus]);
 
   useEffect(() => { refreshLlmKeyStatus(provider); }, [provider, refreshLlmKeyStatus]);
+
+  const refreshDetachedSummary = useCallback(async () => {
+    if (!backend) { setDetachedSummary({ count: 0, bytes: 0 }); return; }
+    try {
+      const rows = await bridge.listDetachedPdfs();
+      const list = Array.isArray(rows) ? rows : [];
+      setDetachedSummary({
+        count: list.length,
+        bytes: list.reduce((n, r) => n + (r?.bytes || 0), 0),
+      });
+    } catch {
+      setDetachedSummary({ count: 0, bytes: 0 });
+    }
+  }, [backend]);
+
+  useEffect(() => {
+    if (activeCat === "general") void refreshDetachedSummary();
+  }, [activeCat, refreshDetachedSummary]);
+
+  const onPruneDetachedPdfs = useCallback(async () => {
+    setPruneDetachedOpen(false);
+    setPruningDetached(true);
+    try {
+      const r = await bridge.pruneDetachedPdfs();
+      const mb = ((r?.freedBytes || 0) / (1024 * 1024)).toFixed(1);
+      pushToast(r?.removed ? `已清理 ${r.removed} 个未收藏 PDF（约 ${mb} MB）` : "没有可清理的未收藏 PDF");
+      await refreshDetachedSummary();
+    } catch {
+      pushToast("清理失败，请稍后重试");
+    } finally {
+      setPruningDetached(false);
+    }
+  }, [pushToast, refreshDetachedSummary]);
 
   useEffect(() => {
     if (!backend) return;
@@ -749,6 +785,26 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                   <button role="switch" aria-checked={autoIngest} className={"set-switch" + (autoIngest ? " on" : "")} onClick={() => void onToggleAutoIngest()} aria-label="自动入库开关"><i /></button>
                 </div>
                 <span className="set-hint">开启后，获取全文成功时会自动写入工作集并记录来源；关闭则仅保存 PDF 到本机，需手动收藏。切换后立即保存。</span>
+                <div className="set-note" style={{ marginTop: 12 }}>
+                  <Info size={15} />
+                  <span className="set-note-t">
+                    未收藏 PDF：
+                    {detachedSummary.count
+                      ? ` ${detachedSummary.count} 个，约 ${(detachedSummary.bytes / (1024 * 1024)).toFixed(1)} MB（已从工作集移除或从未入库，仍占磁盘）`
+                      : " 暂无（所有本地 PDF 均在收藏中，或尚未下载）"}
+                  </span>
+                </div>
+                <div className="set-btnrow">
+                  <button
+                    type="button"
+                    className="set-btn"
+                    disabled={!backend || pruningDetached || detachedSummary.count < 1}
+                    onClick={() => setPruneDetachedOpen(true)}
+                  >
+                    <Trash2 size={15} /> {pruningDetached ? "清理中…" : "清理未收藏 PDF"}
+                  </button>
+                </div>
+                <span className="set-hint">仅删除<b>不在「我的文献」</b>中的本地 PDF 文件，并同步清除全文索引；收藏中的 PDF 不受影响。从书库点「移除」会保留 PDF 并记入此处，避免重启后又被自动加回工作集。</span>
                 <div className="set-toggle">
                   <span className="set-lbl">桌面通知（订阅简报等）</span>
                   <button role="switch" aria-checked={notifications} className={"set-switch" + (notifications ? " on" : "")} onClick={() => void onToggleNotifications()} aria-label="通知开关"><i /></button>
@@ -804,6 +860,16 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
           </div>
         </div>
       </div>
+      <ConfirmDialog
+        open={pruneDetachedOpen}
+        title="清理未收藏 PDF？"
+        detail={`将删除 ${detachedSummary.count} 个不在「我的文献」中的本地 PDF（约 ${(detachedSummary.bytes / (1024 * 1024)).toFixed(1)} MB），并清除对应全文索引。收藏中的 PDF 不受影响。`}
+        confirmLabel="清理"
+        cancelLabel="取消"
+        danger
+        onConfirm={() => void onPruneDetachedPdfs()}
+        onCancel={() => setPruneDetachedOpen(false)}
+      />
       <ConfirmDialog
         open={resetConfirmOpen}
         title="清除本机文献数据？"
