@@ -35,7 +35,7 @@ const LIB_CSS = `
 .lib-h1row{display:flex;align-items:center;gap:10px;position:relative}
 .lib-h1{font-family:'Source Serif 4',Georgia,serif;font-size:20px;font-weight:600;margin:0;color:var(--ink);display:flex;align-items:center;gap:8px}
 .lib-h1 svg{color:var(--gold)}
-.lib-count{font-size:12px;font-family:'Space Mono',monospace;color:var(--ink4)}
+.lib-count{font-size:12px;font-family:'Space Mono',monospace;color:var(--ink3)}
 .lib-export{margin-left:auto;position:relative}
 .lib-xbtn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:9px;padding:7px 12px;font-size:12.5px;cursor:pointer;font-family:inherit}
 .lib-xbtn:hover{border-color:var(--gold);color:var(--gold)}
@@ -75,14 +75,14 @@ const LIB_CSS = `
 .lib-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:54px 24px;text-align:center;color:var(--ink2);min-height:260px}
 .lib-empty h2{margin:0;font-size:18px;font-family:'Source Serif 4',Georgia,serif;color:var(--ink)}
 .lib-empty p{margin:0;font-size:13.5px;line-height:1.6;max-width:480px}
-.lib-act-on{background:rgba(14,124,111,.1);color:var(--gold);border-color:rgba(14,124,111,.3)}
+.lib-act-on{background:var(--gold-tint);color:var(--gold);border-color:var(--gold-line)}
 .lib-listbar{display:flex;flex-wrap:wrap;gap:7px;padding:0;align-items:center}
 .lib-groupbar{flex-shrink:0;padding:0 20px 10px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--line)}
 .lib-groupbar-h{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink2);flex-wrap:wrap}
 .lib-groupbar-h svg{color:var(--gold);flex-shrink:0}
-.lib-groupbar-hint{font-size:11px;font-weight:400;color:var(--ink4);margin-left:4px;flex:1;min-width:200px;line-height:1.45}
+.lib-groupbar-hint{font-size:11px;font-weight:400;color:var(--ink3);margin-left:4px;flex:1;min-width:200px;line-height:1.45}
 .lib-lchip-new{border-style:dashed;color:var(--gold)}
-.lib-lchip-new:hover{background:rgba(14,124,111,.06)}
+.lib-lchip-new:hover{background:var(--gold-tint)}
 .lib-grp-new-inp{border:1px solid var(--gold);border-radius:999px;padding:5px 12px;font-size:12px;font-family:inherit;background:var(--surf);color:var(--ink);outline:none;min-width:140px;max-width:220px}
 .lib-grp-badges{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
 .lib-grp-badge{font-size:10.5px;color:var(--gold);background:rgba(14,124,111,.08);border:1px solid rgba(14,124,111,.22);border-radius:6px;padding:2px 7px;cursor:pointer;font-family:inherit}

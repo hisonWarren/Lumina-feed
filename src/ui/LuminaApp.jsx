@@ -1,7 +1,7 @@
 // Lumina Feed · 模块化壳（find_fetch 前置 · 检索取文接线）
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { bridge, hasBackend, countSubsBadge } from "./lumina-bridge.js";
-import { DEFAULT_THEME, THEME_CSS, isLight, THEMES } from "./themes.js";
+import { DEFAULT_THEME, THEME_CSS, isLight, THEMES, themeById } from "./themes.js";
 import { LOGO_DATA_URI } from "./brand-logo.js";
 import { Telescope, BookOpen, BookMarked, Rss, Settings as SettingsIcon, Palette, Check } from "lucide-react";
 import FindFetch from "./modules/FindFetch.jsx";
@@ -20,8 +20,9 @@ import { isReaderContextHost } from "./reader-context-host.js";
 
 const BASE_CSS = `
 html,body,#root{height:100%;margin:0}
-body{background:#F4F4F1;font-family:Inter,system-ui,sans-serif}
-.lf{--gold:#0E7C6F;--goldDim:#0B5F55;--gold-tint:color-mix(in srgb,var(--gold) 10%,transparent);--gold-line:color-mix(in srgb,var(--gold) 28%,transparent);--petrol:var(--gold);--petrol-deep:var(--goldDim);--petrol-tint:var(--gold-tint);--petrol-line:var(--gold-line);--ink:#12151C;--ink2:#3A3F4A;--ink3:#6B7280;--ink4:#9CA3AF;--surf:#fff;--surf2:#F8F8F6;--line:#E5E5E0;--line2:#D8D8D2;--raise:#fff;--r:13px;--amber:#BE7A18;--ok:#2C8A60;--danger:#BC3B2B;--shadow:0 1px 2px rgba(20,22,26,.04),0 8px 24px rgba(20,22,26,.06);--shadow-lg:0 24px 60px rgba(20,22,26,.16),0 4px 12px rgba(20,22,26,.08);--sans:Inter,system-ui,sans-serif;height:100vh;width:100%;display:flex;flex-direction:column;color:var(--ink)}
+#root{display:flex;flex-direction:column;min-height:100%}
+body{font-family:Inter,system-ui,sans-serif;background:#F4F4F1}
+.lf{--gold:#0E7C6F;--goldDim:#0B5F55;--gold-tint:color-mix(in srgb,var(--gold) 10%,transparent);--gold-line:color-mix(in srgb,var(--gold) 28%,transparent);--petrol:var(--gold);--petrol-deep:var(--goldDim);--petrol-tint:var(--gold-tint);--petrol-line:var(--gold-line);--ink:#12151C;--ink2:#3A3F4A;--ink3:#6B7280;--ink4:#9CA3AF;--surf:#fff;--surf2:#F8F8F6;--line:#E5E5E0;--line2:#D8D8D2;--raise:#fff;--r:13px;--amber:#BE7A18;--ok:#2C8A60;--danger:#BC3B2B;--shadow:0 1px 2px rgba(20,22,26,.04),0 8px 24px rgba(20,22,26,.06);--shadow-lg:0 24px 60px rgba(20,22,26,.16),0 4px 12px rgba(20,22,26,.08);--sans:Inter,system-ui,sans-serif;flex:1;min-height:0;width:100%;display:flex;flex-direction:column;color:var(--ink);background:var(--surf2)}
 .lf button:focus-visible,.lf input:focus-visible,.lf [role="tab"]:focus-visible,.lf [role="menuitemradio"]:focus-visible{outline:2px solid var(--gold-line);outline-offset:2px}
 .lf-top{display:flex;align-items:center;gap:18px;padding:16px 20px 13px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,var(--surf2),var(--surf));flex-shrink:0;position:relative;z-index:40}
 .lf.platform-win32 .lf-top{padding-top:20px}
@@ -100,12 +101,13 @@ body{background:#F4F4F1;font-family:Inter,system-ui,sans-serif}
 .ff-act:hover{border-color:var(--gold);color:var(--gold)}
 .ff-act.on{background:var(--gold);color:#fff;border-color:var(--gold)}
 .ff-act.loading{opacity:.7;cursor:default}
-.ff-ft.on{background:rgba(14,124,111,.12);color:var(--gold);border-color:rgba(14,124,111,.3)}
+.ff-ft.on{background:var(--gold-tint);color:var(--gold);border-color:var(--gold-line)}
 .ff-soon{font-size:10px;opacity:.7}
 .ff-wall{margin-top:12px;font-size:12px;line-height:1.6;color:var(--ink2);background:var(--surf2);border-left:3px solid var(--gold);padding:10px 12px;border-radius:0 8px 8px 0}
 .ff-spin{animation:ffspin .8s linear infinite}
 @keyframes ffspin{to{transform:rotate(360deg)}}
-.lf-toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:10px;font-size:13px;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,.15)}
+.lf-toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--raise);color:var(--ink);border:1px solid var(--line2);padding:10px 16px;border-radius:10px;font-size:13px;z-index:100;box-shadow:var(--shadow-lg)}
+.lf:not(.day) .lf-toast{background:var(--raise);color:var(--ink);border-color:var(--line2)}
 `;
 
 export default function LuminaApp() {
@@ -196,6 +198,19 @@ export default function LuminaApp() {
     setTheme(id);
     try { const s = (await bridge.getSettings()) || {}; await bridge.saveSettings({ ...s, theme: id }); } catch (e) { /* noop */ }
   }, []);
+
+  useEffect(() => {
+    const t = themeById(theme);
+    const body = document.body;
+    const root = document.documentElement;
+    if (isLight(theme)) {
+      body.style.background = "#F4F4F1";
+      root.style.colorScheme = "light";
+    } else {
+      body.style.background = t.swatch[0];
+      root.style.colorScheme = "dark";
+    }
+  }, [theme]);
   useEffect(() => {
     if (!themeOpen) return;
     const onKey = (e) => { if (e.key === "Escape") setThemeOpen(false); };

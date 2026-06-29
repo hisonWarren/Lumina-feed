@@ -18,7 +18,7 @@ const HUB_CSS = `
 .rh-h p{font-size:13.5px;line-height:1.65;color:var(--ink2);margin:0;width:100%}
 .rh-drop{width:100%;border:2px dashed var(--line2);border-radius:16px;padding:40px 24px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;background:var(--surf);cursor:pointer;transition:all .16s}
 .rh-drop:hover{border-color:var(--gold);background:var(--surf2);box-shadow:var(--shadow)}
-.rh-drop.drag{border-color:var(--gold);background:rgba(14,124,111,.06)}
+.rh-drop.drag{border-color:var(--gold);background:var(--gold-tint)}
 .rh-drop svg{color:var(--gold)}
 .rh-drop .t{font-size:15px;font-weight:600;color:var(--ink)}
 .rh-drop .s{font-size:12.5px;color:var(--ink3)}
@@ -45,7 +45,7 @@ const HUB_CSS = `
 .rh-row-x:hover{color:var(--danger);background:var(--surf2)}
 .rh-addlib{flex-shrink:0;border:1px solid var(--line2);background:var(--surf2);color:var(--gold);border-radius:7px;padding:4px 8px;font-size:11px;cursor:pointer;font-family:inherit}
 .rh-addlib:hover{border-color:var(--gold);background:var(--gold-tint)}
-.rh-empty{font-size:12.5px;color:var(--ink4);border:1px dashed var(--line2);border-radius:10px;padding:13px 15px;line-height:1.6}
+.rh-empty{font-size:12.5px;color:var(--ink3);border:1px dashed var(--line2);border-radius:10px;padding:13px 15px;line-height:1.6}
 .rh-spin{animation:rhspin .8s linear infinite;vertical-align:-2px}
 @keyframes rhspin{to{transform:rotate(360deg)}}
 `;

@@ -28,7 +28,8 @@ export const THEME_CSS = THEMES.map((t) => {
   if (t.base !== "night") return base;
   const deep = t.swatch[0]; // 该主题深色基底 → 真暗色 surface（此前 night 主题误用 .lf 亮表面）
   return base + `
-.lf[data-theme="${t.id}"]:not(.day){--surf:${deep};--surf2:color-mix(in srgb, ${deep} 85%, #fff);--raise:color-mix(in srgb, ${deep} 77%, #fff);--ink:#ECEEF3;--ink2:#BBC2CE;--ink3:#8A93A1;--ink4:#5E6675;--line:rgba(255,255,255,.11);--line2:rgba(255,255,255,.18);--shadow:0 1px 2px rgba(0,0,0,.5),0 8px 24px rgba(0,0,0,.55);--shadow-lg:0 24px 60px rgba(0,0,0,.66),0 4px 12px rgba(0,0,0,.45)}`;
+html:has(.lf[data-theme="${t.id}"]:not(.day)), body:has(.lf[data-theme="${t.id}"]:not(.day)){background:${deep}}
+.lf[data-theme="${t.id}"]:not(.day){--surf:${deep};--surf2:color-mix(in srgb, ${deep} 85%, #fff);--raise:color-mix(in srgb, ${deep} 77%, #fff);--ink:#ECEEF3;--ink2:#BBC2CE;--ink3:#8A93A1;--ink4:#6E7785;--line:rgba(255,255,255,.11);--line2:rgba(255,255,255,.18);--shadow:0 1px 2px rgba(0,0,0,.5),0 8px 24px rgba(0,0,0,.55);--shadow-lg:0 24px 60px rgba(0,0,0,.66),0 4px 12px rgba(0,0,0,.45);background:var(--surf2)}`;
 }).join("\n");
 
 // hex → rgba 字符串
