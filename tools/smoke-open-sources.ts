@@ -24,6 +24,8 @@ import { bm25Rank, parseQuery } from "../src/core/rank/bm25.ts";
 import { pickPrimaryHit } from "../src/core/locate/primary-hit.ts";
 import { normalize } from "../src/core/normalize.ts";
 import { stageTextFromTrace, fetchProgressUi, fetchFailHint } from "../src/ui/fetch-meta.js";
+import { pickBestLibgenRow } from "../src/core/oa/alt-sources.ts";
+import { extractDoisFromText } from "../src/core/oa/pdf-identity.ts";
 
 let ok = 0, ng = 0;
 const t = (n: string, c: boolean) => { console.log((c ? "✓" : "✗") + " " + n); c ? ok++ : ng++; };
@@ -70,10 +72,10 @@ t("bm25: 整句一致才 title_exact", (() => {
 })());
 
 t("prefetch: 高置信 DOI 可预取", shouldPrefetchIdentifier("identifier", ["crossref"], { doi: "10.1/x" }, { prefetchOnIdentifier: true }, false) === true);
-t("prefetch: 默认开可预取", shouldPrefetchIdentifier("identifier", ["crossref"], { doi: "10.1/x" }, {}, false) === true);
+t("prefetch: 默认关不预取", shouldPrefetchIdentifier("identifier", ["crossref"], { doi: "10.1/x" }, {}, false) === false);
 t("prefetch: 显式关不预取", shouldPrefetchIdentifier("identifier", ["crossref"], { doi: "10.1/x" }, { prefetchOnIdentifier: false }, false) === false);
 t("prefetch: doi_stub 不预取", shouldPrefetchIdentifier("identifier", ["doi_stub"], { doi: "10.1/x" }, { prefetchOnIdentifier: true }, false) === false);
-t("prefetch: OA gold 默认可预取", shouldPrefetchOaResult({ doi: "10.1/x", oaStatus: "gold" }, {}, false) === true);
+t("prefetch: OA gold 默认不预取", shouldPrefetchOaResult({ doi: "10.1/x", oaStatus: "gold" }, {}, false) === false);
 t("prefetch: OA 显式关不预取", shouldPrefetchOaResult({ doi: "10.1/x", oaStatus: "green" }, { prefetchOaResults: false }, false) === false);
 t("selectAdapters 尊重 disabled", selectAdapters(undefined, {}, ["zenodo", "libgen"]).every((a) => a.id !== "zenodo" && a.id !== "libgen"));
 t("normalize journal 非字符串不抛", (() => { try { normalize({ source: "x", title: "T", authors: [], journal: 123 as any }); return true; } catch { return false; } })());
@@ -86,6 +88,7 @@ t("stageTextFromTrace: 解析 OA", (stageTextFromTrace([{ id: "unpaywall", label
 t("fetchProgressUi: trace 优先于计时", fetchProgressUi({ startedAt: Date.now() - 60000, trace: [{ id: "download", label: "下载 PDF", status: "running" }] }).stageText.includes("下载"));
 t("fetchFailHint: no_pdf", fetchFailHint("no_pdf").includes("均未成功"));
 t("fetchFailHint: publisher_blocked", fetchFailHint("publisher_blocked").includes("浏览器"));
+t("fetchFailHint: identity_mismatch", fetchFailHint("identity_mismatch").includes("不一致"));
 t("fetchFailHint: timeout", fetchFailHint("download_timeout").includes("超时"));
 
 // P2 adapter parse（样本 JSON，无网络）
@@ -99,6 +102,22 @@ t("parseOpenaire oaf entity", parseOpenaire({ response: { results: { result: [{ 
 t("parseS2 s2Id", parseSemanticScholar({ data: [{ paperId: "p1", title: "S2", authors: [] }] })[0]?.s2Id === "p1");
 t("parseDoaj gold", parseDoaj({ results: [{ bibjson: { title: "D", author: [{ name: "A" }] } }] })[0]?.oaStatus === "gold");
 t("parseDatacite doi", parseDatacite({ data: [{ attributes: { doi: "10.5281/x", titles: [{ title: "DC" }], creators: [] } }] })[0]?.doi === "10.5281/x");
+
+t("pickBestLibgenRow: DOI 精确匹配", (() => {
+  const rows = [
+    { md5: "a", ext: "pdf", title: "Wrong Paper", doi: "10.1007/s10803-011-1267-0" },
+    { md5: "b", ext: "pdf", title: "Biological Motion Perception in Autism", doi: "10.1068/i198" },
+  ];
+  return pickBestLibgenRow(rows, { expectedDoi: "10.1068/i198", column: "doi" })?.md5 === "b";
+})());
+t("pickBestLibgenRow: 标题相似拒绝错配", (() => {
+  const rows = [
+    { md5: "a", ext: "pdf", title: "IQ Predicts Biological Motion Perception in Autism Spectrum Disorders" },
+    { md5: "b", ext: "pdf", title: "Biological Motion Perception in Autism" },
+  ];
+  return pickBestLibgenRow(rows, { expectedTitle: "Biological Motion Perception in Autism", column: "title" })?.md5 === "b";
+})());
+t("extractDoisFromText", extractDoisFromText("see doi:10.1068/i198 and 10.1007/x").includes("10.1068/i198"));
 
 installDefaultLimiters();
 

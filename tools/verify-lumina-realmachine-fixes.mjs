@@ -46,7 +46,9 @@ ok(/fetchPdf\(url, \{ allowAltSources: true \}\)/.test(ipc), "oa:fetchPdf 启用
 ok(/oa:fetchPaper/.test(ipc) && /fetchPaperPdf/.test(ipc), "oa:fetchPaper + fetchPaperPdf 统一链");
 ok(/oa\.fetchPaper/.test(br), "bridge.fetchFullText 优先走 fetchPaper");
 ok(/fetchFailHint\(r\.reason\)/.test(app) || /fetchFailHint\(r && r\.reason\)/.test(app), "onFetch 队列失败走 fetchFailHint");
-ok(/export function fetchFailHint/.test(R("src/ui/fetch-meta.js")) && /publisher_blocked/.test(R("src/ui/fetch-meta.js")) && /no_pdf/.test(R("src/ui/fetch-meta.js")), "fetchFailHint 映射 publisher_blocked / no_pdf");
+ok(/export function fetchFailHint/.test(R("src/ui/fetch-meta.js")) && /identity_mismatch/.test(R("src/ui/fetch-meta.js")) && /publisher_blocked/.test(R("src/ui/fetch-meta.js")), "fetchFailHint 映射 identity_mismatch / publisher_blocked");
+ok(/verifyPdfIdentity/.test(R("src/core/oa/provider.ts")) && exists("src/core/oa/pdf-identity.ts"), "下载后 PDF 身份校验");
+ok(/pickBestLibgenRow/.test(R("src/core/oa/alt-sources.ts")), "LibGen 候选按 DOI/标题筛选");
 
 console.log("· ISSUE-003 阅读器专用接地（groundedRatio 不再恒 0）");
 ok(/function groundReaderAnswer\(answer: string, pages: ReaderPage\[\]/.test(rai), "新增 groundReaderAnswer（页锚 + token 覆盖）");

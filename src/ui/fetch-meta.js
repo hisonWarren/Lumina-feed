@@ -41,6 +41,9 @@ export function fetchFailHint(reason) {
   if (r === "publisher_blocked") {
     return "已找到官方 PDF 链接，但出版商拦截了程序自动下载。请用下方「浏览器打开」在原文页手动下载。";
   }
+  if (r === "identity_mismatch") {
+    return "备用库返回的 PDF 与目标文献不一致（DOI/标题校验未通过），已拒绝保存。请换来源或浏览器打开原文。";
+  }
   if (r === "no_pdf" || r === "no_oa") return "各来源均未成功下载 PDF（备用库可能暂时不可用）";
   if (/timeout|timed out|超时/.test(r)) return "链接可能可用但下载超时，请稍后重试";
   if (/403|forbidden/.test(r)) return "服务器拒绝自动下载（403），请在浏览器打开原文页";

@@ -15,6 +15,7 @@ import { extractText, type ExtractDeps } from "./pdf-extract.ts";
 import { makeTraceEmitter, traceStepForSource, type FetchTraceCallback } from "./fetch-trace.ts";
 import { attemptSignal } from "./timeout.ts";
 import { candidateKey, type PdfCandidate } from "./candidate.ts";
+import { verifyPdfIdentity, shouldVerifyPdfIdentity } from "./pdf-identity.ts";
 
 export interface OaFullTextDeps extends ResolveDeps, FetchPdfDeps, ExtractDeps {
   minChars?: number;
@@ -48,11 +49,12 @@ export function isOaMarkedPaper(paper: Paper): boolean {
 
 async function tryOneCandidate(
   cand: PdfCandidate,
+  paper: Paper,
   deps: OaFullTextDeps,
   trace: ReturnType<typeof makeTraceEmitter> | null,
   attemptMs: number,
   scihubMirrorsRef: { current?: string[] },
-): Promise<FetchPaperResult | null> {
+): Promise<{ hit: FetchPaperResult | null; identityRejected?: boolean }> {
   const stepId = cand.kind === "scihub" ? "scihub" : traceStepForSource(cand.source);
   trace?.patch("download", "running", cand.source);
   const t0 = Date.now();
@@ -73,27 +75,43 @@ async function tryOneCandidate(
         mirrors: scihubMirrorsRef.current,
       });
       if (got?.bytes?.byteLength) {
+        if (shouldVerifyPdfIdentity(cand, paper)) {
+          const id = verifyPdfIdentity(got.bytes, { doi: paper.doi, title: paper.title });
+          if (!id.ok) {
+            const detail = id.reason === "doi_mismatch" ? "PDF DOI 不符" : "PDF 标题不符";
+            trace?.patch(stepId, "fail", detail, Date.now() - t0);
+            return { hit: null, identityRejected: true };
+          }
+        }
         trace?.patch(stepId, "ok", "PDF 已获取", Date.now() - t0);
         trace?.patch("download", "ok", cand.source, Date.now() - t0);
         trace?.skipRest(stepId);
-        return { ok: true, bytes: got.bytes, url: got.url, source: cand.source };
+        return { hit: { ok: true, bytes: got.bytes, url: got.url, source: cand.source } };
       }
       trace?.patch(stepId, "fail", "镜像无 PDF", Date.now() - t0);
-      return null;
+      return { hit: null };
     }
     const bytes = await fetchPdf(cand.url, { ...deps, allowAltSources: true, signal: attempt.signal });
     if (bytes.byteLength) {
+      if (shouldVerifyPdfIdentity(cand, paper)) {
+        const id = verifyPdfIdentity(bytes, { doi: paper.doi, title: paper.title });
+        if (!id.ok) {
+          const detail = id.reason === "doi_mismatch" ? "PDF DOI 不符" : "PDF 标题不符";
+          trace?.patch(stepId, "fail", detail, Date.now() - t0);
+          return { hit: null, identityRejected: true };
+        }
+      }
       trace?.patch(stepId, "ok", "PDF 已获取", Date.now() - t0);
       trace?.patch("download", "ok", cand.source, Date.now() - t0);
       trace?.skipRest(stepId);
-      return { ok: true, bytes, url: cand.url, source: cand.source };
+      return { hit: { ok: true, bytes, url: cand.url, source: cand.source } };
     }
     trace?.patch(stepId, "fail", attempt.timedOut() ? "超时" : "空响应", Date.now() - t0);
-    return null;
+    return { hit: null };
   } catch (e) {
     const msg = attempt.timedOut() ? "超时" : String((e as Error)?.message || e);
     trace?.patch(stepId, "fail", msg, Date.now() - t0);
-    return null;
+    return { hit: null };
   } finally {
     attempt.clear();
   }
@@ -101,24 +119,27 @@ async function tryOneCandidate(
 
 async function tryCandidateList(
   candidates: PdfCandidate[],
+  paper: Paper,
   deps: OaFullTextDeps,
   trace: ReturnType<typeof makeTraceEmitter> | null,
   attemptMs: number,
   tried: Set<string>,
-): Promise<{ hit: FetchPaperResult | null; publisherBlocked: boolean }> {
+): Promise<{ hit: FetchPaperResult | null; publisherBlocked: boolean; identityRejected: boolean }> {
   const scihubMirrorsRef: { current?: string[] } = {};
   let publisherBlocked = false;
+  let identityRejected = false;
   for (const cand of candidates) {
     const key = candidateKey(cand);
     if (!key || tried.has(key)) continue;
     tried.add(key);
-    const hit = await tryOneCandidate(cand, deps, trace, attemptMs, scihubMirrorsRef);
-    if (hit) return { hit, publisherBlocked };
+    const { hit, identityRejected: idRej } = await tryOneCandidate(cand, paper, deps, trace, attemptMs, scihubMirrorsRef);
+    if (idRej) identityRejected = true;
+    if (hit) return { hit, publisherBlocked, identityRejected };
     if (cand.kind === "url" && /sagepub|wiley|tandfonline|springer|elsevier|oup\.com/i.test(cand.url)) {
       publisherBlocked = true;
     }
   }
-  return { hit: null, publisherBlocked };
+  return { hit: null, publisherBlocked, identityRejected };
 }
 
 /** 按统一候选链抓取 PDF 字节（OA 快路径 → 元数据 enrich → 备用库）。 */
@@ -134,14 +155,16 @@ export async function fetchPaperPdf(paper: Paper, deps: OaFullTextDeps = {}): Pr
   const deferAlt = deps.deferAltSources !== false && isOaMarkedPaper(paper);
   const tried = new Set<string>();
   let publisherBlocked = false;
+  let identityRejected = false;
 
   trace?.patch("identifiers", "running");
   const immediate = immediatePdfCandidates(paper);
   trace?.patch("identifiers", immediate.length ? "ok" : "skip", immediate.length ? `${immediate.length} 个` : undefined);
 
   if (immediate.length) {
-    const { hit, publisherBlocked: pb } = await tryCandidateList(immediate, deps, trace, dlMs, tried);
+    const { hit, publisherBlocked: pb, identityRejected: idRej } = await tryCandidateList(immediate, paper, deps, trace, dlMs, tried);
     if (pb) publisherBlocked = true;
+    if (idRej) identityRejected = true;
     if (hit) {
       trace?.done("done", { ok: true, source: hit.source });
       return hit;
@@ -156,8 +179,9 @@ export async function fetchPaperPdf(paper: Paper, deps: OaFullTextDeps = {}): Pr
   });
   const oaNew = oaEnriched.filter((c) => !tried.has(candidateKey(c)));
   if (oaNew.length) {
-    const { hit, publisherBlocked: pb } = await tryCandidateList(oaNew, deps, trace, dlMs, tried);
+    const { hit, publisherBlocked: pb, identityRejected: idRej } = await tryCandidateList(oaNew, paper, deps, trace, dlMs, tried);
     if (pb) publisherBlocked = true;
+    if (idRej) identityRejected = true;
     if (hit) {
       trace?.done("done", { ok: true, source: hit.source });
       return hit;
@@ -181,16 +205,21 @@ export async function fetchPaperPdf(paper: Paper, deps: OaFullTextDeps = {}): Pr
       .filter((c) => !tried.has(candidateKey(c)));
 
   if (altCands.length) {
-    const { hit, publisherBlocked: pb } = await tryCandidateList(altCands, deps, trace, altMs, tried);
+    const { hit, publisherBlocked: pb, identityRejected: idRej } = await tryCandidateList(altCands, paper, deps, trace, altMs, tried);
     if (pb) publisherBlocked = true;
+    if (idRej) identityRejected = true;
     if (hit) {
       trace?.done("done", { ok: true, source: hit.source });
       return hit;
     }
   }
 
-  const reason = publisherBlocked && tried.size > 0 ? "publisher_blocked" : "no_pdf";
-  trace?.patch("download", "fail", reason === "publisher_blocked" ? "出版商拦截自动下载" : "全部候选失败");
+  const reason = identityRejected
+    ? "identity_mismatch"
+    : publisherBlocked && tried.size > 0
+      ? "publisher_blocked"
+      : "no_pdf";
+  trace?.patch("download", "fail", reason === "identity_mismatch" ? "下载内容与目标文献不符" : reason === "publisher_blocked" ? "出版商拦截自动下载" : "全部候选失败");
   trace?.done("done", { ok: false, reason });
   return { ok: false, reason };
 }

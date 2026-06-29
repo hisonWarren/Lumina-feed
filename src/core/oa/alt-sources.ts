@@ -4,6 +4,8 @@ import altMirrors from "./config/alt-mirrors.json" with { type: "json" };
 import type { PdfCandidate, UrlCandidate } from "./candidate.ts";
 import type { AltMirrorSettings } from "./mirror-health.ts";
 import { orderMirrors } from "./mirror-health.ts";
+import { normDoi as normDoiKey, titleFingerprint } from "../dedupe.ts";
+import { jaccard } from "../locate/enrich-metadata.ts";
 
 export type { AltMirrorSettings };
 
@@ -21,7 +23,50 @@ function stripHtml(html: string): string {
 }
 
 function normDoi(doi: string): string {
-  return doi.trim().replace(/^https?:\/\/(dx\.)?doi\.org\//i, "");
+  return normDoiKey(doi) ?? doi.trim().replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").toLowerCase();
+}
+
+export type LibgenRow = { md5: string; ext: string; title?: string; authors?: string[]; year?: number; doi?: string };
+
+const TITLE_PICK_MIN = 0.82;
+
+function doiEq(a?: string, b?: string): boolean {
+  if (!a || !b) return false;
+  return normDoi(a) === normDoi(b);
+}
+
+/** LibGen 检索结果排序：DOI 精确匹配 > 标题 Jaccard；DOI 列检索拒绝错配行。 */
+export function pickBestLibgenRow(
+  rows: LibgenRow[],
+  opts: { expectedDoi?: string; expectedTitle?: string; column?: string },
+): LibgenRow | null {
+  const pdfRows = rows.filter((r) => r.ext === "pdf");
+  if (!pdfRows.length) return null;
+
+  let best: LibgenRow | null = null;
+  let bestScore = -1;
+  for (const row of pdfRows) {
+    let score = -1;
+    if (opts.expectedDoi && row.doi) {
+      if (doiEq(row.doi, opts.expectedDoi)) score = 100;
+      else if (opts.column === "doi") continue;
+    } else if (opts.column === "doi" && opts.expectedDoi) {
+      continue;
+    }
+
+    if (opts.expectedTitle && row.title) {
+      const tScore = jaccard(titleFingerprint(opts.expectedTitle), titleFingerprint(row.title));
+      if (opts.column === "title" && tScore < TITLE_PICK_MIN) continue;
+      score = Math.max(score, tScore * 50);
+    }
+
+    if (score < 0) continue;
+    if (score > bestScore) {
+      bestScore = score;
+      best = row;
+    }
+  }
+  return best;
 }
 
 function dedupeUrls(cands: UrlCandidate[]): UrlCandidate[] {
@@ -197,7 +242,14 @@ async function resolveLibgenGetUrl(
 async function searchLibgen(
   f: FetchImpl,
   query: string,
-  opts: { column?: string; priority: number; signal?: AbortSignal; mirrors?: string[] },
+  opts: {
+    column?: string;
+    priority: number;
+    signal?: AbortSignal;
+    mirrors?: string[];
+    expectedDoi?: string;
+    expectedTitle?: string;
+  },
 ): Promise<UrlCandidate[]> {
   const q = query.trim();
   if (!q) return [];
@@ -211,8 +263,11 @@ async function searchLibgen(
       if (!res.ok) continue;
       const text = await res.text();
       if (!text.includes("md5=")) continue;
-      const rows = parseLibgenRows(text).filter((r) => r.ext === "pdf");
-      const best = rows[0] ?? parseLibgenRows(text)[0];
+      const best = pickBestLibgenRow(parseLibgenRows(text), {
+        expectedDoi: opts.expectedDoi,
+        expectedTitle: opts.expectedTitle ?? (opts.column === "title" ? q : undefined),
+        column: opts.column,
+      });
       if (!best) continue;
       const getUrl = await resolveLibgenGetUrl(f, mirror, best.md5, opts.signal);
       if (!getUrl) continue;
@@ -237,13 +292,14 @@ export async function resolveLibgenUrls(
   const d = normDoi(doi);
   const { ordered } = await orderMirrors("libgen", deps.mirrorSettings, { fetchImpl: f, signal: deps.signal });
   const out: UrlCandidate[] = [];
-  out.push(...await searchLibgen(f, d, { column: "doi", priority: 60, signal: deps.signal, mirrors: ordered }));
-  out.push(...await searchLibgen(f, d, { priority: 61, signal: deps.signal, mirrors: ordered }));
+  const pickOpts = { expectedDoi: d, expectedTitle: deps.title, signal: deps.signal, mirrors: ordered };
+  out.push(...await searchLibgen(f, d, { ...pickOpts, column: "doi", priority: 60 }));
+  out.push(...await searchLibgen(f, d, { ...pickOpts, priority: 61 }));
   if (deps.title) {
-    out.push(...await searchLibgen(f, deps.title, { column: "title", priority: 61, signal: deps.signal, mirrors: ordered }));
+    out.push(...await searchLibgen(f, deps.title, { ...pickOpts, column: "title", priority: 61 }));
     const short = deps.title.split(":")[0]?.trim();
     if (short && short !== deps.title && short.length > 12) {
-      out.push(...await searchLibgen(f, short, { column: "title", priority: 62, signal: deps.signal, mirrors: ordered }));
+      out.push(...await searchLibgen(f, short, { ...pickOpts, column: "title", priority: 62 }));
     }
   }
   return dedupeUrls(out);
@@ -276,9 +332,7 @@ async function searchAnnas(
             if (md5m) md5s.push(md5m[1].toLowerCase());
           }
         }
-        if (!md5s.length) {
-          for (const m of html.matchAll(MD5_PATH_RE)) md5s.push(m[1].toLowerCase());
-        }
+        // 无 DOI 锚点的 md5 不采用，避免标题相似文献错配
         const titleMatches = html.match(/<a[^>]*href="[^"]*\/md5\/[^"]*"[^>]*>([^<]{10,})</gi) ?? [];
         for (const t of titleMatches.slice(0, 5)) {
           const text = stripHtml(t);
@@ -315,8 +369,9 @@ export async function resolveAnnasUrls(
   }
 
   const searchTitles = [...new Set([deps.title, ...annasTitles].filter(Boolean) as string[])];
+  const pickOpts = { expectedDoi: doi, expectedTitle: deps.title, signal: deps.signal, mirrors: libgenMirrors };
   for (const t of searchTitles) {
-    out.push(...await searchLibgen(f, t, { column: "title", priority: 61, signal: deps.signal, mirrors: libgenMirrors }));
+    out.push(...await searchLibgen(f, t, { ...pickOpts, column: "title", priority: 61 }));
   }
   return dedupeUrls(out);
 }
