@@ -1,10 +1,9 @@
 // Lumina · PDF 阅读器右键菜单（中文 + 图标；空白区精简 · 选区保留批注/AI 核心项）
-import React, { useLayoutEffect, useRef, useState, useEffect } from "react";
+import React, { useLayoutEffect, useRef, useState } from "react";
 import {
   Copy, Link2, StickyNote, Sparkles, Languages, Search,
   ChevronLeft, ChevronRight as ChevronRightNav, Bookmark, BookmarkMinus, Printer,
   Undo2,
-  ChevronDown, ChevronUp, MoreHorizontal,
 } from "lucide-react";
 import { truncateLabel } from "../reader-selection.js";
 
@@ -74,7 +73,8 @@ function buildBlankMore() {
 }
 
 function buildSelectionPrimary(menu, mod) {
-  return [
+  const short = truncateLabel(menu.selection?.text || "", 20);
+  const items = [
     { id: "copy", label: "复制", icon: Copy, kbd: `${mod}+C` },
     { id: "copyCite", label: "复制带页码引用", icon: Link2 },
     { type: "sep" },
@@ -85,18 +85,13 @@ function buildSelectionPrimary(menu, mod) {
     { type: "sep" },
     { id: "explain", label: "解释", icon: Sparkles },
     { id: "translate", label: "翻译所选", icon: Languages },
-  ];
-}
-
-function buildSelectionMore(menu, mod) {
-  const short = truncateLabel(menu.selection?.text || "", 20);
-  const items = [
+    { type: "sep" },
     { id: "findSelection", label: `在文档中查找「${short}」`, icon: Search },
   ];
   if (menu.canUndoAnno) {
-    items.unshift(
-      { id: "undoAnno", label: "撤销上一批注", icon: Undo2, kbd: `${mod}+Z` },
+    items.push(
       { type: "sep" },
+      { id: "undoAnno", label: "撤销上一批注", icon: Undo2, kbd: `${mod}+Z` },
     );
   }
   return items;
@@ -105,7 +100,7 @@ function buildSelectionMore(menu, mod) {
 function buildMenus(menu, platform) {
   const mod = modKey(platform);
   if (menu.kind === "selection" && menu.selection) {
-    return { primary: buildSelectionPrimary(menu, mod), more: buildSelectionMore(menu, mod) };
+    return { primary: buildSelectionPrimary(menu, mod), more: [] };
   }
   return { primary: buildBlankPrimary(menu, mod), more: buildBlankMore() };
 }
@@ -142,10 +137,6 @@ function CtxRow({ item, onAction, onClose }) {
 export default function ReaderContextMenu({ menu, platform, onAction, onClose }) {
   const ref = useRef(null);
   const [pos, setPos] = useState({ left: menu.x, top: menu.y });
-  const [expanded, setExpanded] = useState(false);
-  const menuKey = menu.x + "," + menu.y + "," + menu.kind;
-
-  useEffect(() => { setExpanded(false); }, [menuKey]);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -159,10 +150,9 @@ export default function ReaderContextMenu({ menu, platform, onAction, onClose })
     if (left < pad) left = pad;
     if (top < pad) top = pad;
     setPos({ left, top });
-  }, [menu.x, menu.y, menu.kind, menu.canUndoAnno, menu.annoCount, expanded]);
+  }, [menu.x, menu.y, menu.kind, menu.canUndoAnno, menu.annoCount]);
 
-  const { primary, more } = buildMenus(menu, platform);
-  const hasMore = more.some((it) => it.type !== "sep" && it.type !== "group");
+  const { primary } = buildMenus(menu, platform);
 
   const stopInside = (e) => { e.stopPropagation(); };
 
@@ -182,35 +172,6 @@ export default function ReaderContextMenu({ menu, platform, onAction, onClose })
         {primary.map((item, i) => (
           <CtxRow key={"p" + (item.id || item.type) + i} item={item} onAction={onAction} onClose={onClose} />
         ))}
-        {hasMore && !expanded && (
-          <button
-            type="button"
-            role="menuitem"
-            className="lf-ctx-item lf-ctx-more"
-            onClick={() => setExpanded(true)}
-          >
-            <span className="lf-ctx-ico"><MoreHorizontal size={16} strokeWidth={2} /></span>
-            <span className="lf-ctx-lbl">显示更多选项</span>
-            <ChevronDown size={14} className="lf-ctx-kbd" aria-hidden />
-          </button>
-        )}
-        {expanded && hasMore && (
-          <>
-            <div className="lf-ctx-sep" role="separator" />
-            {more.map((item, i) => (
-              <CtxRow key={"m" + (item.id || item.type) + i} item={item} onAction={onAction} onClose={onClose} />
-            ))}
-            <button
-              type="button"
-              role="menuitem"
-              className="lf-ctx-item lf-ctx-more"
-              onClick={() => setExpanded(false)}
-            >
-              <span className="lf-ctx-ico"><ChevronUp size={16} strokeWidth={2} /></span>
-              <span className="lf-ctx-lbl">收起选项</span>
-            </button>
-          </>
-        )}
       </div>
     </>
   );

@@ -1498,6 +1498,7 @@ export default function Reader({ source, onClose, pushToast }) {
   const panRef = useRef(null);                  // 平移会话 {x,y,sl,st}
   const posLoadedRef = useRef(false);           // 本 doc 是否已尝试恢复位置（避免覆盖用户翻页）
   const viewRef = useRef(null);
+  const sideBodyRef = useRef(null);
   const suppressPageScroll = useRef(false); // true 时跳过一次 page→scrollIntoView（滚动联动改 page 时用，避免与用户滚动打架）
   const scrollSpyRaf = useRef(0);
   const spreadManualZoomRef = useRef(false); // 双页下用户手动缩放后，不再被自动 fit 覆盖
@@ -1702,6 +1703,17 @@ export default function Reader({ source, onClose, pushToast }) {
     const el = document.getElementById("rd-pg-" + page);
     if (el && el.scrollIntoView) el.scrollIntoView({ block: "start", behavior: "smooth" });
   }, [page, view]);
+
+  // 侧栏缩略图/书签：当前页超出可视区时自动滚入视区
+  useEffect(() => {
+    if (!sidebar || !sidePanel) return;
+    const root = sideBodyRef.current;
+    if (!root) return;
+    const sel = sidePanel === "thumbs" ? `#rd-thumb-${page}` : sidePanel === "marks" ? `.rd-mark.active` : null;
+    if (!sel) return;
+    const el = root.querySelector(sel);
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [page, sidebar, sidePanel]);
 
   // 连续模式滚动联动：滚动时把顶栏页码（及翻译/批注所依据的 page）同步为当前主视区页
   const onViewScroll = useCallback(() => {
@@ -2134,11 +2146,11 @@ export default function Reader({ source, onClose, pushToast }) {
                   <span>{sidePanel === "thumbs" ? "页面" : sidePanel === "outline" ? "目录" : "书签"}</span>
                   <button className="rd-x" onClick={() => setSidePanel(null)} title="收起面板（留图标栏）"><X size={14} /></button>
                 </div>
-                <div className="rd-sidebody">
+                <div className="rd-sidebody" ref={sideBodyRef}>
                   {sidePanel === "thumbs" && (
                     <div className="rd-thumbs">
                       {Array.from({ length: numPages }, (_, i) => i + 1).map((n) => (
-                        <div key={n} className={"rd-thumb" + (n === page ? " active" : "")} onClick={() => goto(n)}>
+                        <div key={n} id={"rd-thumb-" + n} className={"rd-thumb" + (n === page ? " active" : "")} onClick={() => goto(n)}>
                           <ThumbCanvas doc={doc} pageNum={n} rotation={rotation} />
                           <span>{n}</span>
                         </div>
