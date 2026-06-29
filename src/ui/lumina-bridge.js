@@ -1,5 +1,6 @@
 // Lumina Feed · 渲染层 ↔ 引擎桥接（干净基线）
 import { normalizeAuthors } from "./lib/format-authors.js";
+import { countSubsUnread, unreadTodayCount, isPaperUnread } from "./lib/subs-unread.js";
 
 const A = () => (typeof window !== "undefined" ? window.luminaApi : null);
 const O = () => (typeof window !== "undefined" ? window.luminaOa : null);
@@ -13,14 +14,12 @@ const _continueMem = []; // 无后端时的继续阅读元数据
 
 export const hasBackend = () => !!A();
 
-/** 顶栏「订阅简报」徽标：各订阅 today 待展示条数之和 */
+/** 顶栏「订阅简报」徽标：各订阅 today 中用户未读条数之和 */
 export function countSubsBadge(subs) {
-  return (Array.isArray(subs) ? subs : []).reduce((n, sub) => {
-    if (!sub || sub.enabled === false) return n;
-    const today = Array.isArray(sub.today) ? sub.today.filter((p) => p && typeof p === "object") : [];
-    return n + today.length;
-  }, 0);
+  return countSubsUnread(subs);
 }
+
+export { countSubsUnread, unreadTodayCount, isPaperUnread };
 
 const TYPE_MAP = {
   "meta-analysis": "meta", "systematic-review": "review", "rct": "rct",
@@ -396,6 +395,24 @@ export const bridge = {
     const api = A(); if (!api || !api.onSubsUpdated) return () => {};
     return api.onSubsUpdated(() => { try { cb(); } catch { /* ignore */ } });
   },
+  onAppNavigate(cb) {
+    const api = A(); if (!api || !api.onAppNavigate) return () => {};
+    return api.onAppNavigate((payload) => { try { cb(payload); } catch { /* ignore */ } });
+  },
+  async subsMarkRead(paperId, subIds) {
+    const api = A();
+    if (!api || !api.subsMarkRead) return { ok: false };
+    try { return await api.subsMarkRead(paperId, subIds); } catch { return { ok: false }; }
+  },
+  async subsMarkAllRead(scopeSubId) {
+    const api = A();
+    if (!api || !api.subsMarkAllRead) return { ok: false };
+    try { return await api.subsMarkAllRead(scopeSubId); } catch { return { ok: false }; }
+  },
+  onSubsBatchProgress(cb) {
+    const api = A(); if (!api || !api.onSubsBatchProgress) return () => {};
+    return api.onSubsBatchProgress((payload) => { try { cb(payload); } catch { /* ignore */ } });
+  },
   async subsRunNow(sub, opts = {}) {
     const api = A(); if (!api || !api.subsRunNow) return { ok: false, mock: true, hits: [] };
     const q = (sub && sub.q) || "";
@@ -423,6 +440,18 @@ export const bridge = {
       const q = draft?.q || draft?.journal?.name || "";
       return { ...r, hits: (r.hits || []).map((p) => toCardModel(p, q)) };
     } catch (e) { return { ok: false, hits: [], preview: true }; }
+  },
+  async digestReportGet(scope = "all") {
+    const api = A(); if (!api || !api.digestReportGet) return null;
+    try { return await api.digestReportGet(scope); } catch { return null; }
+  },
+  async digestReportGenerate(opts = {}) {
+    const api = A(); if (!api || !api.digestReportGenerate) return { ok: false };
+    try { return await api.digestReportGenerate(opts); } catch { return { ok: false }; }
+  },
+  onDigestReportUpdated(cb) {
+    const api = A(); if (!api || !api.onDigestReportUpdated) return () => {};
+    return api.onDigestReportUpdated((payload) => { try { cb(payload); } catch { /* ignore */ } });
   },
   async libraryList() {
     const api = A(); if (!api || !api.libraryList) return _libMem.slice();

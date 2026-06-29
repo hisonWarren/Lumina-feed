@@ -257,6 +257,23 @@ export default function LuminaApp() {
     });
   }, []);
 
+  useEffect(() => {
+    if (!hasBackend() || !bridge.onAppNavigate) return;
+    return bridge.onAppNavigate((payload) => {
+      if (!payload || !payload.view) return;
+      if (payload.view === "settings") {
+        if (mode !== "settings") setPrevMode(mode);
+        if (payload.settingsCat) setSettingsCat(payload.settingsCat);
+        setMode("settings");
+        return;
+      }
+      setMode(payload.view);
+      if (payload.view === "read" && payload.continueEntry) {
+        setReadTarget({ continueEntry: payload.continueEntry, _t: Date.now() });
+      }
+    });
+  }, [mode]);
+
   const [primaryAutoOpen, setPrimaryAutoOpen] = useState(true);
   const primaryAutoOpenRef = useRef(true);
 
@@ -599,6 +616,7 @@ export default function LuminaApp() {
                 onReadPaper={onReadPaper}
                 onSubsChange={refreshSubsBadge}
                 inLibFn={inLibFn}
+                onOpenSettings={openSettings}
               />
             </div>
           )}

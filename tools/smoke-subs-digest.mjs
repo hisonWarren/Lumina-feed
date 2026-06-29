@@ -101,6 +101,7 @@ console.log("\n── MAN-SUB 订阅简报 2.0 真机烟测 (CDP) ──\n");
 
 const subId = "smoke_sub_" + Date.now();
 let cdp;
+let restoreDigestTier = null;
 try {
   cdp = await cdpConnect(await getWsUrl());
   await evalJs(cdp, `return !!window.luminaApi`);
@@ -149,11 +150,13 @@ try {
   // settings digestNotifyTier
   const tierOk = await evalJs(cdp, `
     const cur = await window.luminaApi.getSettings();
+    const prevTier = cur.digestNotifyTier || "regular";
     await window.luminaApi.saveSettings({ ...cur, digestNotifyTier: "calm" });
     const next = await window.luminaApi.getSettings();
-    return next.digestNotifyTier;
+    return { prevTier, nextTier: next.digestNotifyTier };
   `);
-  tierOk === "calm" ? pass("SUB9", "digestNotifyTier 持久化", tierOk) : fail("SUB9", "digestNotifyTier", String(tierOk));
+  tierOk.nextTier === "calm" ? pass("SUB9", "digestNotifyTier 持久化", tierOk.nextTier) : fail("SUB9", "digestNotifyTier", String(tierOk?.nextTier));
+  restoreDigestTier = tierOk?.prevTier || "regular";
 
   // UI
   await goSubs(cdp);
@@ -188,6 +191,134 @@ try {
 
   await evalJs(cdp, `await window.luminaApi.subsRemove(${JSON.stringify(subId)});`);
   pass("SUB-clean", "subs:remove");
+
+  // SUB-DR*: 摘要 + 今日总报告（需 DEEPSEEK_API_KEY 环境变量）
+  const dsKey = process.env.DEEPSEEK_API_KEY || process.env.LUMINA_TEST_KEY || "";
+  const dsModel = process.env.DEEPSEEK_MODEL || "deepseek-chat";
+  if (dsKey) {
+    const settingsBeforeDr = await evalJs(cdp, `return await window.luminaApi.getSettings();`);
+    await evalJs(cdp, `
+      await window.luminaApi.setSecret("deepseek_key", ${JSON.stringify(dsKey)});
+      const cur = await window.luminaApi.getSettings();
+      await window.luminaApi.saveSettings({
+        ...cur,
+        llm: { provider: "deepseek", model: ${JSON.stringify(dsModel)}, baseUrl: "https://api.deepseek.com" },
+        digestReportAuto: true,
+      });
+    `);
+    const llmTest = await evalJs(cdp, `
+      return await window.luminaApi.testLlm({ provider:"deepseek", model:${JSON.stringify(dsModel)}, baseUrl:"https://api.deepseek.com", apiKey:${JSON.stringify(dsKey)} });
+    `);
+    llmTest?.ok ? pass("SUB-DR0", "DeepSeek 连通", llmTest.model || dsModel) : fail("SUB-DR0", "DeepSeek 连通", JSON.stringify(llmTest).slice(0, 120));
+
+    const subDr = "smoke_dr_" + Date.now();
+    await evalJs(cdp, `await window.luminaApi.subsSave(${JSON.stringify({ id: subDr, name: "smoke report", kind: "keyword", q: "covid vaccine", freq: "daily", autoSummarize: "off", enabled: true, seenIds: [], readIds: [], today: [] })});`);
+    const runDr = await evalJs(cdp, `
+      const subs = await window.luminaApi.subsList();
+      const s = subs.find(x => x.id === ${JSON.stringify(subDr)});
+      return await window.luminaApi.subsRunNow(s);
+    `);
+    const drHits = Array.isArray(runDr?.hits) ? runDr.hits.length : 0;
+    drHits > 0 ? pass("SUB-DR1", "runNow 有命中供报告", `${drHits} 条`) : skip("SUB-DR1", "runNow 有命中", "无命中");
+
+    await goSubs(cdp);
+    const absUi = await evalJs(cdp, `
+      return { abs: document.querySelectorAll(".dg-abs").length, items: document.querySelectorAll(".dg-item").length };
+    `);
+    drHits > 0 && absUi.abs > 0 ? pass("SUB-DR2", "摘要区 dg-abs 可见", JSON.stringify(absUi)) : drHits > 0 ? fail("SUB-DR2", "摘要区", JSON.stringify(absUi)) : skip("SUB-DR2", "摘要区", "无卡片");
+
+    const viewUi = await evalJs(cdp, `
+      return {
+        seg: !!document.querySelector(".dg-view-seg"),
+        hero: !!document.querySelector(".dg-report-hero"),
+      };
+    `);
+    drHits > 0 && viewUi.seg && viewUi.hero ? pass("SUB-DR3", "报告 Hero + 视图切换", JSON.stringify(viewUi)) : drHits > 0 ? fail("SUB-DR3", "报告 UI", JSON.stringify(viewUi)) : skip("SUB-DR3", "报告 UI", "无待读");
+
+    let rep = null;
+    if (drHits > 0 && llmTest?.ok) {
+      await evalJs(cdp, `
+        return await window.luminaApi.digestReportGenerate({ scope: "all", force: true });
+      `);
+      const deadline = Date.now() + 120000;
+      while (Date.now() < deadline) {
+        rep = await evalJs(cdp, `return await window.luminaApi.digestReportGet("all");`);
+        if (rep?.status === "ready" || rep?.status === "failed") break;
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+      if (rep?.status === "ready" && Array.isArray(rep.highlights) && rep.highlights.length > 0) {
+        pass("SUB-DR4", "今日总报告生成", `highlights=${rep.highlights.length} picks=${(rep.priorityPicks||[]).length}`);
+      } else if (rep?.status === "ready") {
+        fail("SUB-DR4", "今日总报告", "ready 但无 highlights");
+      } else {
+        fail("SUB-DR4", "今日总报告", rep?.status + " " + (rep?.error || rep?.skippedReason || ""));
+      }
+
+      await evalJs(cdp, `
+        const tab = [...document.querySelectorAll(".dg-view-seg button")].find(b => (b.textContent||"").includes("今日报告"));
+        if (tab) tab.click();
+        return true;
+      `);
+      await new Promise((r) => setTimeout(r, 400));
+      const readerUi = await evalJs(cdp, `
+        return { reader: !!document.querySelector(".dg-report-reader"), h: !!document.querySelector(".dg-report-reader-h") };
+      `);
+      rep?.status === "ready" && readerUi.reader ? pass("SUB-DR5", "报告阅读视图", JSON.stringify(readerUi)) : rep?.status === "ready" ? fail("SUB-DR5", "报告阅读视图", JSON.stringify(readerUi)) : skip("SUB-DR5", "报告阅读视图", "报告未就绪");
+    }
+
+    await evalJs(cdp, `await window.luminaApi.subsRemove(${JSON.stringify(subDr)});`);
+    pass("SUB-DR-clean", "报告测试订阅已删除");
+
+    // 清理 DeepSeek 密钥与 LLM 配置（不写回 secrets.local.env）
+    await evalJs(cdp, `
+      await window.luminaApi.setSecret("deepseek_key", "");
+      const before = ${JSON.stringify(settingsBeforeDr || {})};
+      await window.luminaApi.saveSettings({ ...before, digestReportAuto: before.digestReportAuto !== false });
+      return true;
+    `);
+    pass("SUB-DR-key-clean", "DeepSeek 钥匙串与 LLM 配置已恢复");
+  } else {
+    skip("SUB-DR", "摘要+总报告 DeepSeek 烟测", "未设 DEEPSEEK_API_KEY");
+  }
+
+  // SUB11: markRead persistence + unread badge
+  const subRead = "smoke_read_" + Date.now();
+  await evalJs(cdp, `await window.luminaApi.subsSave(${JSON.stringify({ id: subRead, name: "read test", kind: "keyword", q: "covid vaccine", freq: "daily", autoSummarize: "off", enabled: true, seenIds: [], readIds: [], today: [] })});`);
+  const runR = await evalJs(cdp, `
+    const subs = await window.luminaApi.subsList();
+    const s = subs.find(x => x.id === ${JSON.stringify(subRead)});
+    return await window.luminaApi.subsRunNow(s);
+  `);
+  const hitId = runR?.hits?.[0]?.id;
+  if (!hitId) skip("SUB11", "markRead 持久化", "无命中");
+  else {
+    const beforeBadge = await evalJs(cdp, `
+      const subs = await window.luminaApi.subsList();
+      const s = subs.find(x => x.id === ${JSON.stringify(subRead)});
+      const read = new Set(Array.isArray(s.readIds) ? s.readIds : []);
+      const today = Array.isArray(s.today) ? s.today : [];
+      return { total: today.length, unread: today.filter(p => p && p.id && !read.has(p.id)).length };
+    `);
+    await evalJs(cdp, `return await window.luminaApi.subsMarkRead(${JSON.stringify(hitId)}, [${JSON.stringify(subRead)}]);`);
+    const after = await evalJs(cdp, `
+      const subs = await window.luminaApi.subsList();
+      const s = subs.find(x => x.id === ${JSON.stringify(subRead)});
+      const read = new Set(Array.isArray(s.readIds) ? s.readIds : []);
+      return { readHas: read.has(${JSON.stringify(hitId)}), unread: (s.today||[]).filter(p => p && p.id && !read.has(p.id)).length };
+    `);
+    after.readHas && after.unread === Math.max(0, beforeBadge.unread - 1)
+      ? pass("SUB11", "markRead 持久化 + 待读减 1", `unread ${beforeBadge.unread}→${after.unread}`)
+      : fail("SUB11", "markRead", JSON.stringify({ beforeBadge, after }));
+    await evalJs(cdp, `await window.luminaApi.subsRemove(${JSON.stringify(subRead)});`);
+  }
+
+  if (restoreDigestTier) {
+    await evalJs(cdp, `
+      const cur = await window.luminaApi.getSettings();
+      await window.luminaApi.saveSettings({ ...cur, digestNotifyTier: ${JSON.stringify(restoreDigestTier)} });
+      return true;
+    `);
+  }
 
   cdp.ws.close();
 } catch (e) {

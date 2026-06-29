@@ -43,7 +43,17 @@ contextBridge.exposeInMainWorld("luminaApi", {
   subsSave: (sub: unknown) => invoke("subs:save", sub),
   subsRemove: (id: string) => invoke("subs:remove", id),
   subsRunNow: (sub: unknown, opts?: unknown) => invoke("subs:runNow", sub, opts),
+  subsRunAllNow: () => invoke("subs:runAllNow"),
+  subsMarkRead: (paperId: string, subIds?: string[]) => invoke("subs:markRead", paperId, subIds),
+  subsMarkAllRead: (scopeSubId?: string) => invoke("subs:markAllRead", scopeSubId),
   subsPreview: (draft: unknown) => invoke("subs:preview", draft),
+  digestReportGet: (scope?: string) => invoke("digestReport:get", scope),
+  digestReportGenerate: (opts?: unknown) => invoke("digestReport:generate", opts),
+  onDigestReportUpdated: (cb: (p: unknown) => void) => {
+    const handler = (_e: unknown, payload: unknown) => cb(payload);
+    ipcRenderer.on("digest:reportUpdated", handler);
+    return () => ipcRenderer.removeListener("digest:reportUpdated", handler);
+  },
   onSubsProgress: (cb: (p: unknown) => void) => {
     const handler = (_e: unknown, payload: unknown) => cb(payload);
     ipcRenderer.on("subs:progress", handler);
@@ -53,6 +63,16 @@ contextBridge.exposeInMainWorld("luminaApi", {
     const handler = (_e: unknown, payload: unknown) => cb(payload);
     ipcRenderer.on("subs:updated", handler);
     return () => ipcRenderer.removeListener("subs:updated", handler);
+  },
+  onSubsBatchProgress: (cb: (p: unknown) => void) => {
+    const handler = (_e: unknown, payload: unknown) => cb(payload);
+    ipcRenderer.on("subs:batchProgress", handler);
+    return () => ipcRenderer.removeListener("subs:batchProgress", handler);
+  },
+  onAppNavigate: (cb: (payload: unknown) => void) => {
+    const handler = (_e: unknown, payload: unknown) => cb(payload);
+    ipcRenderer.on("app:navigate", handler);
+    return () => ipcRenderer.removeListener("app:navigate", handler);
   },
   getCachedSummary: (paperId: string, depth?: string, language?: string) => invoke("summaries:get", paperId, depth, language),
   libraryList: () => invoke("library:list"),

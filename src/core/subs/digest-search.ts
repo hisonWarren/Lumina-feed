@@ -55,8 +55,44 @@ export function normalizeSubscription(sub: Record<string, unknown> | null | unde
     time: "08:00",
     ...sub,
     seenIds: Array.isArray(sub.seenIds) ? sub.seenIds : [],
+    readIds: Array.isArray(sub.readIds) ? sub.readIds : [],
     today: Array.isArray(sub.today) ? sub.today : [],
   };
+}
+
+/** 用户「标记已读」持久化 id 集合（与引擎 seenIds 去重分离） */
+export function subscriptionReadIds(sub: Record<string, unknown> | null | undefined): Set<string> {
+  if (!sub) return new Set();
+  return new Set((Array.isArray(sub.readIds) ? sub.readIds : []).map(String));
+}
+
+export function todayPaperList(sub: Record<string, unknown> | null | undefined): Paper[] {
+  if (!sub || !Array.isArray(sub.today)) return [];
+  return (sub.today as Paper[]).filter((p) => p && typeof p === "object" && p.id);
+}
+
+/** 单订阅待读数（today 中未在 readIds 的条数） */
+export function unreadTodayCount(sub: Record<string, unknown> | null | undefined): number {
+  if (!sub || sub.enabled === false) return 0;
+  const read = subscriptionReadIds(sub);
+  return todayPaperList(sub).filter((p) => !read.has(p.id)).length;
+}
+
+/** 顶栏/托盘待读徽标：各启用订阅待读之和 */
+export function countSubsUnread(subs: Record<string, unknown>[]): number {
+  return (Array.isArray(subs) ? subs : []).reduce((n, sub) => n + unreadTodayCount(sub), 0);
+}
+
+export function isPaperUnread(sub: Record<string, unknown>, paperId: string): boolean {
+  return todayPaperList(sub).some((p) => p.id === paperId) && !subscriptionReadIds(sub).has(paperId);
+}
+
+export function withPaperMarkedRead(sub: Record<string, unknown>, paperId: string): Record<string, unknown> {
+  const todayIds = new Set(todayPaperList(sub).map((p) => p.id));
+  if (!todayIds.has(paperId)) return sub;
+  const merged = new Set([...subscriptionReadIds(sub), paperId]);
+  const readIds = [...merged].filter((id) => todayIds.has(id)).slice(-500);
+  return { ...sub, readIds };
 }
 
 export type DigestNotifyTier = "calm" | "regular" | "power";

@@ -20,7 +20,11 @@ has("src/core/subs/digest-ai.ts", /readCachedSummary/, "缓存总结读取");
 has("src/core/subs/digest-search.ts", /DIGEST_EXCLUDE_SOURCES/, "排除 libgen/annas/scihub");
 has("src/core/subs/digest-search.ts", /JOURNAL_DIGEST_SOURCES/, "期刊 8 源白名单");
 has("src/core/subs/digest-search.ts", /mergeDigestDisabled/, "mergeDigestDisabled");
-has("src/core/subs/digest-search.ts", /normalizeSubscription/, "normalizeSubscription");
+has("src/core/subs/digest-search.ts", /readIds/, "readIds 用户已读");
+has("src/core/subs/digest-search.ts", /countSubsUnread/, "countSubsUnread 待读徽标");
+has("electron/ipc.ts", /subs:markRead/, "subs:markRead IPC");
+has("electron/ipc.ts", /subs:markAllRead/, "subs:markAllRead IPC");
+has("src/ui/lib/subs-unread.js", /countSubsUnread/, "渲染层 subs-unread");
 has("src/core/subs/digest-search.ts", /dedupeDigestPapers/, "跨订阅 DOI 去重");
 
 console.log("\n[2] IPC 引擎对齐");
@@ -56,6 +60,20 @@ has("src/ui/modules/Subscriptions.jsx", /runProgress/, "runNow 进度");
 has("electron/preload.ts", /onSubsProgress/, "preload onSubsProgress");
 has("electron/preload.ts", /getCachedSummary/, "preload getCachedSummary");
 has("src/ui/lumina-bridge.js", /digestSummary/, "digestSummary 卡片字段");
+
+console.log("\n[5] 今日简报总报告");
+for (const p of ["src/core/subs/digest-report.ts", "src/ui/components/DigestAbstract.jsx", "src/ui/components/DigestReportHero.jsx"]) {
+  existsSync(F(p)) ? ok(p) : ng("缺 " + p);
+}
+has("electron/ipc.ts", /digestReport:get/, "digestReport:get IPC");
+has("electron/ipc.ts", /digestReport:generate/, "digestReport:generate IPC");
+has("electron/ipc.ts", /scheduleDigestReport/, "scheduleDigestReport 调度");
+has("electron/preload.ts", /digestReportGet/, "preload digestReportGet");
+has("electron/settings.ts", /digestReportAuto/, "digestReportAuto 设置");
+has("src/ui/modules/Subscriptions.jsx", /DigestAbstract/, "列表摘要展示");
+has("src/ui/modules/Subscriptions.jsx", /DigestReportHero/, "报告 Hero");
+has("src/ui/modules/Subscriptions.jsx", /dg-view-seg/, "扫描/报告视图切换");
+has("src/ui/modules/Settings.jsx", /digestReportAuto/, "设置页总报告开关");
 
 console.log(`\n=== verify: ${pass} passed, ${fail} failed ===`);
 process.exit(fail ? 1 : 0);

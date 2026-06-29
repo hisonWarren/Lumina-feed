@@ -6,7 +6,7 @@ import path from "node:path";
 import type { Store } from "../src/core/store/index.ts";
 import type { SecretStore } from "../src/core/secrets/keyvault.ts";
 import type { Paper } from "../src/core/model.ts";
-import { rawToSpec } from "../src/core/querySpec.ts";
+import { rawToSpec, type QueryFilters } from "../src/core/querySpec.ts";
 import { aggregateSearch, aggregateSearchStream, searchSingleSource } from "../src/core/aggregate.ts";
 import { runLocateKeywordStream } from "../src/core/locate/locate-stream.ts";
 import { titleFastLane } from "../src/core/locate/title-fast-lane.ts";
@@ -46,6 +46,7 @@ import type { SearchOpts } from "../src/core/sources/adapter.ts";
 import { shouldSignalMissingEmail } from "../src/core/oa/oa-extended.ts";
 import {
   applyDigestSearchOpts, buildDigestSpec, normalizeSubscription, freshHits, type DigestRunMeta,
+  withPaperMarkedRead, todayPaperList, subscriptionReadIds,
 } from "../src/core/subs/digest-search.ts";
 import {
   type FetchContext,
@@ -72,6 +73,9 @@ import {
   digestSummarizeOpts, generateDigestBlurb, mergeAiOntoToday,
   pickAbstractTargets, pickBlurbTargets, pickTopNTargets, readCachedSummary,
 } from "../src/core/subs/digest-ai.ts";
+import {
+  dateKeyOf, loadDigestReport, runDigestReportGeneration, type DigestReport,
+} from "../src/core/subs/digest-report.ts";
 
 export interface IpcDeps {
   store: Store;
@@ -82,6 +86,32 @@ function broadcastSubsUpdated(payload: Record<string, unknown> = {}): void {
   for (const w of BrowserWindow.getAllWindows()) {
     if (!w.isDestroyed()) try { w.webContents.send("subs:updated", payload); } catch { /* ignore */ }
   }
+  pokeTrayRefresh();
+}
+
+function broadcastSubsBatchProgress(payload: Record<string, unknown>): void {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) try { w.webContents.send("subs:batchProgress", payload); } catch { /* ignore */ }
+  }
+  pokeTrayRefresh();
+}
+
+function broadcastDigestReportUpdated(payload: Record<string, unknown> = {}): void {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) try { w.webContents.send("digest:reportUpdated", payload); } catch { /* ignore */ }
+  }
+}
+
+let traySearchInflightFn: () => number = () => 0;
+let traySubsBatchRunning = false;
+let trayRefreshHook: (() => void) | null = null;
+
+export function bindTraySearchInflight(fn: () => number): void { traySearchInflightFn = fn; }
+export function setTrayRefreshHook(fn: () => void): void { trayRefreshHook = fn; }
+function pokeTrayRefresh(): void { try { trayRefreshHook?.(); } catch { /* ignore */ } }
+
+export function getTrayMetrics(): { searchInflight: number; fetchQueue: ReturnType<typeof fetchQueueStatus>; subsBatchRunning: boolean } {
+  return { searchInflight: traySearchInflightFn(), fetchQueue: fetchQueueStatus(), subsBatchRunning: traySubsBatchRunning };
 }
 
 /** 统一异常 → 拒绝信封（ISSUE-001/004）：分析类 IPC 失败时不返回 null，而给结构化拒绝原因，UI 可显示。 */
@@ -144,6 +174,7 @@ export function registerIpc(deps: IpcDeps): void {
   const prefetchQueue: PrefetchJob[] = [];
   let prefetchActive = 0;
   let searchInflight = 0;
+  bindTraySearchInflight(() => searchInflight);
   type DeferredPrefetch =
     | { kind: "oa"; sender: WebContents; paperId: string }
     | { kind: "locate"; sender: WebContents; paperId: string; resolvedFrom?: string[]; locateMode: "identifier" | "primary" };
@@ -270,7 +301,7 @@ export function registerIpc(deps: IpcDeps): void {
   async function executeSearchOnlineStream(
     e: { sender: WebContents },
     raw: string,
-    filters: unknown,
+    filters: QueryFilters | undefined,
     reqId: number,
   ): Promise<void> {
     beginSearchInflight();
@@ -313,7 +344,7 @@ export function registerIpc(deps: IpcDeps): void {
           return;
         }
       }
-      const agg = await runLocateKeywordStream(raw, filters, opts, (payload) => {
+      const agg = await runLocateKeywordStream(raw, filters ?? {}, opts, (payload) => {
         send({ reqId, ...payload });
         if (Array.isArray(payload.papers) && payload.papers.length) {
           scheduleOaResultsPrefetch(e.sender, payload.papers as Paper[]);
@@ -992,6 +1023,72 @@ export function registerIpc(deps: IpcDeps): void {
     runSubscriptionNow(sub, store, secrets, () => buildDigestSearchOpts(false), { sender: e.sender, asyncAi: opts?.asyncAi !== false }));
   ipcMain.handle("subs:preview", async (e, draft: any) =>
     runSubscriptionNow(draft, store, secrets, () => buildDigestSearchOpts(true), { preview: true, sender: e.sender }));
+  ipcMain.handle("subs:runAllNow", () => runAllSubscriptionsNow(store, secrets));
+  ipcMain.handle("subs:markRead", (_e, paperId: string, subIds?: string[]) => {
+    if (!paperId || typeof paperId !== "string") return { ok: false, updated: 0 };
+    try {
+      ensureSubs();
+      const filter = Array.isArray(subIds) && subIds.length ? new Set(subIds.map(String)) : null;
+      const rows = store.db.prepare("SELECT id, payload FROM subscriptions").all() as Array<{ id: string; payload: string }>;
+      let updated = 0;
+      for (const row of rows) {
+        let sub: Record<string, unknown>;
+        try { sub = normalizeSubscription(JSON.parse(row.payload)) as Record<string, unknown>; } catch { continue; }
+        if (filter && !filter.has(String(sub.id ?? row.id))) continue;
+        const inToday = todayPaperList(sub).some((p) => p.id === paperId);
+        if (!inToday) continue;
+        const next = withPaperMarkedRead(sub, paperId);
+        store.db.prepare("INSERT INTO subscriptions(id,payload,updated_at) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload, updated_at=excluded.updated_at")
+          .run(String(sub.id ?? row.id), JSON.stringify(next), new Date().toISOString());
+        updated++;
+      }
+      if (updated) broadcastSubsUpdated({ markedRead: paperId });
+      return { ok: true, updated };
+    } catch { return { ok: false, updated: 0 }; }
+  });
+  ipcMain.handle("subs:markAllRead", (_e, scopeSubId?: string) => {
+    try {
+      ensureSubs();
+      const rows = store.db.prepare("SELECT id, payload FROM subscriptions").all() as Array<{ id: string; payload: string }>;
+      let updated = 0;
+      for (const row of rows) {
+        let sub: Record<string, unknown>;
+        try { sub = normalizeSubscription(JSON.parse(row.payload)) as Record<string, unknown>; } catch { continue; }
+        if (sub.enabled === false) continue;
+        if (scopeSubId && scopeSubId !== "all" && String(sub.id ?? row.id) !== scopeSubId) continue;
+        const papers = todayPaperList(sub);
+        if (!papers.length) continue;
+        const readIds = [...new Set([...papers.map((p) => p.id), ...Array.from(subscriptionReadIds(sub))])].slice(-500);
+        const next = { ...sub, readIds };
+        store.db.prepare("INSERT INTO subscriptions(id,payload,updated_at) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload, updated_at=excluded.updated_at")
+          .run(String(sub.id ?? row.id), JSON.stringify(next), new Date().toISOString());
+        updated++;
+      }
+      if (updated) broadcastSubsUpdated({ markAllRead: true, scope: scopeSubId || "all" });
+      return { ok: true, updated };
+    } catch { return { ok: false, updated: 0 }; }
+  });
+
+  ipcMain.handle("digestReport:get", (_e, scope?: string) => {
+    try {
+      const dateKey = dateKeyOf();
+      const sc = scope && scope !== "all" ? String(scope) : "all";
+      return loadDigestReport(store, dateKey, sc);
+    } catch {
+      return loadDigestReport(store, dateKeyOf(), "all");
+    }
+  });
+  ipcMain.handle("digestReport:generate", async (_e, opts?: { scope?: string; force?: boolean }) => {
+    try {
+      const report = await generateDigestReportNow(store, secrets, {
+        scope: opts?.scope && opts.scope !== "all" ? String(opts.scope) : "all",
+        force: !!opts?.force,
+      });
+      return { ok: true, report };
+    } catch (e) {
+      return { ok: false, error: (e && (e as Error).message) || "failed" };
+    }
+  });
 
   // ── library（工作集持久化）+ lists（单层清单持久化）+ 富集（有全文/有总结/总结正文）──
   // 注：批注按"文件名:字节数"为 docKey（见 Reader），与 paperId 不一一对应，故"有批注/批注数"留后续（需 paperId↔docKey 映射）。
@@ -1163,6 +1260,67 @@ export function registerIpc(deps: IpcDeps): void {
 
 // ── 订阅运行核心（手动 runNow / preview / 调度器共用）──
 let digestSearchOptsFactory: (preview?: boolean) => Promise<SearchOpts> = async () => ({ limit: 25 });
+let digestReportJob: Promise<DigestReport | null> | null = null;
+
+function listAllSubscriptions(db: Store["db"]): Record<string, unknown>[] {
+  ensureSubsTable(db);
+  const rows = db.prepare("SELECT payload FROM subscriptions ORDER BY updated_at DESC").all() as Array<{ payload: string }>;
+  const out: Record<string, unknown>[] = [];
+  for (const row of rows) {
+    try { out.push(normalizeSubscription(JSON.parse(row.payload)) as Record<string, unknown>); } catch { /* skip */ }
+  }
+  return out;
+}
+
+async function generateDigestReportNow(
+  store: Store,
+  secrets: SecretStore,
+  opts: { scope?: "all" | string; force?: boolean } = {},
+): Promise<DigestReport | null> {
+  const scope = opts.scope || "all";
+  const dateKey = dateKeyOf();
+  const settings = await loadAppSettings(store);
+  if (!opts.force && settings.digestReportAuto === false) {
+    const skipped = loadDigestReport(store, dateKey, scope);
+    if (skipped.status === "idle") {
+      skipped.status = "skipped";
+      skipped.skippedReason = "auto_off";
+    }
+    return skipped;
+  }
+  if (!settings.llm) {
+    const r = loadDigestReport(store, dateKey, scope);
+    r.status = "skipped";
+    r.skippedReason = "llm_not_configured";
+    return r;
+  }
+  let llm: Awaited<ReturnType<typeof llmFromConfig>>;
+  try {
+    llm = await llmFromConfig(settings.llm, () => secrets.get(`${settings.llm!.provider}_key`));
+  } catch {
+    const r = loadDigestReport(store, dateKey, scope);
+    r.status = "failed";
+    r.error = "llm_init_failed";
+    return r;
+  }
+  const subs = listAllSubscriptions(store.db);
+  const report = await runDigestReportGeneration(store, llm, subs, scope, dateKey);
+  broadcastDigestReportUpdated({ scope, status: report.status, dateKey });
+  return report;
+}
+
+function scheduleDigestReport(store: Store, secrets: SecretStore, scope: "all" | string = "all"): void {
+  void (async () => {
+    const settings = await loadAppSettings(store);
+    if (settings.digestReportAuto === false) return;
+    if (digestReportJob) {
+      await digestReportJob.catch(() => null);
+    }
+    digestReportJob = generateDigestReportNow(store, secrets, { scope, force: false });
+    await digestReportJob.catch(() => null);
+    digestReportJob = null;
+  })();
+}
 
 function ensureSubsTable(db: Store["db"]): void {
   db.exec("CREATE TABLE IF NOT EXISTS subscriptions(id TEXT PRIMARY KEY, payload TEXT, updated_at TEXT);");
@@ -1325,6 +1483,7 @@ async function runSubscriptionNow(
             await persistSubscriptionToday(store, norm, todayMerged, seen, fresh, meta);
             emitSubsProgress(sender, subId, { phase: "ai", mode: mode as "blurb", current: aiMeta.processed, total: aiMeta.total, label: "AI 完成" });
             if (sender && !sender.isDestroyed()) sender.send("subs:updated", { subId, ai: aiMeta });
+            scheduleDigestReport(store, secrets, "all");
           } catch {
             if (sender && !sender.isDestroyed()) sender.send("subs:updated", { subId, ai: { status: "failed", mode } });
           }
@@ -1343,6 +1502,7 @@ async function runSubscriptionNow(
       try {
         await persistSubscriptionToday(store, norm, todayMerged, seen, fresh, meta);
       } catch { /* 持久化失败不阻断 */ }
+      scheduleDigestReport(store, secrets, "all");
     }
     return {
       ok: true,
@@ -1369,6 +1529,54 @@ function isSubDue(sub: any, now: Date): boolean {
   const ranToday = !!last && last.toDateString() === now.toDateString();
   return !ranToday && now.getTime() >= sched.getTime();
 }
+/** 托盘 · 立即检查全部订阅（忽略到期闸，逐个 runNow） */
+export async function runAllSubscriptionsNow(
+  store: Store,
+  secrets: SecretStore,
+): Promise<{ ok: boolean; ran: number; newTotal: number; error?: string }> {
+  if (traySubsBatchRunning) {
+    broadcastSubsBatchProgress({ phase: "done", ok: false, error: "already_running" });
+    return { ok: false, ran: 0, newTotal: 0, error: "already_running" };
+  }
+  traySubsBatchRunning = true;
+  pokeTrayRefresh();
+  broadcastSubsBatchProgress({ phase: "start" });
+  try {
+    ensureSubsTable(store.db);
+    const rows = store.db.prepare("SELECT payload FROM subscriptions").all() as Array<{ payload: string }>;
+    const queue: Record<string, unknown>[] = [];
+    for (const row of rows) {
+      let sub: Record<string, unknown>;
+      try { sub = normalizeSubscription(JSON.parse(row.payload)) as Record<string, unknown>; } catch { continue; }
+      if (sub.enabled === false) continue;
+      queue.push(sub);
+    }
+    let ran = 0;
+    let newTotal = 0;
+    const total = queue.length;
+    for (let i = 0; i < queue.length; i++) {
+      const sub = queue[i];
+      const label = String(sub.name || sub.q || "订阅").slice(0, 40);
+      broadcastSubsBatchProgress({ phase: "run", current: i + 1, total, label });
+      const res = await runSubscriptionNow(sub, store, secrets, () => digestSearchOptsFactory(false), { asyncAi: true });
+      if (res.ok) {
+        ran++;
+        newTotal += typeof res.newCount === "number" ? res.newCount : 0;
+      }
+    }
+    broadcastSubsUpdated({ source: "tray-run-all", ran, newTotal });
+    broadcastSubsBatchProgress({ phase: "done", ok: true, ran, newTotal });
+    if (newTotal > 0) scheduleDigestReport(store, secrets, "all");
+    return { ok: true, ran, newTotal };
+  } catch {
+    broadcastSubsBatchProgress({ phase: "done", ok: false, error: "failed" });
+    return { ok: false, ran: 0, newTotal: 0, error: "failed" };
+  } finally {
+    traySubsBatchRunning = false;
+    pokeTrayRefresh();
+  }
+}
+
 /** 订阅调度器：启动后 ~30s 跑一次，此后每 ~10 分钟检查到期订阅并真检索。通知档位见 settings.digestNotifyTier。 */
 export function startSubsScheduler(store: Store, secrets: SecretStore): void {
   const tick = async () => {
@@ -1412,6 +1620,7 @@ export function startSubsScheduler(store: Store, secrets: SecretStore): void {
           }
         } catch { /* ignore */ }
       }
+      if (batchTotal > 0) scheduleDigestReport(store, secrets, "all");
     } catch { /* 调度循环不抛 */ }
   };
   setTimeout(() => { void tick(); }, 30 * 1000);

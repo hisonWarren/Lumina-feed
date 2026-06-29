@@ -1,7 +1,7 @@
 // lumina-feed · Electron 入口（干净基线：检索 · 取文 · 接地总结）
 import { app, BrowserWindow, ipcMain, shell, Tray, Menu, nativeImage, dialog, type MenuItemConstructorOptions } from "electron";
 import path from "node:path";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, statSync, readFileSync, mkdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 
 import { openBetterSqlite } from "../src/core/store/db.ts";
@@ -12,6 +12,14 @@ import { registerIpc, startSubsScheduler } from "./ipc.ts";
 import { loadAppSettings, saveAppSettings } from "./settings.ts";
 import { installDefaultLimiters } from "../src/core/sources/rate-limit.ts";
 import { installContextMenuBridge, runContextAction } from "./context-menu.ts";
+import { installTrayMenuController, type AppNavigatePayload } from "./tray-menu.ts";
+
+function appVersion(): string {
+  try {
+    const p = path.join(__dirname, "..", "package.json");
+    return String(JSON.parse(readFileSync(p, "utf-8")).version || "0.0.0");
+  } catch { return "0.0.0"; }
+}
 
 // 开发版与安装版隔离 userData，避免 npm start / 烟测数据污染正式安装包
 const userDataDir = app.isPackaged ? "Lumina Feed" : "Lumina Feed Dev";
@@ -25,6 +33,49 @@ const secrets = keytarStore();
 let tray: Tray | null = null;
 let minimizeToTray = false;
 let isQuiting = false;
+let disposeTrayMenu: (() => void) | null = null;
+
+function pdfDirPath(): string {
+  const d = path.join(app.getPath("userData"), "pdfs");
+  try { mkdirSync(d, { recursive: true }); } catch { /* ignore */ }
+  return d;
+}
+function pdfPathForPaper(id: string): string {
+  return path.join(pdfDirPath(), encodeURIComponent(id) + ".pdf");
+}
+
+function showMainWindow(): void {
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  } else {
+    void createWindow();
+  }
+}
+
+function navigateRenderer(payload: AppNavigatePayload): void {
+  if (win && !win.isDestroyed()) {
+    try { win.webContents.send("app:navigate", payload); } catch { /* ignore */ }
+  }
+}
+
+function wireTrayMenu(): void {
+  if (!tray || !store) return;
+  disposeTrayMenu?.();
+  disposeTrayMenu = installTrayMenuController({
+    tray,
+    getWin: () => win,
+    store,
+    secrets,
+    navigate: navigateRenderer,
+    sendOpenPdf: sendOpenPdf,
+    onQuit: () => { isQuiting = true; app.quit(); },
+    ensureWindow: () => { void createWindow(); },
+    version: appVersion(),
+    pdfPath: pdfPathForPaper,
+  });
+}
 
 function assetPath(...parts: string[]): string {
   return path.join(__dirname, "..", ...parts);
@@ -90,12 +141,8 @@ function createTray(): boolean {
     if (img.isEmpty()) return false;
     tray = new Tray(img);
     tray.setToolTip("Lumina Feed");
-    tray.setContextMenu(Menu.buildFromTemplate([
-      { label: "显示 Lumina", click: () => { if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } else void createWindow(); } },
-      { type: "separator" },
-      { label: "退出 Lumina", click: () => { isQuiting = true; app.quit(); } },
-    ]));
-    tray.on("click", () => { if (win) { win.isVisible() && !win.isMinimized() ? win.focus() : (win.show(), win.focus()); } });
+    tray.on("click", () => { showMainWindow(); });
+    wireTrayMenu();
     return true;
   } catch { return false; }
 }
@@ -218,7 +265,7 @@ app.whenReady().then(async () => {
   startSubsScheduler(store, secrets); // 订阅调度：到期自动检索 + 通知（后台开启时关窗仍继续）
 });
 
-app.on("before-quit", () => { isQuiting = true; });
+app.on("before-quit", () => { isQuiting = true; disposeTrayMenu?.(); });
 
 app.on("window-all-closed", () => {
   if (minimizeToTray) return; // 后台运行：不退出，调度器与托盘保活

@@ -31,10 +31,16 @@ ok(has(ipc, "ok: false") || has(read("src/core/oa/pdf-fetch.ts"), "reason"), "BU
 console.log("\n[1] 后台运行 / 托盘（main 进程）");
 ok(has(main, "Tray, Menu, nativeImage") && has(main, "function createTray()"), "导入 Tray/Menu/nativeImage + createTray");
 ok(has(main, "nativeImage.createFromPath") && has(main, "img.isEmpty()"), "托盘图标缺失时跳过（dev 未构建不报错）");
-ok(has(main, "显示 Lumina") && has(main, "退出 Lumina"), "托盘菜单：显示 / 退出");
+ok(has(main, "installTrayMenuController") || read("electron/tray-menu.ts"), "托盘菜单模块 installTrayMenuController");
+const trayMenu = read("electron/tray-menu.ts");
+ok(has(trayMenu, "今日简报") && has(trayMenu, "继续阅读") && has(trayMenu, "立即检查全部订阅"), "托盘菜单：简报 / 继续阅读 / 检查订阅");
+ok(has(trayMenu, "设置") && has(trayMenu, "退出 Lumina") && has(trayMenu, "打开 PDF"), "托盘菜单：设置 / 打开 PDF / 退出");
+ok(has(trayMenu, "隐藏主窗口") || has(trayMenu, "显示 Lumina"), "托盘菜单：显示/隐藏主窗口");
 ok(has(main, 'win.on("close"') && has(main, "minimizeToTray") && has(main, "ensureTray()") && has(main, "win.hide()"), "关窗 → 托盘就绪则最小化，否则提示并正常关闭");
 ok(has(main, 'app.on("before-quit"') && has(main, "isQuiting = true"), "before-quit 置 isQuiting（允许真退出）");
 ok(has(main, "if (minimizeToTray) return;") && has(main, "window-all-closed"), "window-all-closed：后台开启不退出（调度器/托盘保活）");
+ok(has(preload, "onAppNavigate") && has(preload, "app:navigate"), "preload 托盘导航 app:navigate");
+ok(has(ipc, "subs:runAllNow") && has(ipc, "runAllSubscriptionsNow"), "IPC subs:runAllNow 立即检查全部订阅");
 
 console.log("\n[2] 开机启动 + 设置同步");
 ok(has(main, "app.setLoginItemSettings({ openAtLogin"), "开机自启 setLoginItemSettings（系统级，built-in）");

@@ -7,8 +7,11 @@ import { Rss, Clock, Plus, Inbox, Download, X, Check, Pause, Play, Pencil, Trash
 import { bridge, hasBackend } from "../lumina-bridge.js";
 import FetchBadges from "../FetchBadges.jsx";
 import DigestMatchWhy from "../components/DigestMatchWhy.jsx";
+import DigestAbstract from "../components/DigestAbstract.jsx";
+import DigestReportHero, { DigestReportReader } from "../components/DigestReportHero.jsx";
 import DigestSourceLine from "../components/DigestSourceLine.jsx";
 import { dedupeDigestEntries, DIGEST_PAGE } from "../lib/digest-ui.js";
+import { unreadTodayCount } from "../lib/subs-unread.js";
 import { isFetched, fetchProgressUi } from "../fetch-meta.js";
 
 const FREQ = { daily: "每日", weekly: "每周", hourly: "每小时" };
@@ -43,6 +46,8 @@ const SUBS_CSS = `
 .dg-head p.brief-lead{font-size:13.5px;color:var(--ink2);margin:12px 0 0;line-height:1.6;text-wrap:pretty}
 .dg-head p.brief-lead b,.dg-head p.brief-lead .keep{white-space:nowrap}
 .dg-batch{display:inline-flex;align-items:center;gap:7px;border:none;background:var(--gold);color:#fff;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap}
+.dg-markall{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:10px;padding:9px 14px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;white-space:nowrap}
+.dg-markall:hover{border-color:var(--gold);color:var(--gold)}
 .dg-note{display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:1.55;color:#9a6b2e;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:10px;padding:10px 13px;margin:12px 0 0}
 .dg-note svg{flex-shrink:0;margin-top:1px}
 .dg-list{flex:1;min-height:0;overflow-y:auto;padding:14px 26px 28px;display:flex;flex-direction:column;gap:12px}
@@ -92,7 +97,7 @@ const SUBS_CSS = `
 .subkind{font-size:10px;font-family:'Space Mono',monospace;background:rgba(14,124,111,.1);color:var(--gold);border-radius:5px;padding:1px 5px;margin-right:5px}
 `;
 
-function DigestItem({ p, query, subLabels, fetchedMeta, fetchingMeta, onFetch, onReadPaper, onRead, pushToast, fetchOpts }) {
+function DigestItem({ p, query, subLabels, subIds, fetchedMeta, fetchingMeta, onFetch, onReadPaper, onRead, pushToast, fetchOpts }) {
   const [sum, setSum] = useState(null);
   const [summing, setSumming] = useState(false);
   const got = isFetched(fetchedMeta);
@@ -118,12 +123,13 @@ function DigestItem({ p, query, subLabels, fetchedMeta, fetchingMeta, onFetch, o
   };
   const hasAutoSum = !!(sum && (p.digestSummary || p.digestSummaryBasis));
   return (
-    <div className="dg-item">
+    <div className="dg-item" id={"digest-card-" + p.id}>
       <div className="dg-t">{p.title}</div>
       <div className="dg-m">{(p.authors || [])[0]}{(p.authors || []).length > 1 ? " 等" : ""}{p.journal ? " · " + p.journal : ""}{p.year ? " · " + p.year : ""}</div>
+      <DigestAbstract abstract={p.abstract} />
       <DigestMatchWhy paper={p} query={query} subLabels={subLabels} />
       <DigestSourceLine sources={p.hitSources} />
-      {p.digestBlurb && <div className="dg-blurb">{p.digestBlurb}</div>}
+      {p.digestBlurb && <div className="dg-blurb"><span className="dg-blurb-label">AI·相关</span>{p.digestBlurb}</div>}
       <FetchBadges p={p} fetchedMeta={fetchedMeta} badgePrefix="dg-b" compact />
       {sum && (
         <div className="dg-sum"><span className="dg-basis">● {sum.sourceBasis === "fulltext" || sum.sourceBasis === "full" ? "基于全文" : "基于摘要"}{hasAutoSum ? " · 自动" : ""}</span><div>{sum.summaryText || sum.text}</div></div>
@@ -134,7 +140,7 @@ function DigestItem({ p, query, subLabels, fetchedMeta, fetchingMeta, onFetch, o
         </button>
         {got && onReadPaper && <button className="dg-act" onClick={() => onReadPaper(p)}><BookOpen size={13} /> 阅读</button>}
         <button className="dg-act" onClick={doSum} disabled={summing}>{summing ? <><Loader size={13} className="rd-spin" /> 总结中…</> : sum ? <><Sparkles size={13} /> 重新总结</> : <><Sparkles size={13} /> AI 总结</>}</button>
-        <button className="dg-act" onClick={() => onRead(p.id)}><Check size={13} /> 标记已读</button>
+        <button className="dg-act" onClick={() => onRead(p.id, subIds)}><Check size={13} /> 标记已读</button>
       </div>
     </div>
   );
@@ -223,16 +229,22 @@ function SubDialog({ initial, onClose, onSave }) {
   );
 }
 
-export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMeta = {}, fetchTick = 0, onFetch: onFetchProp, onFetchBatch, onReadPaper, onSubsChange, inLibFn }) {
+export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMeta = {}, fetchTick = 0, onFetch: onFetchProp, onFetchBatch, onReadPaper, onSubsChange, inLibFn, onOpenSettings }) {
   const [subs, setSubs] = useState([]);
   const [activeSub, setActiveSub] = useState("all");
-  const [seen, setSeen] = useState({});
   const [dlgOpen, setDlgOpen] = useState(false);
   const [editSub, setEditSub] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadMore, setLoadMore] = useState({});
   const [runProgress, setRunProgress] = useState(null);
+  const [digestReport, setDigestReport] = useState(null);
+  const [reportGenerating, setReportGenerating] = useState(false);
+  const [viewMode, setViewMode] = useState("scan");
+  const [reportCollapsed, setReportCollapsed] = useState(() => {
+    try { return localStorage.getItem("lumina_digest_report_collapsed") === "1"; } catch { return false; }
+  });
   const backend = hasBackend();
+  const reportScope = activeSub === "all" ? "all" : activeSub;
 
   useEffect(() => {
     let alive = true; setLoading(true);
@@ -243,6 +255,88 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
     const onKey = (e) => { if (e.key === "Escape" && dlgOpen) { setDlgOpen(false); setEditSub(null); } };
     window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
   }, [dlgOpen]);
+
+  useEffect(() => {
+    if (!backend || !bridge.onSubsBatchProgress) return;
+    return bridge.onSubsBatchProgress((p) => {
+      if (!p) return;
+      if (p.phase === "run") {
+        setRunProgress({ label: `检查订阅 (${p.current}/${p.total})：${p.label || ""}`, current: p.current || 0, total: p.total || 0 });
+      } else if (p.phase === "start") {
+        setRunProgress({ label: "正在检查全部订阅…", current: 0, total: 0 });
+      } else if (p.phase === "done") {
+        setRunProgress(null);
+        if (p.ok) {
+          const msg = p.newTotal > 0
+            ? `全部订阅已检查 · 新增 ${p.newTotal} 条待读（${p.ran} 个订阅）`
+            : `全部订阅已检查 · 本次没有新命中（${p.ran || 0} 个订阅）`;
+          pushToast && pushToast(msg);
+          void bridge.subsList().then((list) => { if (Array.isArray(list)) setSubs(list); });
+          onSubsChange?.();
+        } else if (p.error === "already_running") {
+          pushToast && pushToast("订阅检查已在进行中");
+        } else if (p.error) {
+          pushToast && pushToast("订阅检查未完成，请稍后重试");
+        }
+      }
+    });
+  }, [backend, pushToast, onSubsChange]);
+
+  const loadReport = useCallback(async () => {
+    if (!backend) return null;
+    const r = await bridge.digestReportGet(reportScope);
+    if (r) setDigestReport(r);
+    return r;
+  }, [backend, reportScope]);
+
+  const generateReport = useCallback(async (force = true) => {
+    if (!backend) {
+      pushToast && pushToast("需引擎后端才能生成报告");
+      return;
+    }
+    setReportGenerating(true);
+    try {
+      const r = await bridge.digestReportGenerate({ scope: reportScope, force });
+      if (r?.report) setDigestReport(r.report);
+      if (!force && r?.report?.skippedReason === "auto_off") return;
+      if (r?.ok && r.report?.status === "ready") {
+        pushToast && pushToast("今日简报报告已就绪");
+        setReportCollapsed(false);
+        try { localStorage.setItem("lumina_digest_report_collapsed", "0"); } catch { /* ignore */ }
+      } else if (r?.report?.skippedReason === "llm_not_configured") {
+        pushToast && pushToast("未配置 LLM · 请在设置中填写 API Key");
+      } else if (r?.report?.status === "failed") {
+        pushToast && pushToast("报告生成失败，请重试");
+      }
+    } catch {
+      pushToast && pushToast("报告生成失败");
+    } finally {
+      setReportGenerating(false);
+    }
+  }, [backend, reportScope, pushToast]);
+
+  const toggleReportCollapsed = useCallback(() => {
+    setReportCollapsed((c) => {
+      const next = !c;
+      try { localStorage.setItem("lumina_digest_report_collapsed", next ? "1" : "0"); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+
+  const jumpToPaper = useCallback((paperId) => {
+    setViewMode("scan");
+    requestAnimationFrame(() => {
+      const el = document.getElementById("digest-card-" + paperId);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, []);
+
+  const refreshSubs = useCallback(async () => {
+    const list = await bridge.subsList();
+    if (Array.isArray(list)) setSubs(list);
+    onSubsChange?.();
+    return list;
+  }, [onSubsChange]);
 
   const persist = useCallback(async (sub) => { await bridge.subsSave(sub); }, []);
   const subPatch = useCallback((id, patch) => { setSubs((s) => s.map((x) => { if (x.id !== id) return x; const u = { ...x, ...patch }; persist(u); return u; })); }, [persist]);
@@ -296,11 +390,45 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
       pushToast && pushToast(backend ? "本次没有新命中" : "需引擎调度真实检索（原型未接后端）");
     }
   }, [backend, pushToast, onSubsChange]);
-  const markRead = useCallback((id) => setSeen((p) => ({ ...p, [id]: true })), []);
+  const markRead = useCallback(async (paperId, subIds) => {
+    if (!paperId) return;
+    if (backend && bridge.subsMarkRead) {
+      await bridge.subsMarkRead(paperId, subIds);
+      await refreshSubs();
+      return;
+    }
+    setSubs((s) => s.map((x) => {
+      const ids = Array.isArray(subIds) && subIds.length ? subIds : [x.id];
+      if (!ids.includes(x.id)) return x;
+      const readIds = [...new Set([...(Array.isArray(x.readIds) ? x.readIds : []), paperId])];
+      return { ...x, readIds };
+    }));
+  }, [backend, refreshSubs]);
+
+  const markAllRead = useCallback(async () => {
+    const scope = activeSub === "all" ? "all" : activeSub;
+    if (backend && bridge.subsMarkAllRead) {
+      await bridge.subsMarkAllRead(scope);
+      await refreshSubs();
+      pushToast && pushToast("已全部标为已读");
+      return;
+    }
+    setSubs((s) => s.map((x) => {
+      if (scope !== "all" && x.id !== scope) return x;
+      if (x.enabled === false) return x;
+      const papers = Array.isArray(x.today) ? x.today.filter((p) => p && p.id) : [];
+      return { ...x, readIds: papers.map((p) => p.id) };
+    }));
+    pushToast && pushToast("已全部标为已读");
+  }, [activeSub, backend, pushToast, refreshSubs]);
+
+  const todayPapers = (s) => Array.isArray(s.today) ? s.today.filter((p) => p && typeof p === "object") : [];
+  const unread = (s) => {
+    const read = new Set(Array.isArray(s.readIds) ? s.readIds.map(String) : []);
+    return todayPapers(s).filter((p) => !read.has(p.id));
+  };
 
   const today = new Date();
-  const todayPapers = (s) => Array.isArray(s.today) ? s.today.filter((p) => p && typeof p === "object") : [];
-  const unread = (s) => todayPapers(s).filter((p) => !seen[p.id]);
   const shown = activeSub === "all" ? subs : subs.filter((s) => s.id === activeSub);
   const total = shown.reduce((n, s) => n + (s.enabled !== false ? unread(s).length : 0), 0);
   const preprintCount = shown.reduce((n, s) => n + unread(s).filter((p) => p.preprint).length, 0);
@@ -321,6 +449,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
         key: d.paper.id,
         title: d.subLabels.length > 1 ? "多订阅命中" : d.subLabels[0],
         subLabels: d.subLabels,
+        subIds: d.subIds,
         query: d.query,
         papers: [d.paper],
         isMerged: d.subLabels.length > 1,
@@ -331,6 +460,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
       key: s.id,
       title: subLabel(s),
       subLabels: [subLabel(s)],
+      subIds: [s.id],
       query: s.q || subLabel(s),
       papers: unread(s),
       isMerged: false,
@@ -340,6 +470,29 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
   const groups = buildGroups();
   const visibleLimit = (gid) => loadMore[gid] || DIGEST_PAGE;
   const bumpLoad = (gid, totalN) => setLoadMore((m) => ({ ...m, [gid]: Math.min(totalN, (m[gid] || DIGEST_PAGE) + DIGEST_PAGE) }));
+
+  useEffect(() => {
+    if (!backend) return;
+    void loadReport();
+  }, [backend, loadReport, subs, total, reportScope]);
+
+  useEffect(() => {
+    if (!backend || !bridge.onDigestReportUpdated) return;
+    return bridge.onDigestReportUpdated((p) => {
+      if (p && p.scope && p.scope !== reportScope) return;
+      void loadReport();
+    });
+  }, [backend, loadReport, reportScope]);
+
+  useEffect(() => {
+    if (!backend || total <= 0) return;
+    if (reportGenerating || digestReport?.status === "generating") return;
+    if (digestReport?.skippedReason === "auto_off" || digestReport?.skippedReason === "llm_not_configured") return;
+    const stale = !digestReport || digestReport.status === "idle"
+      || (digestReport.status === "ready" && digestReport.unreadCount !== total);
+    if (!stale) return;
+    void generateReport(false);
+  }, [backend, total, reportScope, digestReport?.status, digestReport?.unreadCount, digestReport?.skippedReason, reportGenerating, generateReport]);
 
   return (
     <div className="subs">
@@ -380,6 +533,9 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
                 else allPending.forEach((p) => onFetchProp(p, batchFetchOpts));
               }}><Download size={14} /> 取本批全部（{allPending.length}）</button>
             )}
+            {total > 0 && (
+              <button type="button" className="dg-markall" onClick={() => void markAllRead()}><Check size={14} /> 全部标为已读</button>
+            )}
           </div>
           <p className="brief-lead">你订阅的主题共有 <b>{total} 篇</b> 待读新发表。每条都标了证据来源，可直接取全文或让 AI 总结——<b>是否纳入你的研究，由你判断</b>。</p>
           {total > 0 && (
@@ -389,6 +545,25 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
               <span className="dg-tldr-hi">按相关度排序</span>
               <span title="简报检索与设置中的数据源/深度一致；计数为本次检索合并去重结果，非数据库总数">继承全局数据源设置 · 本次检索</span>
             </div>
+          )}
+          {total > 0 && (
+            <div className="dg-view-seg" role="tablist" aria-label="简报视图">
+              <button type="button" role="tab" aria-selected={viewMode === "scan"} className={viewMode === "scan" ? "on" : ""} onClick={() => setViewMode("scan")}>扫描列表</button>
+              <button type="button" role="tab" aria-selected={viewMode === "report"} className={viewMode === "report" ? "on" : ""} onClick={() => setViewMode("report")}>今日报告</button>
+            </div>
+          )}
+          {total > 0 && viewMode === "scan" && (
+            <DigestReportHero
+              report={digestReport}
+              collapsed={reportCollapsed}
+              onToggleCollapse={toggleReportCollapsed}
+              onGenerate={generateReport}
+              generating={reportGenerating}
+              onOpenSettings={() => onOpenSettings && onOpenSettings("general")}
+              onJumpPaper={jumpToPaper}
+              onViewReport={() => setViewMode("report")}
+              viewMode={viewMode}
+            />
           )}
           {runProgress && (
             <div className="dg-run-progress">
@@ -406,6 +581,14 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
             <div className="dg-empty"><Rss size={28} strokeWidth={1.6} /><h2>还没有订阅</h2><p>新建一个主题订阅（关键词 + 频率 + 成本闸），每日的新发表会汇成证据简报，可一键取全文或 AI 总结。</p></div>
           ) : total === 0 ? (
             <div className="dg-empty"><Inbox size={28} strokeWidth={1.6} /><h2>今日没有待读</h2><p>有符合订阅的新发表时会自动出现在这里，并可一键取全文。{!backend ? "（需引擎调度真实检索）" : ""}</p></div>
+          ) : viewMode === "report" ? (
+            <DigestReportReader
+              report={digestReport}
+              onJumpPaper={jumpToPaper}
+              onBackToScan={() => setViewMode("scan")}
+              onGenerate={generateReport}
+              generating={reportGenerating}
+            />
           ) : (
             groups.map((g) => {
               const lim = visibleLimit(g.key);
@@ -419,6 +602,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
                     p={p}
                     query={g.query}
                     subLabels={g.isMerged ? g.subLabels : undefined}
+                    subIds={g.subIds}
                     fetchedMeta={fetchedMeta[p.id]}
                     fetchingMeta={fetchingMeta[p.id]}
                     onFetch={onFetchProp}

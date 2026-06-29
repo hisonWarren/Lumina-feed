@@ -156,6 +156,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
   const [contactEmail, setContactEmail] = useState("");
   const [notifications, setNotifications] = useState(true);
   const [digestNotifyTier, setDigestNotifyTier] = useState("regular");
+  const [digestReportAuto, setDigestReportAuto] = useState(true);
   const [bgTray, setBgTray] = useState(false);
   const [bgLogin, setBgLogin] = useState(false);
   const [autoIngest, setAutoIngest] = useState(true);
@@ -255,6 +256,12 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
     setDigestNotifyTier(tier);
     await persistGeneralToggle({ digestNotifyTier: tier }, () => setDigestNotifyTier(prev));
   }, [digestNotifyTier, persistGeneralToggle]);
+
+  const onToggleDigestReportAuto = useCallback(async () => {
+    const next = !digestReportAuto;
+    setDigestReportAuto(next);
+    await persistGeneralToggle({ digestReportAuto: next }, () => setDigestReportAuto(!next));
+  }, [digestReportAuto, persistGeneralToggle]);
 
   const persistReaderPrefs = useCallback(async (patch, rollback) => {
     if (!backend) return;
@@ -364,6 +371,8 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
       else setPrimaryAutoOpenReader(true);
       if (typeof s.notifications === "boolean") setNotifications(s.notifications);
       if (s.digestNotifyTier === "calm" || s.digestNotifyTier === "regular" || s.digestNotifyTier === "power") setDigestNotifyTier(s.digestNotifyTier);
+      if (typeof s.digestReportAuto === "boolean") setDigestReportAuto(s.digestReportAuto);
+      else setDigestReportAuto(true);
       if (s.app) {
         setBgTray(!!s.app.minimizeToTray);
         setBgLogin(!!s.app.openAtLogin);
@@ -736,6 +745,11 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                   </div>
                   <span className="set-hint">安静：仅 app 内简报 · 标准：每次调度汇总一条 · 积极：每个订阅单独通知</span>
                 </div>
+                <div className="set-toggle">
+                  <span className="set-lbl">检索完成后自动生成「今日简报总报告」</span>
+                  <button role="switch" aria-checked={digestReportAuto} className={"set-switch" + (digestReportAuto ? " on" : "")} onClick={() => void onToggleDigestReportAuto()} aria-label="自动生成简报总报告"><i /></button>
+                </div>
+                <span className="set-hint">与每条「相关说明」分开：总报告归纳今日全部待读（基于标题+摘要）。关闭后仍可在简报页手动生成。默认开启。</span>
                 <div className="set-toggle">
                   <span className="set-lbl">关闭时最小化到托盘后台运行（订阅检索与每日简报继续）</span>
                   <button role="switch" aria-checked={bgTray} className={"set-switch" + (bgTray ? " on" : "")} onClick={() => void onToggleBgTray()} aria-label="后台运行开关"><i /></button>

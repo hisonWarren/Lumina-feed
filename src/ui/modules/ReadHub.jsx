@@ -422,6 +422,15 @@ export default function ReaderModule({ pushToast, incoming, onIncomingHandled, r
     return () => { alive = false; };
   }, [readTarget]); // eslint-disable-line
 
+  useEffect(() => {
+    if (!readTarget?.continueEntry) return;
+    let alive = true;
+    void openContinue(readTarget.continueEntry).finally(() => {
+      if (alive) onReadTargetHandled && onReadTargetHandled();
+    });
+    return () => { alive = false; };
+  }, [readTarget?.continueEntry, readTarget?._t]); // eslint-disable-line
+
   const showHub = st.activeId === null;
   return (
     <div className="rhx">

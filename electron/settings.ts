@@ -24,6 +24,8 @@ export interface AppSettings {
   notifications?: boolean;
   /** 订阅简报系统通知：calm=仅 app 内 · regular=汇总一条 · power=每订阅一条 */
   digestNotifyTier?: "calm" | "regular" | "power";
+  /** 检索完成后自动生成「今日简报总报告」（默认开） */
+  digestReportAuto?: boolean;
   /** 关窗最小化到托盘 + 开机自启（Settings 通用页） */
   app?: { minimizeToTray?: boolean; openAtLogin?: boolean };
   prompts?: {
@@ -45,6 +47,7 @@ export interface AppSettingsView extends AppSettings {
 const DEFAULTS: AppSettings = {
   searchDepth: "standard",
   digestNotifyTier: "regular",
+  digestReportAuto: true,
   autoIngestOnFetch: true,
   prefetchOnIdentifier: true,
   prefetchOaResults: true,
