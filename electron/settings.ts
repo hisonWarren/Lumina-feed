@@ -32,6 +32,8 @@ export interface AppSettings {
     onboardingEmailDismissed?: boolean;
     searchEmailShown?: boolean;
     fetchEmailShown?: boolean;
+    /** 一次性：v0.4.14 将旧版默认开启的预取开关重置为关 */
+    prefetchManualOnlyV0414?: boolean;
   };
   llm?: LlmConfig;
   theme?: string;
@@ -63,7 +65,22 @@ export async function loadAppSettings(store: Store): Promise<AppSettings> {
   ensure(store);
   const r = store.db.prepare("SELECT payload FROM sources_cache WHERE key=?").get(KEY);
   if (!r?.payload) return DEFAULTS;
-  try { return { ...DEFAULTS, ...JSON.parse(r.payload) }; } catch { return DEFAULTS; }
+  try {
+    const parsed = JSON.parse(r.payload) as AppSettings;
+    const merged: AppSettings = { ...DEFAULTS, ...parsed };
+    if (!parsed.prompts?.prefetchManualOnlyV0414) {
+      merged.prefetchOnIdentifier = false;
+      merged.prefetchOaResults = false;
+      merged.primaryAutoOpenReader = false;
+      merged.prompts = { ...merged.prompts, prefetchManualOnlyV0414: true };
+      const toSave = { ...merged };
+      store.db.prepare(
+        `INSERT INTO sources_cache(key,payload,fetched_at) VALUES(?,?,?)
+         ON CONFLICT(key) DO UPDATE SET payload=excluded.payload, fetched_at=excluded.fetched_at`,
+      ).run(KEY, JSON.stringify(toSave), new Date().toISOString());
+    }
+    return merged;
+  } catch { return DEFAULTS; }
 }
 
 /** main 侧用：附加派生字段，邮箱来自 settings 或 env（env 优先级见 setPoliteIdentity）。 */

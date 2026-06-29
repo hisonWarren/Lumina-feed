@@ -236,7 +236,6 @@ export function registerIpc(deps: IpcDeps): void {
       const resolved = await resolveIdentifierInput(String(raw || "").trim(), opts);
       if (resolved.ok) {
         store.papers.upsert(resolved.paper);
-        scheduleIdentifierPrefetch(e.sender, resolved.paper.id, resolved.resolvedFrom);
         return {
           perSource: { resolve: { ok: true, count: 1 } },
           count: 1,
@@ -321,7 +320,6 @@ export function registerIpc(deps: IpcDeps): void {
             locateMode: "identifier",
             resolvedFrom: resolved.resolvedFrom,
           });
-          scheduleIdentifierPrefetch(e.sender, resolved.paper.id, resolved.resolvedFrom);
           return;
         }
         if (resolved.reason !== "not_identifier") {
@@ -345,9 +343,6 @@ export function registerIpc(deps: IpcDeps): void {
       }
       const agg = await runLocateKeywordStream(raw, filters ?? {}, opts, (payload) => {
         send({ reqId, ...payload });
-        if (Array.isArray(payload.papers) && payload.papers.length) {
-          scheduleOaResultsPrefetch(e.sender, payload.papers as Paper[]);
-        }
       }, (titleQ) => searchLocalByTitle(titleQ));
       store.papers.upsertMany(agg.papers);
     } catch (err) {
@@ -606,6 +601,8 @@ export function registerIpc(deps: IpcDeps): void {
   }
 
   ipcMain.handle("oa:schedulePrefetch", async (e, paperId: string, opts?: { priority?: string }) => {
+    const settings = await loadAppSettings(store);
+    if (settings.prefetchOaResults !== true) return { ok: false, reason: "prefetch_disabled" };
     const pri: PrefetchPriority = opts?.priority === "high" ? 1 : 2;
     enqueuePrefetch(e.sender, String(paperId), { priority: pri, oaOnly: true });
     return { ok: true };
