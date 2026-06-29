@@ -29,7 +29,7 @@ export function parseEuropePmc(json: any): SearchHit[] {
       peerReviewed: !isPreprint,
       oaStatus: r.isOpenAccess === "Y" ? "open" : undefined,
       oaUrl: oa?.url,
-      citationCount: r.citedByCount,
+      citationCount: r.citedByCount != null && r.citedByCount !== "" ? Number(r.citedByCount) : undefined,
     } as SearchHit;
   }).filter((h) => h.title);
 }

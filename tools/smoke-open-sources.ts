@@ -7,6 +7,7 @@ import { dedupeKeyExt } from "../src/core/dedupe-keys.ts";
 import { withTimeout, TimeoutError } from "../src/core/sources/with-timeout.ts";
 import { fetchWithRetry, installDefaultLimiters, DEFAULT_INTERVALS } from "../src/core/sources/rate-limit.ts";
 import { fromZenodo, fromCore, shouldSignalMissingEmail, maybeMissingEmailReason, MISSING_EMAIL } from "../src/core/oa/oa-extended.ts";
+import { enrichCitationCounts } from "../src/core/locate/enrich-citations.ts";
 import { parseCore } from "../src/core/sources/core.ts";
 import { parseHal } from "../src/core/sources/hal.ts";
 import { parseDblp } from "../src/core/sources/dblp.ts";
@@ -142,6 +143,13 @@ t("missing_email：有邮箱则否", shouldSignalMissingEmail("10.1/x", "a@b.org
 t("maybeMissingEmail: 出版商拦截不冒充", maybeMissingEmailReason("10.1/x", undefined, "publisher_blocked") === null);
 t("maybeMissingEmail: no_pdf 可提示", maybeMissingEmailReason("10.1/x", undefined, "no_pdf") === "missing_email");
 t("MISSING_EMAIL 哨兵", MISSING_EMAIL.kind === "missing_email" && MISSING_EMAIL.priority === 999);
+
+  const citePaper = { id: "doi:10.1038/s41598-026-58361-w", doi: "10.1038/s41598-026-58361-w", title: "T", authors: [], studyTypes: ["other"], versions: [], ingestedAt: "" };
+  const citeFetch = (async () => new Response(JSON.stringify({
+    results: [{ doi: "https://doi.org/10.1038/s41598-026-58361-w", cited_by_count: 12 }],
+  }), { status: 200 })) as unknown as typeof fetch;
+  const cited = await enrichCitationCounts([citePaper as any], { fetchImpl: citeFetch });
+  t("enrichCitationCounts: 按 DOI 回填", cited[0]?.citationCount === 12);
 
   const zf = (async () => new Response(JSON.stringify({ hits: { hits: [{ files: [{ key: "p.pdf", links: { self: "PDFURL" } }] }] } }), { status: 200 })) as unknown as typeof fetch;
   const z = await fromZenodo("10.5281/zenodo.99", zf);

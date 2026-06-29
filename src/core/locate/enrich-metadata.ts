@@ -52,6 +52,7 @@ async function crossrefByTitle(title: string, opts: SearchOpts): Promise<Partial
       pubDate: best.pubDate,
       oaStatus: best.oaStatus,
       oaUrl: best.oaUrl,
+      citationCount: best.citationCount,
     };
   } catch {
     return null;

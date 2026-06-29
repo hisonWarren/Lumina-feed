@@ -52,7 +52,7 @@ export function toCardModel(p, query) {
     type: mapType(p.studyTypes),
     preprint: !!p.isPreprint, peer: !!p.peerReviewed, retracted: !!p.retracted,
     oa: mapOa(p.oaStatus), oaUrl: p.oaUrl || null,
-    cites: p.citationCount || 0,
+    cites: p.citationCount != null ? p.citationCount : null,
     matched: deriveMatched(query, hay),
     abstract: p.abstract || "",
     matchKind: p._matchKind || null,

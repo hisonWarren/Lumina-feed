@@ -14,6 +14,7 @@ import { withTimeout, TimeoutError } from "./sources/with-timeout.ts";
 import { timeoutFor } from "./sources/adapter-meta.ts";
 import { installDefaultLimiters } from "./sources/rate-limit.ts";
 import { enrichSparsePapers } from "./locate/enrich-metadata.ts";
+import { enrichCitationCounts } from "./locate/enrich-citations.ts";
 
 installDefaultLimiters();
 
@@ -51,6 +52,7 @@ function postProcess(all: SearchHit[], spec: QuerySpec): RankedPaper[] {
 async function postProcessAsync(all: SearchHit[], spec: QuerySpec, opts: SearchOpts = {}): Promise<RankedPaper[]> {
   let papers = postProcess(all, spec);
   papers = await enrichSparsePapers(papers, opts) as RankedPaper[];
+  papers = await enrichCitationCounts(papers, opts) as RankedPaper[];
   return papers;
 }
 

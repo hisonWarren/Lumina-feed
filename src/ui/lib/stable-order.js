@@ -37,8 +37,10 @@ export function stableMerge(prevOrder, freshRanked) {
   for (const prev of prevOrder) {
     const updated = freshById.get(prev.id);
     if (updated) {
-      const cites = Math.max(Number(prev.cites) || 0, Number(updated.cites) || 0);
-      shown.push(cites > 0 ? { ...updated, cites } : updated);
+      const citesOut = (prev.cites != null || updated.cites != null)
+        ? Math.max(prev.cites ?? -1, updated.cites ?? -1)
+        : null;
+      shown.push({ ...updated, cites: citesOut });
       shownIds.add(prev.id);
     }
   }
