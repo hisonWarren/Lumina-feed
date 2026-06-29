@@ -144,7 +144,7 @@ export function oaStatusBadge(oa, fetchedMeta, prefix = "ff-b", fetchingMeta = n
     return {
       cls: prefix + "-oa",
       text: oa === "gold" ? "OA 金色 · 编目" : "OA 绿色 · 编目",
-      title: "元数据标记开放获取；可一键获取或等待后台预取",
+      title: "元数据标记开放获取；请点「获取全文」下载（设置中可开启后台预取）",
     };
   }
   if (oa === "closed") return { cls: prefix + "-nooa", text: "未标注 OA", title: "元数据未标记开放获取；仍会尝试多源取文" };

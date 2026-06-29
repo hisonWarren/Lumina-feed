@@ -37,7 +37,7 @@ export default function ResultsPager({ total, page, pageSize = 20, onPage, onPag
       <div className="lf-pager-meta">
         <span className="lf-pg-range">
           第 <b>{from}–{to}</b> 项 · 共 {total} 篇
-          <span className="lf-pg-q" title="本次检索已取的合并去重结果数，不是数据库命中总数。开放学术源按相关性返回有界结果（lookup）。">本次检索</span>
+          <span className="lf-pg-q" title="本次检索已取的合并去重结果数，不是全库命中总数。开放源按相关性返回有界结果。">本次检索</span>
         </span>
         <PopoverSelect
           className="lf-pg-size"

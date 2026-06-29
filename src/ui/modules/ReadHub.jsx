@@ -174,7 +174,7 @@ function ReadHub({
             {loadingDl ? (
               <div className="rh-empty"><Loader size={14} className="rh-spin" /> 读取已下载列表…</div>
             ) : !downloaded || downloaded.length === 0 ? (
-              <div className="rh-empty">在「检索取文」获取全文 PDF 后会落盘到此，可一键开读。</div>
+              <div className="rh-empty">在「检索取文」看准结果并点「获取全文」后，PDF 会落盘到此，可一键开读。</div>
             ) : !showAllDl ? (
               <div className="rh-empty">
                 共 {downloaded.length} 篇已下载

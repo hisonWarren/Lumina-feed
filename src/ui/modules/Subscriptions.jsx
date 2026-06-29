@@ -209,7 +209,7 @@ function SubDialog({ initial, onClose, onSave }) {
             </button>
             {preview && (
               <div className="dg-preview">
-                <div className="dg-preview-h">试跑样本 · 本次检索（非数据库总数）</div>
+                <div className="dg-preview-h">试跑样本 · 本次检索（非全库总数）</div>
                 {preview.length === 0 ? <div className="dg-preview-item">暂无样本命中</div> : preview.map((p) => (
                   <div key={p.id} className="dg-preview-item">
                     <div>{p.title}</div>
@@ -628,7 +628,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
               <span>待读 <b>{total}</b> 篇</span>
               {preprintCount > 0 && <span className="dg-tldr-pill">预印本 {preprintCount}</span>}
               <span className="dg-tldr-hi">按相关度排序</span>
-              <span title="简报检索与设置中的数据源/深度一致；计数为本次检索合并去重结果，非数据库总数">继承全局数据源设置 · 本次检索</span>
+              <span title="简报检索与设置中的数据源/深度一致；计数为本次检索合并去重结果，非全库总数">继承全局数据源设置 · 本次检索</span>
             </div>
           )}
           {total > 0 && (
@@ -650,9 +650,9 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
           {loading ? (
             <div className="dg-empty"><Loader size={22} className="dg-spin" /><p>读取订阅…</p></div>
           ) : subs.length === 0 ? (
-            <div className="dg-empty"><Rss size={28} strokeWidth={1.6} /><h2>还没有订阅</h2><p>新建一个主题订阅（关键词 + 频率 + 成本闸），每日的新发表会汇成证据简报，可一键取全文或 AI 总结。</p></div>
+            <div className="dg-empty"><Rss size={28} strokeWidth={1.6} /><h2>还没有订阅</h2><p>新建主题订阅（关键词 + 频率 + 成本闸），新发表汇成证据简报，可批量取全文或 AI 总结。</p></div>
           ) : total === 0 ? (
-            <div className="dg-empty"><Inbox size={28} strokeWidth={1.6} /><h2>今日没有待读</h2><p>有符合订阅的新发表时会自动出现在这里，并可一键取全文。{!backend ? "（需引擎调度真实检索）" : ""}</p></div>
+            <div className="dg-empty"><Inbox size={28} strokeWidth={1.6} /><h2>今日没有待读</h2><p>有符合订阅的新发表时会出现在这里，可点「取全文」或 AI 总结。{!backend ? "（需引擎调度真实检索）" : ""}</p></div>
           ) : viewMode === "report" ? (
             <DigestReportReader
               report={digestReport}

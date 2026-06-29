@@ -59,7 +59,7 @@ export default function HitSources({ perSource, mergedCount, needsKey, onRetrySo
         <span className="sum">{summary.join(" · ")}</span>
         <span className="caret">{open ? "收起 ▴" : "展开 ▾"}</span>
       </button>
-      <span className="lf-src-note">所列为贡献候选源（含开放 API 与全文库），非数据库命中总数。超时/失败源可单独重试。</span>
+      <span className="lf-src-note">所列为本次检索的候选来源（开放 API 与全文库）；上方篇数为合并去重结果，非全库命中总数。超时/失败源可单独重试。</span>
       {open && (
         <div className="lf-src-detail">
           {hit.map((s) => (

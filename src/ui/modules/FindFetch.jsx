@@ -544,7 +544,7 @@ export default function FindFetch({
             )}
           </div>
           <input ref={ref} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") run(); else if (e.key === "Escape") clear(); }}
-            placeholder={idTag ? `已识别 ${idTag} — 回车或稍候自动检索` : "粘贴 DOI，或输入标题 / 作者 / 关键词找到那一篇"} />
+            placeholder={idTag ? `已识别 ${idTag} — 回车或稍候自动检索` : "粘贴 DOI，或输入标题 / 作者 / 关键词（左侧可选字段）"} />
           {idTag && <span className="ff-idtag">{idTag}</span>}
           {q && <button className="ff-clr" onClick={clear} title="清除"><X size={14} /></button>}
         </div>
@@ -602,7 +602,7 @@ export default function FindFetch({
             <input type="number" className="ff-yin" placeholder="至" value={yearTo} onChange={(e) => setYearTo(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") run(); }} />
             <button className="ff-chip" onClick={() => run()}>应用</button>
             {(yearFrom || yearTo) && <button className="ff-chip" onClick={() => { setYearFrom(""); setYearTo(""); }}>清除</button>}
-            <span className="ff-year-h">仅按发表年份约束——非数据库分面；要筛选你自己那批论文，请到「我的文献」。</span>
+            <span className="ff-year-h">仅约束本次检索的发表年份——不是全库筛选；要筛你自己收藏的论文，请到「我的文献」。</span>
           </div>
         )}
       </div>
@@ -611,7 +611,7 @@ export default function FindFetch({
         {submitted && (
           <div className="ff-session-bar" role="status">
             <span><strong>本次检索</strong> · {total} 条{sessionAge ? ` · ${sessionAge}` : ""}{loading ? " · 仍在补充…" : ""}</span>
-            <span className="ff-session-h">切换模块不会清空；要开始新的定位请点「新检索」。</span>
+            <span className="ff-session-h">切换模块不会清空本次结果；要重新定位请点「新检索」。</span>
             <button type="button" className="ff-session-new" onClick={clear}>新检索</button>
           </div>
         )}
@@ -646,17 +646,18 @@ export default function FindFetch({
           <div className="ff-empty">
             <Search size={28} strokeWidth={1.6} />
             <h2>找到那篇，然后拿来用</h2>
-            <p>这不是数据库检索——它帮你<b>定位某一篇</b>并取来全文。粘贴 DOI 直达原文，或用标题、作者、关键词找到它。命中后一键获取 PDF（多源自动尝试）。</p>
+            <p>同时检索 OpenAlex、Crossref、PubMed 等开放源，合并去重后帮你<b>锁定那一篇</b>——不是全库浏览，而是「找一篇拿来读」。粘贴 DOI 最快；或用标题、作者、关键词缩小范围（左侧可选检索字段）。看准结果后点「获取全文」，OA 与备用库会依次自动尝试。</p>
             <div className="ff-hint">
-              <span className="ff-chip ff-hint-only">粘贴 DOI 回车直达</span>
-              <span className="ff-chip ff-hint-only">或输入标题 / 作者 / 关键词</span>
+              <span className="ff-chip ff-hint-only">粘贴 DOI · 回车直达</span>
+              <span className="ff-chip ff-hint-only">标题 / 作者 / 关键词 · 可指定字段</span>
+              <span className="ff-chip ff-hint-only">看准再点「获取全文」</span>
             </div>
           </div>
         ) : loading && results.length === 0 ? (
           <div className="ff-track">
             <div className="lf-skel"><div className="ln" style={{ width: "72%" }} /><div className="ln" style={{ width: "48%" }} /><div className="ln" style={{ width: "88%" }} /></div>
             <div className="lf-skel"><div className="ln" style={{ width: "65%" }} /><div className="ln" style={{ width: "40%" }} /></div>
-            <p className="ff-more"><Loader size={14} className="ff-spin" /> 正在检索「{submitted}」…首包通常来自 Crossref / OpenAlex</p>
+            <p className="ff-more"><Loader size={14} className="ff-spin" /> 正在多源检索「{submitted}」…结果流式追加（首包通常来自 OpenAlex / Crossref）</p>
           </div>
         ) : err ? (
           <div className="ff-empty"><AlertTriangle size={24} /><h2>{err}</h2></div>
@@ -666,7 +667,7 @@ export default function FindFetch({
             <p>换个关键词，或核对 DOI 是否完整。</p>
             {showExpand && !expandedOnce && !isIdentifierLike(submitted || q) && (
               <div className="ff-expand">
-                <p>开放 API 未命中时，可扩大至 <b>LibGen、Anna's Archive</b> 等全文库与少量元数据源重试（可能更慢）。</p>
+                <p>开放源未命中时，可扩大至 <b>LibGen、Anna's Archive</b> 等全文库重试（更慢，仍须手动点「获取全文」）。</p>
                 <button type="button" className="ff-expand-btn" onClick={runExpand}>扩大至全文库检索</button>
               </div>
             )}
