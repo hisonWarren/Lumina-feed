@@ -257,6 +257,7 @@ app.whenReady().then(async () => {
     return { ok: true, trayReady: !!tray };
   });
   ipcMain.handle("app:getUserDataPath", () => app.getPath("userData"));
+  ipcMain.handle("app:getVersion", () => appVersion());
   ipcMain.handle("lumina:context-action", (_e, action: string, extra?: string) => {
     runContextAction(win?.webContents, action, extra);
   });

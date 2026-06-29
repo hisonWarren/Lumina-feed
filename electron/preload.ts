@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld("luminaApi", {
   setBackground: (opts: { minimizeToTray?: boolean; openAtLogin?: boolean }) => invoke("app:setBackground", opts),
   resetLocalData: () => invoke("app:resetLocalData"),
   getUserDataPath: () => invoke("app:getUserDataPath"),
+  getAppVersion: () => invoke("app:getVersion"),
   platform: process.platform,
   onContextMenu: (cb: (payload: unknown) => void) => {
     const handler = (_e: unknown, payload: unknown) => cb(payload);

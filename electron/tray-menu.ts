@@ -1,5 +1,5 @@
 // lumina-feed · 系统托盘菜单（状态区 + 简报/阅读捷径 + 设置/退出）
-import { BrowserWindow, dialog, Menu, Tray, type MenuItemConstructorOptions } from "electron";
+import { app, BrowserWindow, dialog, Menu, Tray, type MenuItemConstructorOptions } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import type { Store } from "../src/core/store/index.ts";
@@ -163,6 +163,21 @@ function hideWindow(opts: TrayControllerOptions): void {
   if (w && !w.isDestroyed()) w.hide();
 }
 
+/** 托盘「关于」弹窗正文：版本号在 message 行；此处补定位、本机路径与诚实底线入口。 */
+function buildAboutDetail(): string {
+  const dataPath = app.getPath("userData");
+  return [
+    "Locate · Fetch · Illuminate",
+    "文献检索 · 取文 · 接地总结",
+    "",
+    "本地优先 · 文献库、PDF 与阅读缓存均在本机",
+    `数据目录：${dataPath}`,
+    "密钥仅存 OS 钥匙串 · 不上传云端",
+    "",
+    "完整产品说明与诚实底线 → 点「打开关于页」。",
+  ].join("\n");
+}
+
 export function rebuildTrayMenu(opts: TrayControllerOptions): TraySnapshot {
   const snapshot = buildTraySnapshot(opts.store, opts.getWin, opts.pdfPath);
   opts.tray.setToolTip(buildTooltip(snapshot));
@@ -235,14 +250,23 @@ export function rebuildTrayMenu(opts: TrayControllerOptions): TraySnapshot {
     {
       label: `关于 Lumina Feed ${opts.version}`,
       click: () => {
-        const w = opts.getWin();
-        void dialog.showMessageBox(w && !w.isDestroyed() ? w : undefined, {
-          type: "info",
-          title: "Lumina Feed",
-          message: `Lumina Feed ${opts.version}`,
-          detail: "Locate · Fetch · Illuminate\n文献检索 · 取文 · 接地总结",
-          buttons: ["确定"],
-        });
+        void (async () => {
+          const w = opts.getWin();
+          const { response } = await dialog.showMessageBox(w && !w.isDestroyed() ? w : undefined, {
+            type: "info",
+            title: "Lumina Feed",
+            message: `Lumina Feed ${opts.version}`,
+            detail: buildAboutDetail(),
+            buttons: ["确定", "打开关于页"],
+            defaultId: 0,
+            cancelId: 0,
+            noLink: true,
+          });
+          if (response === 1) {
+            showWindow(opts);
+            opts.navigate({ view: "settings", settingsCat: "about" });
+          }
+        })();
       },
     },
     { type: "separator" },

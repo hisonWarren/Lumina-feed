@@ -3,7 +3,7 @@
 // 真实文本层(可选择) + 页内查找 + 大纲目录 + 划词解释/翻译/带页码问答/多色批注 + 截取读图 + 证据/推断分析。
 // 续读位置(按 docKey) · 键盘快捷键 · 夜读反色 · 抓手平移。真实 PDF 渲染/文本层/选择/查找/各交互仅真机可验。
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { ArrowLeft, X, PanelLeft, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Minus, Plus, Maximize, RotateCw, RotateCcw, Expand, Download, Search, Sparkles, Send, Languages, Copy, RefreshCw, List, Images, Highlighter, StickyNote, Crop, Trash2, FileDown, Loader, AlertTriangle, Square, Rows3, Columns2, Shield, Info, Layers, Lightbulb, Eye, Ban, Target, Scale, FlaskConical, ListChecks, Link2, Check, Quote, Bookmark, Workflow, Map, Moon, Hand, ScanLine } from "lucide-react";
+import { ArrowLeft, X, PanelLeft, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Minus, Plus, Maximize, RotateCw, RotateCcw, Expand, Download, Search, Sparkles, Send, Languages, Copy, RefreshCw, List, Images, Highlighter, StickyNote, Crop, Trash2, FileDown, Loader, AlertTriangle, Square, Rows3, Columns2, Shield, Info, Layers, Lightbulb, Eye, Ban, Target, Scale, FlaskConical, ListChecks, Link2, Check, Quote, Bookmark, Workflow, Map, Moon, Hand, ScanLine, Undo2, Redo2 } from "lucide-react";
 import { openPdf, getOutline, getPageStrings, renderTextLayer, destToPageNumber, fitWidthScale, getDocPages, splitCites, renderRegion } from "../pdf-engine.js";
 import { bridge } from "../lumina-bridge.js";
 import { persistSettings } from "../settings-persist.js";
@@ -39,20 +39,29 @@ const READER_CSS = `
 .rd-gcard.inf{border-left:4px solid var(--amber)}
 .rd-gframing{font-size:11.5px;color:var(--ink3);line-height:1.6;background:var(--amberTint);border-radius:8px;padding:8px 10px;margin:8px 0}
 .rd-graph{display:block;max-width:100%;margin:4px auto;overflow:visible}
-.rd-graph .rd-gnode rect{fill:var(--surf2);stroke:var(--amber);stroke-width:1.4}
-.rd-graph .rd-gnode:hover rect{fill:var(--amberTint)}
-.rd-graph .rd-gnode.ng rect{stroke:var(--line2);stroke-dasharray:4 3;fill:var(--surf)}
+.rd-graph .rd-gnode rect{stroke-width:1.6;transition:stroke-width .12s}
+.rd-graph .rd-gnode:hover rect{stroke-width:2.6}
 .rd-gtext{fill:var(--ink);font-size:11px;font-family:inherit}
 .rd-graph .rd-gnode.ng .rd-gtext{fill:var(--ink4)}
-.rd-gpage{fill:var(--amber);font-size:9px;font-family:'Space Mono',monospace}
-.rd-glabel{fill:var(--ink4);font-size:9.5px;font-family:inherit}
+.rd-gpage{font-size:9px;font-family:'Space Mono',monospace;font-weight:600}
+.rd-gedge{fill:none;stroke:var(--ink4);stroke-width:1.5;opacity:.5}
+.rd-glabelbg{fill:var(--surf);opacity:.9}
+.rd-glabel{fill:var(--ink3);font-size:9.5px;font-family:inherit}
 .rd-gexport{display:inline-flex;align-items:center;gap:5px;margin-top:9px;border:1px solid var(--line2);background:var(--surf2);color:var(--ink2);border-radius:8px;padding:6px 11px;font-size:12px;cursor:pointer;font-family:inherit}
 .rd-gexport:hover{border-color:var(--gold)}
 .rd-flowtool{display:flex;flex-direction:column;gap:9px}
 .rd-scaffold{font-size:12px;color:var(--ink3);line-height:1.65;border:1px dashed var(--line2);border-radius:10px;padding:11px;background:var(--surf2)}
 .ev-card{border:1px solid var(--line);border-left:4px solid var(--gold);border-radius:11px;background:var(--surf);overflow:hidden}
-.ev-top{display:flex;align-items:center;gap:8px;padding:9px 11px;border-bottom:1px solid var(--line);font-size:12.5px;font-weight:600;color:var(--ink)}
+.ev-top{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:9px 11px;border-bottom:1px solid var(--line);font-size:12.5px;font-weight:600;color:var(--ink)}
 .ev-top>svg{color:var(--gold);flex-shrink:0}
+.ev-title{flex:1 1 7em;min-width:6em;line-height:1.4;word-break:break-word}
+.ev-empty{display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:1.6;color:var(--ink3);padding:11px}
+.ev-empty>svg{color:var(--amber);flex-shrink:0;margin-top:1px}
+.ev-note{display:flex;gap:7px;align-items:flex-start;font-size:11px;line-height:1.55;color:var(--ink2);background:rgba(14,124,111,.06);border-top:1px solid var(--line2);padding:8px 11px}
+.ev-note>svg{color:var(--gold);flex-shrink:0;margin-top:1px}
+.ev-note b{color:var(--goldDim);font-weight:600}
+.ev-more{display:flex;align-items:center;justify-content:center;gap:5px;width:100%;border:none;border-top:1px solid var(--line2);background:var(--surf2);color:var(--goldDim);padding:8px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit}
+.ev-more:hover{background:rgba(14,124,111,.08)}
 .gbadge{margin-left:auto;display:inline-flex;align-items:center;gap:4px;font-family:'Space Mono',monospace;font-size:9px;color:var(--goldDim);background:rgba(14,124,111,.10);border:1px solid rgba(14,124,111,.30);border-radius:5px;padding:1px 6px;white-space:nowrap}
 .ibadge{display:inline-flex;align-items:center;gap:4px;font-family:'Space Mono',monospace;font-size:9px;color:var(--amberDim);background:var(--amberTint);border:1px solid var(--amberLine);border-radius:5px;padding:1px 6px;white-space:nowrap}
 .ev-claim{display:flex;flex-direction:column;gap:5px;padding:9px 11px;border-bottom:1px solid var(--line2);font-size:12.5px;line-height:1.6;color:var(--ink)}
@@ -66,9 +75,10 @@ const READER_CSS = `
 .inf-banner>svg{color:var(--amber);flex-shrink:0;margin-top:1px}
 .inf-banner b{color:var(--amberDim)}
 .inf-card{border:1px dashed var(--amberLine);border-left:4px solid var(--amber);background:var(--amberTint);border-radius:11px;overflow:hidden}
-.inf-h{display:flex;align-items:center;gap:8px;padding:10px 11px;cursor:pointer;font-size:12.5px;font-weight:600;color:var(--ink)}
+.inf-h{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:10px 11px;cursor:pointer;font-size:12.5px;font-weight:600;color:var(--ink)}
 .inf-h>svg.t{color:var(--amberDim);flex-shrink:0}
-.inf-h .chev{margin-left:auto;transition:transform .15s;color:var(--amberDim)}
+.inf-title{flex:1 1 7em;min-width:6.5em;line-height:1.4;word-break:break-word}
+.inf-h .chev{transition:transform .15s;color:var(--amberDim);flex:0 0 auto}
 .inf-card.open .inf-h .chev{transform:rotate(180deg)}
 .inf-body{display:none;padding:0 11px 11px;font-size:12.5px;line-height:1.65;color:var(--ink);flex-direction:column;gap:9px}
 .inf-card.open .inf-body{display:flex}
@@ -102,7 +112,7 @@ const READER_CSS = `
 .rd-swipe-item .x{margin-left:auto;border:none;background:transparent;color:var(--ink4);cursor:pointer;flex-shrink:0;padding:0;display:grid;place-items:center}
 .rd-swipe-item .x:hover{color:var(--danger,#c0584e)}
 .inf-pane .inf-card{margin-top:10px}
-.inf-h .inf-right{margin-left:auto;display:inline-flex;align-items:center;gap:7px}
+.inf-h .inf-right{flex:0 0 auto;margin-left:auto;display:inline-flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px 7px}
 .inf-h .inf-right .chev{margin-left:0}
 .guess-box{display:flex;flex-direction:column;gap:7px}
 .guess-box .gq{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--amberDim)}
@@ -212,7 +222,14 @@ const READER_CSS = `
 .rd-basis.ft{color:var(--gold);border-color:rgba(14,124,111,.3);background:rgba(14,124,111,.08)}
 .rd-gr{font-size:10.5px;font-family:'Space Mono',monospace;color:var(--ink3)}
 .rd-ai-banner{font-size:11.5px;color:#9a6b2e;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:7px;padding:6px 9px;margin-bottom:6px;line-height:1.5}
-.rd-ai-body{font-size:13px;line-height:1.7;color:var(--ink);white-space:pre-wrap}
+.rd-ai-body{font-size:13px;line-height:1.7;color:var(--ink)}
+.rd-md{display:flex;flex-direction:column;gap:1px}
+.rd-md-h{font-weight:700;font-size:12.5px;color:var(--gold);margin:9px 0 2px;letter-spacing:.01em;display:flex;align-items:center;gap:6px}
+.rd-md-h::before{content:"";width:3px;height:0.95em;background:var(--gold);border-radius:2px;flex:0 0 auto}
+.rd-md .rd-md-h:first-child{margin-top:0}
+.rd-md-p{margin:0}
+.rd-md-p strong{font-weight:700;color:var(--ink)}
+.rd-md-gap{height:6px}
 .rd-ai-label{font-size:11.5px;color:var(--ink3);line-height:1.5}
 .rd-ai-presets{display:flex;flex-wrap:wrap;gap:6px}
 .rd-ai-chip{border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:8px;padding:5px 9px;font-size:11.5px;cursor:pointer;font-family:inherit}
@@ -221,7 +238,7 @@ const READER_CSS = `
 .rd-ai-flow{display:flex;flex-direction:column;gap:12px}
 .rd-ai-qa{display:flex;flex-direction:column;gap:5px}
 .rd-ai-q{font-size:12.5px;font-weight:600;color:var(--ink);background:var(--surf2);border-radius:8px;padding:7px 10px}
-.rd-ai-a{font-size:13px;line-height:1.7;color:var(--ink);padding:2px 2px 0;white-space:pre-wrap}
+.rd-ai-a{font-size:13px;line-height:1.7;color:var(--ink);padding:2px 2px 0}
 .rd-ai-load{display:inline-flex;align-items:center;gap:6px;color:var(--ink3);font-size:12.5px}
 .rd-ai-input{display:flex;gap:6px;position:sticky;bottom:0;background:var(--surf);padding-top:6px}
 .rd-ai-input input{flex:1;border:1px solid var(--line2);border-radius:9px;padding:8px 10px;font-size:12.5px;font-family:inherit;background:var(--surf);color:var(--ink);outline:none}
@@ -452,14 +469,35 @@ function OutlineTree({ items, doc, onGoto }) {
 }
 
 // 渲染带可点击页码引用 [p.X] 的文本（splitCites 把引用拆为片段；点击跳页）
-function CiteText({ text, onGoto }) {
+// 行内渲染（纯函数，无 Hook）：把 **粗体** 与 [p.X] 混排成节点。修复总结里 **研究问题** 直接显示星号、不美观的问题。
+function renderInline(text, onGoto, kp) {
+  const nodes = [];
   const parts = splitCites(text || "");
+  parts.forEach((part, i) => {
+    if (part.t === "cite") { nodes.push(<button key={kp + "c" + i} className="lf-cite" onClick={() => onGoto && onGoto(part.v)} title={"跳到第 " + part.v + " 页"}>p.{part.v}↗</button>); return; }
+    const seg = String(part.v); const re = /\*\*(.+?)\*\*/g; let last = 0, m, k = 0;
+    while ((m = re.exec(seg)) !== null) {
+      if (m.index > last) nodes.push(<span key={kp + "t" + i + "_" + k}>{seg.slice(last, m.index)}</span>);
+      nodes.push(<strong key={kp + "b" + i + "_" + k}>{m[1]}</strong>);
+      last = m.index + m[0].length; k++;
+    }
+    if (last < seg.length) nodes.push(<span key={kp + "e" + i}>{seg.slice(last)}</span>);
+  });
+  return nodes;
+}
+// 轻量 Markdown 渲染：整行 **标题** / ## 标题 → 段落小标题；其余行按行内规则渲染。结构化总结因此有层次、无裸星号。
+function CiteText({ text, onGoto }) {
+  const lines = String(text || "").split(/\n/);
   return (
-    <>
-      {parts.map((part, i) => part.t === "cite"
-        ? <button key={i} className="lf-cite" onClick={() => onGoto(part.v)} title={"跳到第 " + part.v + " 页"}>p.{part.v}↗</button>
-        : <span key={i}>{part.v}</span>)}
-    </>
+    <div className="rd-md">
+      {lines.map((line, i) => {
+        const t = line.trim();
+        if (!t) return <div key={i} className="rd-md-gap" />;
+        const hm = /^\*\*(.+?)\*\*[:：]?$/.exec(t) || /^#{1,4}\s+(.+)$/.exec(t);
+        if (hm) return <div key={i} className="rd-md-h">{hm[1].replace(/\*\*/g, "")}</div>;
+        return <div key={i} className="rd-md-p">{renderInline(line, onGoto, "l" + i + "_")}</div>;
+      })}
+    </div>
   );
 }
 
@@ -484,17 +522,33 @@ function ConfChip({ lvl }) {
   if (lvl === "c2") return <span className="conf c2"><Lightbulb size={10} /> 需外部佐证的推测</span>;
   return <span className="conf c1"><Lightbulb size={10} /> 文中有据的推断</span>;
 }
+const EV_PAGE_LEDGER = 12;
+const EV_PAGE_CITER = 8;
+const CITEROLE_UI_CAP = 20;
 function EvidenceCard({ env, onGoto }) {
+  const claims = env.claims || [];
+  const pageSize = env.kind === "citerole" ? EV_PAGE_CITER : env.kind === "ledger" ? EV_PAGE_LEDGER : EV_PAGE_CITER;
+  const [shown, setShown] = useState(pageSize);
+  const isCite = env.kind === "citerole";
+  const visible = claims.slice(0, shown);
+  const remaining = claims.length - visible.length;
   return (
     <div className="ev-card">
-      <div className="ev-top"><Layers size={14} /> {env.title}<span className="gbadge"><Shield size={9} /> 接地·带页码</span></div>
+      <div className="ev-top"><Layers size={14} /> <span className="ev-title">{env.title}</span><span className="gbadge"><Shield size={9} /> 接地·带页码</span></div>
       {env.framing && <div className="framing" style={{ margin: "9px 11px 0" }}><Info size={13} /><div>{env.framing}</div></div>}
-      {env.claims.map((c, i) => (
-        <div key={i} className="ev-claim">
-          <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>{c.status && <StatusIcon s={c.status} />}<span>{c.text}{c.flag === "needs_recheck" && <span className="evtype" style={{ marginLeft: 6, color: "var(--amberDim)", borderColor: "var(--amberLine)" }}>需核对</span>}</span></div>
-          <div className="ev-meta">{c.evidenceType && <span className="evtype">{EVTYPE[c.evidenceType] || c.evidenceType}</span>}<Cites refs={c.pageRefs} onGoto={onGoto} /></div>
-        </div>
-      ))}
+      {isCite && <div className="ev-note"><Link2 size={12} /><div>这里是<b>正文里被讨论到的关键引用</b>各起什么作用（背景 / 方法 / 数据 / 对照…），最多展示 {CITEROLE_UI_CAP} 处，<b>不是完整参考文献表</b>。全部书目 → 在「我的文献」<b>导出到 Zotero</b>。</div></div>}
+      {claims.length === 0
+        ? <div className="ev-empty"><Info size={13} />未能从本篇正文提取到可标注页码的条目。可点上方按钮重试，或在设置里换更强的模型。</div>
+        : <>
+            {visible.map((c, i) => (
+              <div key={i} className="ev-claim">
+                <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>{c.status && <StatusIcon s={c.status} />}<span>{c.text}{c.flag === "needs_recheck" && <span className="evtype" style={{ marginLeft: 6, color: "var(--amberDim)", borderColor: "var(--amberLine)" }}>需核对</span>}</span></div>
+                <div className="ev-meta">{c.evidenceType && <span className="evtype">{EVTYPE[c.evidenceType] || c.evidenceType}</span>}<Cites refs={c.pageRefs} onGoto={onGoto} /></div>
+              </div>
+            ))}
+            {remaining > 0 && <button className="ev-more" onClick={() => setShown(claims.length)}><ChevronDown size={14} /> 显示其余 {remaining} 条（共 {claims.length} 条）</button>}
+            {remaining <= 0 && claims.length > pageSize && <button className="ev-more" onClick={() => setShown(pageSize)}><ChevronUp size={14} /> 收起</button>}
+          </>}
     </div>
   );
 }
@@ -519,7 +573,7 @@ function InfCard({ env, onGoto, defaultOpen }) {
   const [open, setOpen] = useState(!!defaultOpen);
   return (
     <div className={"inf-card" + (open ? " open" : "")}>
-      <div className="inf-h" role="button" tabIndex={0} aria-expanded={open} onClick={() => setOpen((v) => !v)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen((v) => !v); } }}><Lightbulb size={14} className="t" /> {env.title}<span className="ibadge">推断·非事实</span><span className="chev"><ChevronDown size={15} /></span></div>
+      <div className="inf-h" role="button" tabIndex={0} aria-expanded={open} onClick={() => setOpen((v) => !v)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen((v) => !v); } }}><Lightbulb size={14} className="t" /> <span className="inf-title">{env.title}</span><span className="inf-right"><span className="ibadge">推断·非事实</span><span className="chev"><ChevronDown size={15} /></span></span></div>
       <div className="inf-body"><InfBody env={env} onGoto={onGoto} /></div>
     </div>
   );
@@ -548,7 +602,7 @@ function InfAnalyzer({ kind, ensurePages, source, onGoto, pushToast, practice })
   const reveal = () => { if (source && source.paperId) bridge.readerPracticeSave(source.paperId, kind, guess); setRevealed(true); run(); };
   return (
     <div className={"inf-card" + (open ? " open" : "")}>
-      <div className="inf-h" role="button" tabIndex={0} aria-expanded={open} onClick={onHeader} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onHeader(); } }}><Lightbulb size={14} className="t" /> {INF_TITLES[kind]}<span className="inf-right"><span className="ibadge">推断·非事实</span><ConfChip lvl={INF_CONF[kind]} /><span className="chev"><ChevronDown size={15} /></span></span></div>
+      <div className="inf-h" role="button" tabIndex={0} aria-expanded={open} onClick={onHeader} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onHeader(); } }}><Lightbulb size={14} className="t" /> <span className="inf-title">{INF_TITLES[kind]}</span><span className="inf-right"><span className="ibadge">推断·非事实</span><ConfChip lvl={INF_CONF[kind]} /><span className="chev"><ChevronDown size={15} /></span></span></div>
       <div className="inf-body">
         {practice && !revealed ? (
           <div className="guess-box">
@@ -611,16 +665,30 @@ function layoutGraph(nodes, edges) {
   const maxRank = nodes.length ? Math.max.apply(null, rank) : 0;
   const rows = []; for (let r = 0; r <= maxRank; r++) rows.push([]);
   nodes.forEach((n, i) => rows[rank[i]].push(i));
+  // 轻量重心排序（确定性）：每行按与上一行相连节点的平均列位重排，减少连线交叉，让分支/并行更易读。
+  for (let r = 1; r < rows.length; r++) {
+    const prevCol = {}; rows[r - 1].forEach((ni, c) => (prevCol[ni] = c));
+    const base = {}; rows[r].forEach((ni, c) => (base[ni] = c));
+    const score = {};
+    rows[r].forEach((ni) => {
+      const ins = edges.filter((e) => idx[e.to] === ni && prevCol[idx[e.from]] != null).map((e) => prevCol[idx[e.from]]);
+      score[ni] = ins.length ? ins.reduce((a, b) => a + b, 0) / ins.length : base[ni];
+    });
+    rows[r] = rows[r].slice().sort((a, b) => (score[a] - score[b]) || (base[a] - base[b]));
+  }
   return { rank, rows, idx };
 }
+function nodeColor(label) { return stageColor(stageOf(label) || String(label || "")); }
 function FlowGraph({ graph, onGoto, svgRef }) {
   const nodes = (graph && graph.nodes) || [];
   const edges = (graph && graph.edges) || [];
   if (!nodes.length) return <div className="rd-scaffold">（未能从正文重建出流程图，请重试或换更强的模型）</div>;
   const { rows, idx } = layoutGraph(nodes, edges);
-  const NW = 152, NH = 52, RG = 92, CG = 22, PAD = 14;
+  const wrapped = nodes.map((n) => wrapLabel(n.label, 9, 3));
+  const maxLines = Math.max(1, Math.max.apply(null, wrapped.map((w) => w.length)));
+  const NW = 150, LH = 15, NH = 30 + maxLines * LH, RG = NH + 56, CG = 30, PAD = 16;
   const maxCols = Math.max(1, Math.max.apply(null, rows.map((r) => r.length)));
-  const svgW = Math.max(320, maxCols * NW + (maxCols - 1) * CG + PAD * 2);
+  const svgW = Math.max(300, maxCols * NW + (maxCols - 1) * CG + PAD * 2);
   const svgH = PAD * 2 + (rows.length - 1) * RG + NH;
   const pos = {};
   rows.forEach((row, r) => {
@@ -630,27 +698,31 @@ function FlowGraph({ graph, onGoto, svgRef }) {
   });
   return (
     <svg ref={svgRef} className="rd-graph" viewBox={"0 0 " + svgW + " " + svgH} width="100%" style={{ height: svgH }} xmlns="http://www.w3.org/2000/svg">
-      <defs><marker id="rdarrow" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--amber)" /></marker></defs>
+      <defs><marker id="rdarrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--ink4)" /></marker></defs>
       {edges.map((e, i) => {
         const a = idx[e.from], b = idx[e.to]; if (a == null || b == null) return null;
         const pa = pos[a], pb = pos[b];
         const x1 = pa.x + NW / 2, y1 = pa.y + NH, x2 = pb.x + NW / 2, y2 = pb.y;
+        const dy = Math.max(18, (y2 - y1) / 2);
+        const d = "M" + x1 + "," + y1 + " C" + x1 + "," + (y1 + dy) + " " + x2 + "," + (y2 - dy) + " " + x2 + "," + y2;
+        const lw = String(e.label || "").length * 6.4 + 6;
         return (
           <g key={i}>
-            <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="var(--amberLine)" strokeWidth="1.5" markerEnd="url(#rdarrow)" />
-            {e.label && <text x={(x1 + x2) / 2} y={(y1 + y2) / 2} className="rd-glabel" textAnchor="middle">{e.label}</text>}
+            <path d={d} className="rd-gedge" markerEnd="url(#rdarrow)" />
+            {e.label && <g><rect className="rd-glabelbg" x={(x1 + x2) / 2 - lw / 2} y={(y1 + y2) / 2 - 8} width={lw} height="14" rx="4" /><text x={(x1 + x2) / 2} y={(y1 + y2) / 2 + 2} className="rd-glabel" textAnchor="middle">{e.label}</text></g>}
           </g>
         );
       })}
       {nodes.map((n, i) => {
         const p = pos[i]; const grounded = (n.pageRefs || []).length > 0;
-        const lines = wrapLabel(n.label, 11, 3);
+        const lines = wrapped[i]; const col = grounded ? nodeColor(n.label) : "var(--line2)";
         return (
           <g key={i} className={"rd-gnode" + (grounded ? "" : " ng")} onClick={() => grounded && onGoto && onGoto(n.pageRefs[0])} style={{ cursor: grounded ? "pointer" : "default" }}>
             <title>{n.label + (grounded ? "（p." + n.pageRefs.join(",p.") + "）" : "（无页码依据，请谨慎）")}</title>
-            <rect x={p.x} y={p.y} width={NW} height={NH} rx="9" />
-            {lines.map((ln, k) => <text key={k} x={p.x + NW / 2} y={p.y + NH / 2 - (lines.length - 1) * 7 + k * 14 + 4} textAnchor="middle" className="rd-gtext">{ln}</text>)}
-            {grounded && <text x={p.x + NW - 7} y={p.y + 13} textAnchor="end" className="rd-gpage">p.{n.pageRefs[0]}</text>}
+            <rect x={p.x} y={p.y} width={NW} height={NH} rx="11" fill="var(--surf)" stroke={col} strokeDasharray={grounded ? undefined : "4 3"} />
+            {grounded && <rect x={p.x} y={p.y + 9} width="3.5" height={NH - 18} rx="2" fill={col} />}
+            {lines.map((ln, k) => <text key={k} x={p.x + NW / 2 + (grounded ? 2 : 0)} y={p.y + NH / 2 - (lines.length - 1) * (LH / 2) + k * LH + 4} textAnchor="middle" className="rd-gtext">{ln}</text>)}
+            {grounded && <text x={p.x + NW - 8} y={p.y + 14} textAnchor="end" className="rd-gpage" fill={col}>p.{n.pageRefs[0]}</text>}
           </g>
         );
       })}
@@ -773,7 +845,7 @@ function InferencePane({ ensurePages, source, onGoto, pushToast, figureEnv, figu
       <div className="inf-pane">
         <div className="rd-lane inf"><Lightbulb size={11} /> 推断车道 · AI 的解读，非原文事实</div>
         <div className="inf-banner" style={{ marginTop: 10, marginBottom: 2 }}><AlertTriangle size={15} /><div>此区为 AI 的<b>解读与推测</b>，<b>不是论文陈述的事实</b>，各带把握度、默认折叠——请回原文核对后再采信。</div></div>
-        {figuring && <div className="inf-card open"><div className="inf-h"><Lightbulb size={14} className="t" /> 图表分析<span className="inf-right"><Loader size={14} className="rd-spin" /></span></div><div className="inf-body"><div className="rd-scaffold">读图中…（渲染区域 → 视觉模型）</div></div></div>}
+        {figuring && <div className="inf-card open"><div className="inf-h"><Lightbulb size={14} className="t" /> <span className="inf-title">图表分析</span><span className="inf-right"><Loader size={14} className="rd-spin" /></span></div><div className="inf-body"><div className="rd-scaffold">读图中…（渲染区域 → 视觉模型）</div></div></div>}
         {!figuring && figureEnv && <InfCard env={figureEnv} onGoto={onGoto} defaultOpen />}
         <InfAnalyzer kind="hardcore" ensurePages={ensurePages} source={source} onGoto={onGoto} pushToast={pushToast} />
         <InfAnalyzer kind="limitations" ensurePages={ensurePages} source={source} onGoto={onGoto} pushToast={pushToast} practice />
@@ -1077,7 +1149,7 @@ export default function Reader({ source, onClose, pushToast }) {
   const [page, setPage] = useState(1);
   const [scale, setScale] = useState(1.1);
   const [rotation, setRotation] = useState(0);
-  const [view, setView] = useState("single");
+  const [view, setView] = useState("continuous");
   const [sidebar, setSidebar] = useState(true);
   const [sidePanel, setSidePanel] = useState("thumbs"); // 展开面板 thumbs|outline|marks|null(仅图标轨)
   const [sideWidth, setSideWidth] = useState(190);
@@ -1122,6 +1194,13 @@ export default function Reader({ source, onClose, pushToast }) {
   const viewRef = useRef(null);
   const rootRef = useRef(null);
   const strCache = useRef({});
+  const annoUndoRef = useRef([]);
+  const annoRedoRef = useRef([]);
+  const undoAnnoRef = useRef(() => {});
+  const redoAnnoRef = useRef(() => {});
+  const [annoHistTick, setAnnoHistTick] = useState(0);
+  const canUndoAnno = annoUndoRef.current.length > 0;
+  const canRedoAnno = annoRedoRef.current.length > 0;
 
   useEffect(() => {
     setReaderContextHost(true);
@@ -1230,12 +1309,14 @@ export default function Reader({ source, onClose, pushToast }) {
       else if (!mod && (e.key === "r" || e.key === "R") && e.shiftKey) { e.preventDefault(); setRotation((r) => (r + 270) % 360); }
       else if (!mod && (e.key === "r" || e.key === "R")) { e.preventDefault(); setRotation((r) => (r + 90) % 360); }
       else if (mod && (e.key === "p" || e.key === "P")) { e.preventDefault(); const api = window.luminaApi; if (api && api.contextAction) api.contextAction("print"); }
+      else if (mod && (e.key === "z" || e.key === "Z") && !e.shiftKey) { e.preventDefault(); undoAnnoRef.current(); }
+      else if (mod && ((e.key === "y" || e.key === "Y") || (e.shiftKey && (e.key === "z" || e.key === "Z")))) { e.preventDefault(); redoAnnoRef.current(); }
       else if (e.key === "ArrowRight" || e.key === "PageDown") setPage((p) => Math.min(numPages, p + step));
       else if (e.key === "ArrowLeft" || e.key === "PageUp") setPage((p) => Math.max(1, p - step));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, numPages, step, findOpen, sel, transMenuOpen, transMode, snipMode, aiOpen, zoomMenuOpen, doc, page, rotation]);
+  }, [onClose, numPages, step, findOpen, sel, transMenuOpen, transMode, snipMode, aiOpen, zoomMenuOpen, doc, page, rotation]); // undoAnno/redoAnno stable via refs
 
   useEffect(() => {
     if (view !== "continuous") return;
@@ -1297,11 +1378,12 @@ export default function Reader({ source, onClose, pushToast }) {
       numPages,
       hasBookmark: navmarks.includes(page),
       annoCount: annos.length,
+      canUndoAnno,
       night,
       focus,
       hand,
     });
-  }, [page, scale, numPages, navmarks, annos.length, night, focus, hand]);
+  }, [page, scale, numPages, navmarks, annos.length, canUndoAnno, night, focus, hand, annoHistTick]);
 
   // 截取（图/公式）：框选区域 → 取区域内文本层文字 → 接地解释
   const onViewMouseDown = (e) => { if (hand && viewRef.current) { panRef.current = { x: e.clientX, y: e.clientY, sl: viewRef.current.scrollLeft, st: viewRef.current.scrollTop }; e.preventDefault(); return; } if (!snipMode || !rootRef.current) return; const host = rootRef.current.getBoundingClientRect(); snipStart.current = { x: e.clientX, y: e.clientY }; setSnipRect({ x: e.clientX - host.left, y: e.clientY - host.top, w: 0, h: 0 }); };
@@ -1343,7 +1425,15 @@ export default function Reader({ source, onClose, pushToast }) {
 
   useEffect(() => {
     let alive = true; loadedRef.current = false;
-    bridge.getAnnotations(docKey).then((list) => { if (alive) { setAnnos(Array.isArray(list) ? list : []); loadedRef.current = true; } }).catch(() => { loadedRef.current = true; });
+    annoUndoRef.current = [];
+    annoRedoRef.current = [];
+    setAnnoHistTick((t) => t + 1);
+    bridge.getAnnotations(docKey).then((list) => {
+      if (alive) {
+        setAnnos(Array.isArray(list) ? list : []);
+        loadedRef.current = true;
+      }
+    }).catch(() => { loadedRef.current = true; });
     return () => { alive = false; };
   }, [docKey]);
   useEffect(() => {
@@ -1358,9 +1448,55 @@ export default function Reader({ source, onClose, pushToast }) {
   }, [annos, docKey]);
   useEffect(() => { bridge.getSettings().then((s) => setLlmModel((s && s.llm && s.llm.model) || "")).catch(() => {}); }, []);
 
-  const addAnno = useCallback((a) => setAnnos((list) => [...list, a]), []);
+  const pushAnnoHistory = useCallback((prev) => {
+    if (!loadedRef.current) return;
+    annoUndoRef.current.push(JSON.parse(JSON.stringify(prev)));
+    if (annoUndoRef.current.length > 50) annoUndoRef.current.shift();
+    annoRedoRef.current = [];
+    setAnnoHistTick((t) => t + 1);
+  }, []);
+
+  const addAnno = useCallback((a) => {
+    setAnnos((list) => {
+      pushAnnoHistory(list);
+      return [...list, a];
+    });
+  }, [pushAnnoHistory]);
+
   const updateAnno = useCallback((id, patch) => setAnnos((list) => list.map((x) => (x.id === id ? { ...x, ...patch } : x))), []);
-  const removeAnno = useCallback((id) => setAnnos((list) => list.filter((x) => x.id !== id)), []);
+
+  const removeAnno = useCallback((id) => {
+    setAnnos((list) => {
+      pushAnnoHistory(list);
+      return list.filter((x) => x.id !== id);
+    });
+  }, [pushAnnoHistory]);
+
+  const undoAnno = useCallback(() => {
+    if (!annoUndoRef.current.length) return;
+    setAnnos((prev) => {
+      annoRedoRef.current.push(JSON.parse(JSON.stringify(prev)));
+      return JSON.parse(JSON.stringify(annoUndoRef.current.pop()));
+    });
+    setAnnoHistTick((t) => t + 1);
+    pushToast && pushToast("已撤销批注");
+  }, [pushToast]);
+
+  const redoAnno = useCallback(() => {
+    if (!annoRedoRef.current.length) return;
+    setAnnos((prev) => {
+      annoUndoRef.current.push(JSON.parse(JSON.stringify(prev)));
+      return JSON.parse(JSON.stringify(annoRedoRef.current.pop()));
+    });
+    setAnnoHistTick((t) => t + 1);
+    pushToast && pushToast("已重做批注");
+  }, [pushToast]);
+
+  useEffect(() => {
+    undoAnnoRef.current = undoAnno;
+    redoAnnoRef.current = redoAnno;
+  }, [undoAnno, redoAnno]);
+
   const onExportPdf = useCallback(async () => { try { await exportAnnotatedPdf(source.data, annos, source.name); pushToast && pushToast("已导出带注释 PDF"); } catch (e) { pushToast && pushToast("导出失败"); } }, [annos, source, pushToast]);
   const onExportMd = useCallback(() => { try { exportNotesMarkdown(annos, source.name); pushToast && pushToast("已导出笔记 Markdown"); } catch (e) { /* noop */ } }, [annos, source, pushToast]);
   const addHighlight = (color, fromSel) => {
@@ -1475,6 +1611,7 @@ export default function Reader({ source, onClose, pushToast }) {
       case "print": { const api = window.luminaApi; if (api && api.contextAction) api.contextAction("print"); break; }
       case "exportPdf": onExportPdf(); break;
       case "exportMd": onExportMd(); break;
+      case "undoAnno": undoAnno(); break;
       default: break;
     }
     ctxSelectionRef.current = null;
@@ -1545,6 +1682,8 @@ export default function Reader({ source, onClose, pushToast }) {
           <button className={"rd-btn" + (findOpen ? " on" : "")} onClick={() => setFindOpen((v) => !v)} title="页内查找"><Search size={15} /> 查找</button>
           <button className={"rd-btn" + (aiOpen && zone === "assist" ? " on" : "")} onClick={() => { if (aiOpen && zone === "assist") setAiOpen(false); else { setAiOpen(true); setZone("assist"); setTransMode(null); } }} title="阅读助手"><Sparkles size={15} /> 助手</button>
           <button className={"rd-btn" + (aiOpen && zone === "notes" ? " on" : "")} onClick={() => { if (aiOpen && zone === "notes") setAiOpen(false); else { setAiOpen(true); setZone("notes"); setTransMode(null); } }} title="批注"><Highlighter size={15} /> 批注</button>
+          <button className="rd-btn" disabled={!canUndoAnno} onClick={undoAnno} title="撤销批注 (Ctrl/⌘ Z)"><Undo2 size={15} /> 撤销</button>
+          <button className="rd-btn" disabled={!canRedoAnno} onClick={redoAnno} title="重做批注 (Ctrl/⌘ Y)"><Redo2 size={15} /> 重做</button>
           <button className={"rd-btn" + (snipMode ? " on" : "")} onClick={() => setSnipMode((v) => !v)} title="截图分析（框选图表→视觉分析，进推读车道）"><Crop size={15} /> 截图</button>
           <span className="rd-trwrap">
             <button className={"rd-btn" + (transMode ? " on" : "")} onClick={() => setTransMenuOpen((v) => !v)} title="翻译"><Languages size={15} /> 译 <ChevronDown size={13} /></button>

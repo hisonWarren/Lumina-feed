@@ -35,6 +35,7 @@ ok(has(main, "installTrayMenuController") || read("electron/tray-menu.ts"), "托
 const trayMenu = read("electron/tray-menu.ts");
 ok(has(trayMenu, "今日简报") && has(trayMenu, "继续阅读") && has(trayMenu, "立即检查全部订阅"), "托盘菜单：简报 / 继续阅读 / 检查订阅");
 ok(has(trayMenu, "设置") && has(trayMenu, "退出 Lumina") && has(trayMenu, "打开 PDF"), "托盘菜单：设置 / 打开 PDF / 退出");
+ok(has(trayMenu, "buildAboutDetail") && has(trayMenu, "数据目录") && has(trayMenu, "打开关于页"), "托盘关于：本机路径 + 跳转设置关于页");
 ok(has(trayMenu, "隐藏主窗口") || has(trayMenu, "显示 Lumina"), "托盘菜单：显示/隐藏主窗口");
 ok(has(main, 'win.on("close"') && has(main, "minimizeToTray") && has(main, "ensureTray()") && has(main, "win.hide()"), "关窗 → 托盘就绪则最小化，否则提示并正常关闭");
 ok(has(main, 'app.on("before-quit"') && has(main, "isQuiting = true"), "before-quit 置 isQuiting（允许真退出）");

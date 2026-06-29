@@ -59,19 +59,69 @@ export const KIND_REGISTRY: Record<string, KindSpec> = {
 
 const SYS = "你是严谨的科研阅读助手。只依据用户提供的逐页正文作答，不杜撰数字与引用。每个条目都要给出其依据的页码（整数数组）。仅输出 JSON 对象，不要任何解释、不要 Markdown 代码围栏。";
 
+// 字符串/转义安全地扫出某个 '[' 之后、该数组内所有「完整的顶层 {…} 对象」子串。
+// 用于截断救援：长列表（ledger/citerole）常被 maxTokens 截断，导致整段 JSON.parse 失败 → 旧版静默空卡。
+// 这里逐字符走括号深度（跳过字符串与转义），收集到的最后一个完整对象之前的内容仍可用，只丢被截断的尾巴。
+function salvageObjects(s: string, fromBracket: number): string[] {
+  const out: string[] = [];
+  let i = fromBracket + 1, depth = 0, start = -1, inStr = false, esc = false;
+  for (; i < s.length; i++) {
+    const ch = s[i];
+    if (inStr) { if (esc) esc = false; else if (ch === "\\") esc = true; else if (ch === "\"") inStr = false; continue; }
+    if (ch === "\"") { inStr = true; continue; }
+    if (ch === "{") { if (depth === 0) start = i; depth++; }
+    else if (ch === "}") { depth--; if (depth === 0 && start >= 0) { out.push(s.slice(start, i + 1)); start = -1; } }
+    else if (ch === "]" && depth === 0) break; // 数组正常收尾
+  }
+  return out;
+}
+// 救援指定键的数组（claims / nodes / edges）：先找 "key"…[，再 salvageObjects，逐个尝试 JSON.parse（丢弃坏的那个）。
+function salvageArray(s: string, key: string): any[] | null {
+  const re = new RegExp("\"" + key + "\"\\s*:\\s*\\[");
+  const m = re.exec(s);
+  if (!m) return null;
+  const objs = salvageObjects(s, m.index + m[0].length - 1);
+  const parsed: any[] = [];
+  for (const o of objs) { try { parsed.push(JSON.parse(o)); } catch { /* 丢弃被截断的元素 */ } }
+  return parsed.length ? parsed : null;
+}
+
 // 从模型回复里稳健抽取 JSON（取第一个花括号到最后一个花括号；不依赖代码围栏，避免源码内裸引号）。
+// 截断救援：直接 parse 失败时，按已知数组键逐个救援完整元素，重建对象——把「被截断 → 静默空」变为「尽量保住已生成的条目」。
 function extractJson(raw: string): any {
   const s = String(raw || "");
   const i = s.indexOf("{");
   const j = s.lastIndexOf("}");
-  if (i < 0 || j <= i) return null;
-  try { return JSON.parse(s.slice(i, j + 1)); } catch { return null; }
+  if (i >= 0 && j > i) { try { return JSON.parse(s.slice(i, j + 1)); } catch { /* 进入救援 */ } }
+  const claims = salvageArray(s, "claims");
+  if (claims) return { claims };
+  const nodes = salvageArray(s, "nodes");
+  const edges = salvageArray(s, "edges");
+  if (nodes || edges) return { nodes: nodes || [], edges: edges || [] };
+  return null;
 }
 
+// 默认逐页拼接（前部优先）；多数分析器只需结构骨架，不必喂全文。
 function pagesText(pages: ReaderPage[], cap = 24000): string {
   let out = "";
   for (const p of pages) { out += `[p.${p.page}] ${p.text}\n\n`; if (out.length > cap) break; }
   return out;
+}
+// 头尾取材：引文角色既要正文里的引用上下文（前/中部），也要文末参考文献表——超长文档时单纯截断会丢掉参考文献。
+// 故前 head 字符 + 末 tail 字符各取，中间以省略标记衔接（页码锚仍在两端文本内）。
+function pagesTextHeadTail(pages: ReaderPage[], head = 42000, tail = 24000): string {
+  const full = pages.map((p) => `[p.${p.page}] ${p.text}`).join("\n\n");
+  if (full.length <= head + tail) return full;
+  return full.slice(0, head) + "\n\n…（中段从略，仅用于控制长度）…\n\n" + full.slice(full.length - tail);
+}
+// 每个 kind 的输入取材上限与输出 token 预算（“不计成本、最佳体验”：列表型分析器给足额度，避免被截断成 6 条）。
+const INPUT_CAP: Record<string, number> = { ledger: 32000, recipe: 30000, repro: 30000 };
+const OUTPUT_MAXTOK: Record<string, number> = { ledger: 3200, citerole: 3600, recipe: 2400, repro: 2400, cars: 1800, falsify: 1800, outline: 1800, hardcore: 1800, limitations: 1800, flowmap: 1400 };
+/** 引文角色硬上限（A1+）：只列正文讨论过的 in-text 引用，防滑向完整书目。 */
+export const CITEROLE_MAX_CLAIMS = 20;
+function bodyFor(kind: string, pages: ReaderPage[]): string {
+  if (kind === "citerole") return pagesTextHeadTail(pages); // 跨全文 + 参考文献表
+  return pagesText(pages, INPUT_CAP[kind] ?? 24000);
 }
 
 // 每个 kind 的指令（用 JSON 形状的"文字描述"而非字面 JSON，避免源码内裸引号；模型仍只输出 JSON）。
@@ -81,12 +131,12 @@ const PROMPTS: Record<string, string> = {
   recipe: "抽取可复用的方法配方，分为：设计、数据与队列、结局定义、验证或测量指标、统计方法。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text（可带「设计：」这类前缀）与 pageRefs（页码整数数组）。只输出该 JSON。",
   repro: "对照预测模型/临床研究报告规范（TRIPOD、CONSORT、PRISMA 思路），逐项核查本文是否报告了：样本量与时间窗、结局定义、缺失数据处理、数据可得性声明、代码或模型可得性、研究预注册等。对每项给字段 status，取值为 ok（已报告）、warn（缺失或未见声明）、no（明确未做）。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text、status、pageRefs（status 非 ok 且文中无对应位置时 pageRefs 可为空数组）。不要把未报告的项说成已报告。只输出该 JSON。",
   falsify: "抽取作者自陈的可证伪边界：什么观察会推翻其结论、或在什么条件下结论不成立。若作者未给出明确的可证伪条件，则输出一条 text 说明未陈述可证伪条件、并加字段 flag 取值 unstated——这本身是一个值得注意的发现。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text、pageRefs（页码整数数组）与可选的 flag。只输出该 JSON。",
-  citerole: "识别正文中关键引文的角色，角色类别如：背景支撑、方法来源、对比或张力、数据来源。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text（形如「[12,13]：背景支撑，用于确立早期识别改善预后这一前提」）与 pageRefs（页码整数数组）。只输出该 JSON。",
+  citerole: "通读全文，只解释正文里被讨论到的关键引用各起什么作用。角色类别如：背景支撑、方法来源、对比或张力、数据来源、结果佐证。每条必须能在正文找到该引用被使用的上下文；参考文献表里有但正文未讨论的条目不要输出。尽量覆盖正文各处的重要引用簇（不只前几页）。claims 数组最多 20 条；若重要引用超过 20，优先保留对论证结构最关键者。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text（形如「[12,13]：背景支撑，用于确立早期识别改善预后这一前提」）与 pageRefs（该引用出现处的页码整数数组）。只输出该 JSON。",
   hardcore: "把本研究依赖的假设分为两层：硬核（被否证则整篇结论要重做的承重假设）与保护带（可调整而不动核心的辅助假设）。这是基于研究纲领方法论（Lakatos）的推断分层，作者通常并不如此区分。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text（可带「硬核 H1：」或「保护带 P1：」前缀）与 pageRefs（若文中有据，整数数组，可为空）。只输出该 JSON。",
   limitations: "指出作者未明确陈述、但从其方法与数据可合理推断的潜在局限；每条都应能与正文方法交叉核对。这是 AI 的推测、需外部佐证、可能误判。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text 与 pageRefs（若与某页方法相关，整数数组，可为空）。只输出该 JSON。",
   stats: "扫描本文的统计报告，找出看起来可能不一致、值得复核的地方，例如：报告的 p 值与检验统计量及自由度看起来对不上、百分比与分子分母或样本量看起来对不上、置信区间与 p 值的显著性方向看起来矛盾、自由度与样本量看起来不一致、数字四舍五入后看起来不自洽等。这只是提示、不是判定出错：你无法可靠核验算术，每条都必须表述为「看起来……建议复核」，并提醒用户手动重算或用 statcheck/GRIM 等工具确认。不要断言任何数字是错的，不要编造文中没有的数字。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text（一处「看起来需复核」的描述）、pageRefs（页码整数数组）、confidence 取值 c3、flag 取值 needs_recheck。只输出该 JSON。",
   outline: "提取这篇论文的逻辑大纲（如：背景 → 研究空白 → 研究问题 → 方法 → 结果 → 讨论/局限 → 结论）。逻辑结构来自正文章节标题与主题句。输出一个 JSON 对象，含字段 claims（数组）；claims 的每个元素含两个字段：text（一句话条目，可带「背景：」这类前缀）与 pageRefs（该条依据的页码，整数数组）。只输出该 JSON 对象。",
-  flowmap: "把这篇论文的研究/方法流程抽成一张有向流程图：通常是 研究对象或数据 → 预处理/分组 → 干预或建模 → 评测/统计 → 主要结论，严格按论文正文真实描述的步骤与先后依赖连接；只画正文写明的环节，不要补充论文未描述的步骤，也不要把相关关系画成因果。输出一个 JSON 对象，含两个字段：nodes（数组，每个元素含 id 短字符串、label 该步骤的简短名称不超过 16 个字、pageRefs 该步骤依据的页码整数数组）与 edges（数组，每个元素含 from 与 to 为节点 id、可选 label 关系简述不超过 8 个字）。节点数控制在 4 到 12 个。只输出该 JSON。",
+  flowmap: "把这篇论文的研究/方法逻辑抽成一张有向流程图，严格按正文真实描述的步骤与先后依赖来组织——它的形状应当反映这篇论文本身的结构：可能是线性流水线，也可能有分支（如多个数据集/多条实验线分别处理后再汇合）、并行步骤、或评测与建模之间的回路；只画正文写明的环节，不要补充论文未描述的步骤，也不要把相关关系画成因果。输出一个 JSON 对象，含两个字段：nodes（数组，每个元素含 id 短字符串、label 该步骤的简短名称不超过 14 个字、pageRefs 该步骤依据的页码整数数组）与 edges（数组，每个元素含 from 与 to 为节点 id、可选 label 关系简述不超过 8 个字）。节点数控制在 5 到 14 个，分支与汇合用多条边表达。只输出该 JSON。",
 };
 
 async function runStructured(kind: string, pages: ReaderPage[], spec: KindSpec, llm: LlmClient, opts: { signal?: AbortSignal } = {}): Promise<AnalysisEnvelope> {
@@ -94,10 +144,15 @@ async function runStructured(kind: string, pages: ReaderPage[], spec: KindSpec, 
   if (!instruction) throw new Error("analyzeReader: kind 尚未在本版本实现：" + kind);
   const valid = new Set<number>(pages.map((p) => p.page));
   const raw = await llm.complete(
-    [ { role: "system", content: SYS }, { role: "user", content: instruction + "\n\n正文：\n" + pagesText(pages) } ],
-    { maxTokens: 1400, temperature: 0.2, signal: opts.signal },
+    [ { role: "system", content: SYS }, { role: "user", content: instruction + "\n\n正文：\n" + bodyFor(kind, pages) } ],
+    { maxTokens: OUTPUT_MAXTOK[kind] ?? 1400, temperature: 0.2, signal: opts.signal },
   );
   const parsed = extractJson(raw);
+  // 硬解析失败（模型有输出但既非 JSON、也救援不出任何完整条目）→ 抛错，由 IPC 转为可见的 analysisError，
+  // 而非旧版那样吞成「空卡，什么都不显示」。截断但救得回条目的情形，extractJson 已尽量保留。
+  if (parsed == null && String(raw || "").trim().length > 0) {
+    throw new Error("模型输出无法解析为结构化结果（可能被截断或返回了非 JSON）。请重试，或在「设置 → 大模型」换用更强/上下文更长的模型。");
+  }
   const arr: any[] = parsed && Array.isArray(parsed.claims) ? parsed.claims : [];
   const claims: AnalysisClaim[] = arr.map((c: any) => {
     const refs: number[] = Array.isArray(c && c.pageRefs)
@@ -112,7 +167,11 @@ async function runStructured(kind: string, pages: ReaderPage[], spec: KindSpec, 
     if (kind === "stats") { claim.confidence = "c3"; claim.flag = "needs_recheck"; } // 统计扫描强制最克制：只提示复核、绝不断言出错
     return claim;
   }).filter((c: AnalysisClaim) => c.text.length > 0);
-  return { kind, lane: spec.lane, groundability: spec.groundability, sourceBasis: "fulltext", model: llm.model, title: spec.title, framing: spec.framing, claims };
+  let outClaims = claims;
+  if (kind === "citerole" && outClaims.length > CITEROLE_MAX_CLAIMS) {
+    outClaims = outClaims.slice(0, CITEROLE_MAX_CLAIMS);
+  }
+  return { kind, lane: spec.lane, groundability: spec.groundability, sourceBasis: "fulltext", model: llm.model, title: spec.title, framing: spec.framing, claims: outClaims };
 }
 
 const SYS_MOVE = "你分析学术写作的修辞功能。只就给定句子说明它在做什么修辞动作（如铺垫/让步/转折/反驳/收束/重申），以及在什么情境下适合这样写；不要给可照抄的句式模板，不要改写或仿写该句。仅输出 JSON 对象，含字段 function（这句在做什么修辞动作）与 condition（什么情境下适合这样写），不要解释、不要代码围栏。";
@@ -200,8 +259,8 @@ async function runFlowmap(kind: string, pages: ReaderPage[], spec: KindSpec, llm
   const instruction = PROMPTS[kind];
   const valid = new Set<number>(pages.map((p) => p.page));
   const raw = await llm.complete(
-    [ { role: "system", content: SYS }, { role: "user", content: instruction + "\n\n正文：\n" + pagesText(pages) } ],
-    { maxTokens: 1200, temperature: 0.2, signal: opts.signal },
+    [ { role: "system", content: SYS }, { role: "user", content: instruction + "\n\n正文：\n" + pagesText(pages, 26000) } ],
+    { maxTokens: OUTPUT_MAXTOK[kind] ?? 1400, temperature: 0.2, signal: opts.signal },
   );
   const parsed: any = extractJson(raw) || {};
   const rawNodes: any[] = Array.isArray(parsed.nodes) ? parsed.nodes : [];

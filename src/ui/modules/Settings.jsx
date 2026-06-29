@@ -172,6 +172,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
   const [resetting, setResetting] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [userDataPath, setUserDataPath] = useState("");
+  const [appVersion, setAppVersion] = useState("");
   const [searchDepth, setSearchDepth] = useState("standard");
   const [altMirrors, setAltMirrors] = useState({});
   const [prefetchOnIdentifier, setPrefetchOnIdentifier] = useState(true);
@@ -405,6 +406,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
     if (!backend) return;
     let alive = true;
     bridge.getUserDataPath().then((p) => { if (alive && p) setUserDataPath(String(p)); }).catch(() => {});
+    bridge.getAppVersion().then((v) => { if (alive && v) setAppVersion(String(v)); }).catch(() => {});
     return () => { alive = false; };
   }, [backend]);
 
@@ -774,7 +776,10 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
               <>
                 <h2 className="set-pane-h"><Info size={18} /> 关于</h2>
                 <div className="set-about">
-                  <p><b>Lumina Feed</b> —— 本地优先的个人文献工具：定位一篇 → 多源取全文 PDF → AI 照亮（读 / 译 / 总结 / 批注）+ 主题订阅 + 每日简报。</p>
+                  <p><b>Lumina Feed{appVersion ? ` ${appVersion}` : ""}</b> —— 本地优先的个人文献工具：定位一篇 → 多源取全文 PDF → AI 照亮（读 / 译 / 总结 / 批注）+ 主题订阅 + 每日简报。</p>
+                  {userDataPath ? (
+                    <p className="set-mono" style={{ marginTop: 10, fontSize: 12.5, wordBreak: "break-all" }}>本机数据：{userDataPath}</p>
+                  ) : null}
                   <p style={{ marginTop: 10 }}>检索覆盖 20 个来源（开放 API 与 LibGen、Anna's Archive、Sci-Hub 等）；不包含 Google Scholar 索引或 Web of Science / Scopus 等商业数据库。取文来源会在界面持久标注。</p>
                   <p style={{ marginTop: 10 }}><b>底线（始终成立）</b></p>
                   <p>· 全文按 OA → LibGen → Anna's Archive → Sci-Hub 顺序自动尝试；<br />· AI 只排序 / 总结，从不替你裁决纳入或排除；<br />· 密钥只入 OS 钥匙串，绝不写配置或代码；<br />· 每条总结都带依据徽章与页码引用，可回原文核对；<br />· 预印本标注「未经同行评议」、已撤稿明确提示；<br />· 数据、PDF 与索引都在本机。</p>

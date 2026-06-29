@@ -54,17 +54,18 @@
 | `synra_patch_lumina_open_sources` | `verify-lumina-open-sources.mjs`（P0+P2 共 **17** 检索源） |
 | `synra_patch_lumina_results_paging` | `verify-lumina-results-paging.mjs` · `test-paginate.mjs`（15/15） |
 | `synra_patch_lumina_reader_hilite_fix` | `verify-lumina-reader-hilite-fix.mjs`（12/12）· `apply-hilite-fix.mjs` |
+| `synra_patch_lumina_reader_plus_fix` | `verify-lumina-reader-plus-fix.mjs`（27/27） |
 | **直推·订阅简报 2.0** | `verify-lumina-subs-digest-sync.mjs`（26/26） |
 
 ## 验收
 
 ```powershell
-npm run verify          # 扫描 tools/verify-lumina-*.mjs，**43/43** 零红不变量
+npm run verify          # 扫描 tools/verify-lumina-*.mjs，**54/54** 零红不变量
 npm run verify:fetch-meta
 npm run verify:model-presets
 npx @electron/rebuild
 npm start
-npm run dist            # NSIS：Lumina Feed Setup 0.4.1.exe（Windows 可设 CSC_IDENTITY_AUTO_DISCOVERY=false）
+npm run dist            # NSIS：Lumina Feed Setup 0.4.3.exe（Windows 可设 CSC_IDENTITY_AUTO_DISCOVERY=false）
 npm run dist:dir        # win-unpacked
 ```
 

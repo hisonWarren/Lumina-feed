@@ -16,10 +16,16 @@ ok(menu && menu.includes("ReaderContextMenu"), "组件存在");
 ok(menu && menu.includes("顺时针旋转") && menu.includes("逆时针旋转"), "旋转双向");
 ok(menu && menu.includes("复制带页码引用") && menu.includes("高亮 · 黄"), "选区菜单项");
 
+ok(menu && menu.includes("缩放与适配") && menu.includes('type: "submenu"'), "空白区折叠子菜单（缩放与适配）");
+ok(menu && menu.includes("显示与工具") && menu.includes("lf-ctx-scroll"), "显示与工具分组 + 滚动容器");
+ok(menu && menu.includes("撤销上一批注"), "右键撤销批注项");
+
 console.log("\n[2] Reader 集成");
 ok(reader && reader.includes("onReaderContextMenu"), "contextmenu 处理器");
 ok(reader && reader.includes("ReaderContextMenu"), "挂载菜单");
-ok(reader && reader.includes("RotateCcw"), "工具栏逆时针旋转");
+ok(reader && reader.includes("Undo2") && reader.includes("undoAnno"), "顶栏撤销 + undoAnno");
+ok(reader && reader.includes("redoAnno") && reader.includes("Redo2"), "顶栏重做");
+ok(reader && reader.includes("canUndoAnno"), "撤销状态传入右键菜单");
 ok(reader && reader.includes("setReaderContextHost"), "阅读器接管全局菜单");
 ok(reader && !reader.includes("批注 · P3"), "已移除内部代号 P3");
 ok(reader && reader.includes("条批注"), "用户可读批注状态");

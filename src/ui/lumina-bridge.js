@@ -559,6 +559,7 @@ export const bridge = {
   },
   async resetLocalData() { const api = A(); if (!api || !api.resetLocalData) return { ok: false, error: "no_backend" }; return api.resetLocalData(); },
   async getUserDataPath() { const api = A(); if (!api || !api.getUserDataPath) return null; try { return await api.getUserDataPath(); } catch { return null; } },
+  async getAppVersion() { const api = A(); if (!api || !api.getAppVersion) return null; try { return await api.getAppVersion(); } catch { return null; } },
   async setSecret(k, v) { const api = A(); if (!api) return null; return api.setSecret(k, v); },
   async sourcesStatus() {
     const api = A(); if (!api || !api.sourcesStatus) return {};

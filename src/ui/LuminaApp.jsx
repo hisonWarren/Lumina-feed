@@ -473,9 +473,9 @@ export default function LuminaApp() {
     const offFail = bridge.onPrefetchFail?.(({ paperId, result }) => {
       setFetchingMeta((m) => { const n = { ...m }; delete n[paperId]; return n; });
       const why = result?.reason || "no_pdf";
-      if (why !== "missing_email") {
-        pushToast("后台预取未成功，可手动点「获取全文」");
-      }
+      if (why === "missing_email") return;
+      const hint = fetchFailHint(why);
+      pushToast(hint || "后台预取未成功，可手动点「获取全文」");
     });
     return () => { offStart && offStart(); offDone && offDone(); offFail && offFail(); };
   }, [pushToast, refreshLib, onReadPaper]);

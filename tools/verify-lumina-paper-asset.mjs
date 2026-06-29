@@ -23,7 +23,8 @@ if (exists("electron/paper-asset-ipc.ts")) {
   const s = read("electron/paper-asset-ipc.ts");
   /postFetchSuccess/.test(s) && /hydrateAssets/.test(s) && /reconcileOrphans/.test(s) && /enqueueFetch/.test(s) && /deleteLocalPdf/.test(s)
     ? ok("paper-asset-ipc 核心函数") : bad("paper-asset-ipc 不完整");
-  /FETCH_CONCURRENCY = 2/.test(s) ? ok("取文队列并发上限 2") : bad("缺队列并发限制");
+  (/FETCH_CONCURRENCY = 2/.test(s) || (/FETCH_CONCURRENCY_IDLE = 2/.test(s) && /fetchConcurrencyLimit/.test(s)))
+    ? ok("取文队列并发上限 2") : bad("缺队列并发限制");
   /assertSafePaperId/.test(s) && /ensureStubPaper/.test(s) ? ok("paperId 校验 + stub 入库") : bad("缺 assertSafePaperId 或 ensureStubPaper");
 } else bad("缺 electron/paper-asset-ipc.ts");
 
