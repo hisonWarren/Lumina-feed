@@ -108,6 +108,12 @@ async function refreshSubsUi(cdp) {
   `);
   await new Promise((r) => setTimeout(r, 400));
   await goSubs(cdp);
+  await evalJs(cdp, `
+    const scan = [...document.querySelectorAll(".dg-view-seg button")].find(b => (b.textContent||"").includes("扫描列表"));
+    if (scan) scan.click();
+    await new Promise(r => setTimeout(r, 400));
+    return true;
+  `);
   for (let i = 0; i < 40; i++) {
     const n = await evalJs(cdp, `return document.querySelectorAll(".dg-item").length;`);
     if (n > 0) return n;

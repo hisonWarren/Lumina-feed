@@ -1,6 +1,6 @@
 // P5 · 全文库镜像设置与探活
 import React, { useState, useEffect } from "react";
-import { RefreshCw, Save } from "lucide-react";
+import { RefreshCw, Save, Loader } from "lucide-react";
 
 const ROWS = [
   { key: "libgen", label: "LibGen 镜像", placeholder: "https://libgen.li\n每行一个 URL" },
@@ -77,7 +77,7 @@ export default function MirrorSettingsPanel({ value = {}, onSave, onProbe, pushT
         </div>
       ))}
       <div className="set-btnrow">
-        <button className="set-btn2" disabled={busy} onClick={probe}><RefreshCw size={14} /> {busy ? "探活中…" : "探活镜像"}</button>
+        <button className="set-btn2" disabled={busy} onClick={probe}>{busy ? <Loader size={14} className="lf-spin" /> : <RefreshCw size={14} />} {busy ? "探活中…" : "探活镜像"}</button>
         <button className="set-btn2" onClick={save}><Save size={14} /> 保存镜像</button>
       </div>
     </div>

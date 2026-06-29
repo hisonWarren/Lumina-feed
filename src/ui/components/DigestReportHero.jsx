@@ -130,7 +130,7 @@ export default function DigestReportHero({
           <Sparkles size={16} />
           <span className="dg-report-title">{mode === "single" ? "本订阅 · 今日深度简报" : "今日综合简报"}</span>
           {ready && report.headline && collapsed && <span className="dg-report-headline">{report.headline}</span>}
-          {busy && <span className="dg-report-busy"><Loader size={13} className="rd-spin" /> 撰写中…</span>}
+          {busy && <span className="dg-report-busy"><Loader size={13} className="dg-spin" /> 撰写中…</span>}
           {ready && !collapsed && <span className="dg-report-meta">{fmtTime(report.generatedAt)}</span>}
           {collapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
         </button>
@@ -139,7 +139,7 @@ export default function DigestReportHero({
             <button type="button" className="dg-report-btn" onClick={onViewReport}>阅读报告</button>
           )}
           <button type="button" className="dg-report-btn" disabled={busy} onClick={() => onGenerate(true)}>
-            {busy ? <><Loader size={13} className="rd-spin" /> 生成中</> : <><RefreshCw size={13} /> {ready ? "刷新" : "生成报告"}</>}
+            {busy ? <><Loader size={13} className="dg-spin" /> 生成中</> : <><RefreshCw size={13} /> {ready ? "刷新" : "生成报告"}</>}
           </button>
           <button type="button" className="dg-report-icon" title="简报报告设置" onClick={onOpenSettings}><Settings size={15} /></button>
         </div>
@@ -163,7 +163,7 @@ export default function DigestReportHero({
             <div className="dg-report-note"><AlertTriangle size={14} /> 报告生成失败{report.error ? `（${report.error}）` : ""} · 点「刷新」重试</div>
           )}
           {busy && !ready && (
-            <div className="dg-report-note"><Loader size={14} className="rd-spin" /> 正在归纳 {report?.paperCount || "…"} 篇待读… 列表可先浏览</div>
+            <div className="dg-report-note"><Loader size={14} className="dg-spin" /> 正在归纳 {report?.paperCount || "…"} 篇待读… 列表可先浏览</div>
           )}
 
           {ready && (
@@ -191,7 +191,17 @@ export function DigestReportReader({ report, onJumpPaper, onBackToScan, onGenera
   const mode = scopeMode === "single" ? "single" : "all";
   const label = scopeLabel || (mode === "single" ? "订阅" : "今日全部简报");
 
-  if (!report || (report.status !== "ready" && !busy)) {
+  if (busy && (!report || report.status !== "ready")) {
+    return (
+      <div className="dg-report-reader dg-rp-state" data-mode={mode}>
+        <Loader size={26} className="dg-spin dg-rp-state-icon busy" />
+        <p className="dg-rp-state-t">正在撰写{mode === "single" ? "单主题深度" : "今日综合"}简报…</p>
+        <p className="dg-rp-state-d">{report?.paperCount ? `归纳 ${report.paperCount} 篇待读，` : "AI 正在归纳待读文献，"}列表可先浏览。</p>
+        <div className="dg-rp-state-btns"><button type="button" className="dg-rp-btn ghost" onClick={onBackToScan}><ChevronLeft size={14} /> 扫描列表</button></div>
+      </div>
+    );
+  }
+  if (!report || report.status !== "ready") {
     const failed = report?.status === "failed";
     const noLlm = report?.skippedReason === "llm_not_configured";
     return (
@@ -208,22 +218,12 @@ export function DigestReportReader({ report, onJumpPaper, onBackToScan, onGenera
         <div className="dg-rp-state-btns">
           {onGenerate && (
             <button type="button" className="dg-rp-btn primary" disabled={busy} onClick={() => onGenerate(true)}>
-              {busy ? <><Loader size={13} className="rd-spin" /> 生成中…</> : <><RefreshCw size={13} /> {failed ? "重试生成" : "生成报告"}</>}
+              {busy ? <><Loader size={13} className="dg-spin" /> 生成中…</> : <><RefreshCw size={13} /> {failed ? "重试生成" : "生成报告"}</>}
             </button>
           )}
           {noLlm && onOpenSettings && <button type="button" className="dg-rp-btn" onClick={onOpenSettings}><Settings size={13} /> 去设置</button>}
           <button type="button" className="dg-rp-btn ghost" onClick={onBackToScan}><ChevronLeft size={14} /> 扫描列表</button>
         </div>
-      </div>
-    );
-  }
-  if (busy && report.status !== "ready") {
-    return (
-      <div className="dg-report-reader dg-rp-state" data-mode={mode}>
-        <Loader size={24} className="rd-spin dg-rp-state-icon" />
-        <p className="dg-rp-state-t">正在撰写{mode === "single" ? "单主题深度" : "今日综合"}简报…</p>
-        <p className="dg-rp-state-d">{report?.paperCount ? `归纳 ${report.paperCount} 篇待读，` : ""}列表可先浏览。</p>
-        <div className="dg-rp-state-btns"><button type="button" className="dg-rp-btn ghost" onClick={onBackToScan}><ChevronLeft size={14} /> 扫描列表</button></div>
       </div>
     );
   }
@@ -233,7 +233,7 @@ export function DigestReportReader({ report, onJumpPaper, onBackToScan, onGenera
         <button type="button" className="dg-rp-back" onClick={onBackToScan}><ChevronLeft size={15} /> 扫描列表</button>
         {onGenerate && (
           <button type="button" className="dg-rp-refresh" disabled={busy} onClick={() => onGenerate(true)} title="重新生成">
-            {busy ? <Loader size={13} className="rd-spin" /> : <RefreshCw size={13} />} 刷新
+            {busy ? <Loader size={13} className="dg-spin" /> : <RefreshCw size={13} />} 刷新
           </button>
         )}
       </div>

@@ -3,7 +3,7 @@
 // 真实文本层(可选择) + 页内查找 + 大纲目录 + 划词解释/翻译/带页码问答/多色批注 + 截取读图 + 证据/推断分析。
 // 续读位置(按 docKey) · 键盘快捷键 · 夜读反色 · 抓手平移。真实 PDF 渲染/文本层/选择/查找/各交互仅真机可验。
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { ArrowLeft, X, PanelLeft, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Minus, Plus, Maximize, RotateCw, RotateCcw, Expand, Download, Search, Sparkles, Send, Languages, Copy, RefreshCw, List, Images, Highlighter, StickyNote, Crop, Trash2, FileDown, Loader, AlertTriangle, Square, Rows3, Columns2, Shield, Info, Layers, Lightbulb, Eye, Ban, Target, Scale, FlaskConical, ListChecks, Link2, Check, Quote, Bookmark, Workflow, Map, Moon, Hand, ScanLine, Undo2, Redo2 } from "lucide-react";
+import { ArrowLeft, X, PanelLeft, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Minus, Plus, Maximize, RotateCw, RotateCcw, Expand, Download, Search, Sparkles, Send, Languages, Copy, RefreshCw, List, Images, Highlighter, StickyNote, Crop, Trash2, FileDown, Loader, AlertTriangle, Square, Rows3, Columns2, FileText, Shield, Info, Layers, Lightbulb, Eye, Ban, Target, Scale, FlaskConical, ListChecks, Link2, Check, Quote, Bookmark, Workflow, Map, Moon, Hand, ScanLine, Undo2, Redo2 } from "lucide-react";
 import { openPdf, getOutline, getPageStrings, extractPageTextForTranslate, renderTextLayer, destToPageNumber, fitWidthScale, getDocPages, splitCites, renderRegion } from "../pdf-engine.js";
 import { bridge } from "../lumina-bridge.js";
 import { persistSettings } from "../settings-persist.js";
@@ -16,7 +16,7 @@ const READER_CSS = `
 /* ── reader_plus 双车道（证据=gold/已四主题派生；推断=amber 此处派生明/暗） ── */
 .rd{--amber:#BE7A18;--amberDim:#9A5F12;--amberTint:rgba(190,122,24,.10);--amberLine:rgba(190,122,24,.34)}
 .lf:not(.day) .rd{--amber:#E0A75C;--amberDim:#C98A3C;--amberTint:rgba(224,167,92,.16);--amberLine:rgba(224,167,92,.42)}
-.rd-zones{display:flex;gap:4px;position:sticky;top:-14px;background:var(--surf);z-index:2;padding:6px 0;margin:-4px 0 4px;border-bottom:1px solid var(--line)}
+.rd-zones{display:flex;gap:4px;position:sticky;top:-12px;background:var(--surf);z-index:2;padding:6px 0;margin:-2px 0 4px;border-bottom:1px solid var(--line)}
 .rd-zone{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;border:1px solid transparent;background:transparent;color:var(--ink3);border-radius:8px;padding:6px 4px;font-size:11.5px;cursor:pointer;font-family:inherit}
 .rd-zone:hover{background:var(--surf2);color:var(--ink)}
 .rd-zone.on{background:var(--gold);color:#fff}
@@ -126,7 +126,8 @@ const READER_CSS = `
 .reveal-btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;border:1px solid var(--amberLine);background:var(--amberTint);color:var(--amberDim);border-radius:8px;padding:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}
 .reveal-btn:hover{background:color-mix(in srgb,var(--amber) 16%,transparent)}
 .reveal-btn:disabled{opacity:.6;cursor:default}
-.rd{position:absolute;inset:0;display:flex;flex-direction:column;background:var(--surf2);z-index:30}
+.rd{position:absolute;inset:0;display:flex;flex-direction:column;background:var(--surf2);z-index:30;box-sizing:border-box}
+.rd *,.rd-right *,.rd-side *{box-sizing:border-box}
 .rd-topbar{display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--surf);border-bottom:1px solid var(--line);flex-shrink:0}
 .rd-back{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:9px;padding:7px 11px;font-size:12.5px;cursor:pointer;font-family:inherit}
 .rd-back:hover{border-color:var(--gold);color:var(--gold)}
@@ -153,7 +154,7 @@ const READER_CSS = `
 .rd-find input:focus{border-color:var(--gold)}
 .rd-fcount{font-family:'Space Mono',monospace;font-size:12px;color:var(--ink3);min-width:50px;text-align:center}
 .rd-body{flex:1;min-height:0;display:flex;overflow:hidden}
-.rd-side{flex-shrink:0;border-right:1px solid var(--line);background:var(--surf);display:flex;flex-direction:row;overflow:hidden}
+.rd-side{flex-shrink:0;border-right:1px solid var(--line);background:var(--surf);display:flex;flex-direction:row;overflow:hidden;box-sizing:border-box}
 .rd-rail{width:46px;flex-shrink:0;display:flex;flex-direction:column;gap:6px;padding:9px 6px;border-right:1px solid var(--line2);background:var(--surf2)}
 .rd-railbtn{width:34px;height:34px;display:grid;place-items:center;border:1px solid transparent;background:transparent;color:var(--ink3);border-radius:8px;cursor:pointer}
 .rd-railbtn:hover{background:var(--surf);color:var(--ink)}
@@ -213,9 +214,10 @@ const READER_CSS = `
 .rd.focus .rd-side{display:none}
 .rd.focus .rd-topbar{opacity:.55}
 .rd.focus .rd-topbar:hover{opacity:1}
-.rd-right{position:relative;flex-shrink:0;min-width:0;border-left:1px solid var(--line);background:var(--surf);display:flex;flex-direction:column;overflow:hidden}
+.rd-right{position:relative;flex-shrink:0;min-width:0;border-left:1px solid var(--line);background:var(--surf);display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box}
 .rd-resize-left{left:0;right:auto}
-.rd-ai{width:100%;flex:1;min-height:0;border-left:none;overflow-y:auto;display:flex;flex-direction:column;gap:16px;padding:14px}
+.rd-right-body{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden}
+.rd-ai{width:100%;max-width:100%;flex:1;min-height:0;min-width:0;border-left:none;overflow-x:hidden;overflow-y:auto;display:flex;flex-direction:column;gap:16px;padding:12px 10px 14px 12px;scrollbar-gutter:stable}
 .rd-ai-h{display:flex;align-items:center;gap:7px;font-family:'Source Serif 4',Georgia,serif;font-size:15px;font-weight:600;color:var(--ink)}
 .rd-ai-h svg{color:var(--gold)}
 .rd-ai-sec{display:flex;flex-direction:column;gap:10px}
@@ -246,10 +248,10 @@ const READER_CSS = `
 .rd-ai-q{font-size:12.5px;font-weight:600;color:var(--ink);background:var(--surf2);border-radius:8px;padding:7px 10px}
 .rd-ai-a{font-size:13px;line-height:1.7;color:var(--ink);padding:2px 2px 0}
 .rd-ai-load{display:inline-flex;align-items:center;gap:6px;color:var(--ink3);font-size:12.5px}
-.rd-ai-input{display:flex;gap:6px;position:sticky;bottom:0;background:var(--surf);padding-top:6px}
-.rd-ai-input input{flex:1;border:1px solid var(--line2);border-radius:9px;padding:8px 10px;font-size:12.5px;font-family:inherit;background:var(--surf);color:var(--ink);outline:none}
+.rd-ai-input{display:flex;gap:8px;align-items:center;width:100%;max-width:100%;position:sticky;bottom:0;background:var(--surf);padding:8px 0 2px;margin:0;z-index:2;box-sizing:border-box}
+.rd-ai-input input{flex:1;min-width:0;width:0;border:1px solid var(--line2);border-radius:9px;padding:8px 10px;font-size:12.5px;font-family:inherit;background:var(--surf);color:var(--ink);outline:none}
 .rd-ai-input input:focus{border-color:var(--gold)}
-.rd-ai-send{border:none;background:var(--gold);color:#fff;border-radius:9px;padding:0 12px;cursor:pointer;display:grid;place-items:center}
+.rd-ai-send{flex:0 0 36px;width:36px;height:36px;border:none;background:var(--gold);color:#fff;border-radius:9px;padding:0;cursor:pointer;display:grid;place-items:center}
 .rd-ai-send:disabled{opacity:.5;cursor:default}
 .lf-cite{display:inline;border:none;background:rgba(14,124,111,.12);color:var(--gold);border-radius:5px;padding:0 5px;margin:0 1px;font-family:'Space Mono',monospace;font-size:11px;cursor:pointer}
 .lf-cite:hover{background:var(--gold);color:#fff}
@@ -264,32 +266,42 @@ const READER_CSS = `
 .rd-tmenu button{border:none;background:transparent;color:var(--ink2);text-align:left;padding:7px 11px;font-size:12.5px;border-radius:7px;cursor:pointer;font-family:inherit}
 .rd-tmenu button:hover{background:var(--surf2);color:var(--gold)}
 .rd-trwrap{position:relative;display:inline-flex;align-items:center}
-.rd-tp-cache{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 0 2px}
+.rd-tp-cache{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .rd-tp-cached{font-family:'Space Mono',monospace;font-size:10px;color:var(--ink3)}
 .rd-tp-cached.fresh{color:var(--ink4)}
 .rd-tp-warn{font-size:12px;color:var(--ink2);background:rgba(14,124,111,.07);border:1px solid rgba(14,124,111,.20);border-radius:8px;padding:8px 10px;line-height:1.55}
-.rd-tp-rf{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:7px;padding:4px 9px;font-size:11px;cursor:pointer;font-family:inherit}
+.rd-tp-rf{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:7px;padding:4px 9px;font-size:11px;cursor:pointer;font-family:inherit;flex-shrink:0}
 .rd-tp-rf:hover:not(:disabled){border-color:var(--gold);color:var(--gold)}
 .rd-tp-rf:disabled{opacity:.5;cursor:default}
-.rd-tp{width:100%;flex:1;min-height:0;border-left:none;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding:14px}
-.rd-tp-h{display:flex;align-items:center;justify-content:space-between;font-family:'Source Serif 4',Georgia,serif;font-size:14px;font-weight:600;color:var(--ink)}
-.rd-tp-h span{display:inline-flex;align-items:center;gap:6px}
-.rd-tp-h svg{color:var(--gold)}
-.rd-tp-modes{display:inline-flex;border:1px solid var(--line2);border-radius:9px;overflow:hidden}
-.rd-tp-modes button{flex:1;border:none;background:transparent;color:var(--ink2);padding:6px 8px;font-size:12px;cursor:pointer;font-family:inherit;border-right:1px solid var(--line2)}
+.rd-tp{width:100%;max-width:100%;flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box}
+.rd-tp-head{flex-shrink:0;padding:12px 10px 0 12px;display:flex;flex-direction:column;gap:10px}
+.rd-tp-h{display:flex;align-items:center;justify-content:space-between;font-family:'Source Serif 4',Georgia,serif;font-size:14px;font-weight:600;color:var(--ink);gap:8px}
+.rd-tp-h span{display:inline-flex;align-items:center;gap:6px;min-width:0}
+.rd-tp-h svg{color:var(--gold);flex-shrink:0}
+.rd-tp-modes{display:flex;width:100%;border:1px solid var(--line2);border-radius:10px;overflow:hidden;flex-shrink:0}
+.rd-tp-modes button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;border:none;background:transparent;color:var(--ink2);padding:8px 6px;font-size:11.5px;cursor:pointer;font-family:inherit;border-right:1px solid var(--line2);min-width:0}
 .rd-tp-modes button:last-child{border-right:none}
 .rd-tp-modes button.on{background:var(--gold);color:#fff}
-.rd-tp-all{align-self:flex-start;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:8px;padding:6px 11px;font-size:12px;cursor:pointer;font-family:inherit}
-.rd-tp-all:hover{border-color:var(--gold);color:var(--gold)}
+.rd-tp-modes button svg{flex-shrink:0;opacity:.85}
+.rd-tp-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.rd-tp-all{border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:8px;padding:6px 11px;font-size:12px;cursor:pointer;font-family:inherit;flex-shrink:0}
+.rd-tp-all:hover:not(:disabled){border-color:var(--gold);color:var(--gold)}
 .rd-tp-all:disabled{opacity:.6;cursor:default}
+.rd-tp-scroll{flex:1;min-height:0;overflow-x:hidden;overflow-y:auto;padding:4px 10px 14px 12px;scrollbar-gutter:stable}
 .rd-tp-body{font-size:13px;line-height:1.75;color:var(--ink)}
-.rd-tp-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.rd-tp-orig{color:var(--ink3);white-space:pre-wrap}
-.rd-tp-tr{color:var(--ink);white-space:pre-wrap}
-.rd-tp-struct p{margin:0 0 10px;line-height:1.75}
-.rd-tp-struct p:last-child{margin-bottom:0}
-.rd-tp-struct .rd-tp-hd{font-family:'Source Serif 4',Georgia,serif;font-weight:600;color:var(--ink);font-size:14px}
-.rd-tp-stack .rd-tp-orig{padding-bottom:8px;margin-bottom:8px;border-bottom:1px dashed var(--line2)}
+.rd-tp-cols{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
+.rd-tp-col-label{font-family:'Space Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink4);margin:0 0 8px;padding-bottom:6px;border-bottom:1px solid var(--line2)}
+.rd-tp-flow{display:flex;flex-direction:column;gap:0}
+.rd-tp-sec{margin:0 0 12px;padding:10px 12px;border:1px solid var(--line2);border-radius:11px;background:var(--surf2)}
+.rd-tp-flow.orig .rd-tp-sec{background:var(--surf);border-color:var(--line)}
+.rd-tp-eyebrow{font-family:'Space Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--gold);margin:0 0 6px}
+.rd-tp-title{font-family:'Source Serif 4',Georgia,serif;font-size:15px;font-weight:600;line-height:1.45;color:var(--ink);margin:0 0 12px}
+.rd-tp-prose{font-size:13px;line-height:1.75;color:var(--ink);margin:0;white-space:pre-wrap;word-break:break-word}
+.rd-tp-prose strong{font-weight:600;color:var(--ink)}
+.rd-tp-flow.orig .rd-tp-prose{color:var(--ink3)}
+.rd-tp-stack .rd-tp-pair{margin-bottom:14px;padding-bottom:14px;border-bottom:1px dashed var(--line2)}
+.rd-tp-stack .rd-tp-pair:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
+.rd-tp-pair-orig{margin-bottom:8px}
 .rd.focus .rd-tp{display:none}
 .rd-hl{position:absolute;z-index:1;border-radius:2px;pointer-events:none;mix-blend-mode:multiply}
 .hl-yellow{background:rgba(245,210,70,.5)}
@@ -1124,26 +1136,102 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
 }
 
 // 翻译面板：按页懒翻译（同步当前页 + 译全部页），三模式=同一(原文,译文)的三种布局。复用 reader:translate。
-function StructuredText({ text, className, kind }) {
+const SECTION_EN = /^(RESEARCH|ABSTRACT|INTRODUCTION|METHODS?|RESULTS?|DISCUSSION|CONCLUSION|REFERENCES|BACKGROUND|KEYWORDS?|SUPPLEMENTARY)$/i;
+const SECTION_ZH = /^(摘要|引言|前言|背景|方法|材料与方法|结果|讨论|结论|关键词|参考文献|附录)/;
+
+function stripMarkdownBold(t) {
+  return String(t || "").replace(/\*\*(.+?)\*\*/g, "$1");
+}
+
+function renderTpInline(text) {
   const s = String(text || "");
-  const paras = s.split(/\n\n+/).filter((p) => p.trim());
-  if (paras.length <= 1) return <div className={className}>{s}</div>;
+  if (!/\*\*/.test(s)) return s;
+  return s.split(/(\*\*.+?\*\*)/g).filter(Boolean).map((p, i) => {
+    const m = /^\*\*(.+?)\*\*$/.exec(p);
+    return m ? <strong key={i}>{m[1]}</strong> : <span key={i}>{p}</span>;
+  });
+}
+
+function classifyBlock(raw, kind, index) {
+  const t = raw.trim();
+  const plain = stripMarkdownBold(t);
+  const wholeBold = /^\*\*(.+?)\*\*\s*$/.exec(t);
+  if (wholeBold) {
+    const label = wholeBold[1].trim();
+    if (SECTION_EN.test(label) || SECTION_ZH.test(label) || label.length < 40) return { type: "eyebrow", label };
+    return { type: "title", text: label };
+  }
+  const headBody = /^\*\*(.+?)\*\*\s*(.+)$/s.exec(t);
+  if (headBody && headBody[1].length < 48) return { type: "section", label: headBody[1].trim(), body: headBody[2].trim() };
+  if (kind === "tr" && plain.length < 72 && !/[.!?。！？]$/.test(plain) && (SECTION_EN.test(plain) || SECTION_ZH.test(plain))) {
+    return { type: "eyebrow", label: plain };
+  }
+  if (kind === "tr" && index === 0 && plain.length > 12 && plain.length < 220 && !/[.!?。！？]$/.test(plain)) {
+    const parts = plain.split(/[。！？]/).filter(Boolean);
+    if (parts.length <= 2) return { type: "title", text: plain };
+  }
+  return { type: "prose", text: t };
+}
+
+function TranslationFlow({ text, kind, className }) {
+  const s = String(text || "").trim();
+  if (!s) return null;
+  const blocks = s.split(/\n\n+/).map((p) => p.trim()).filter(Boolean).map((p, i) => classifyBlock(p, kind, i));
+  const nodes = [];
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    if (b.type === "eyebrow") {
+      const next = blocks[i + 1];
+      if (next && (next.type === "prose" || next.type === "title")) {
+        nodes.push(
+          <div key={i} className="rd-tp-sec">
+            <div className="rd-tp-eyebrow">{b.label}</div>
+            {next.type === "title" ? <h3 className="rd-tp-title">{next.text}</h3> : <p className="rd-tp-prose">{renderTpInline(next.text)}</p>}
+          </div>
+        );
+        i++;
+        continue;
+      }
+      nodes.push(<div key={i} className="rd-tp-eyebrow">{b.label}</div>);
+    } else if (b.type === "section") {
+      nodes.push(
+        <div key={i} className="rd-tp-sec">
+          <div className="rd-tp-eyebrow">{b.label}</div>
+          <p className="rd-tp-prose">{renderTpInline(b.body)}</p>
+        </div>
+      );
+    } else if (b.type === "title") {
+      nodes.push(<h3 key={i} className="rd-tp-title">{b.text}</h3>);
+    } else {
+      nodes.push(<p key={i} className="rd-tp-prose">{renderTpInline(b.text)}</p>);
+    }
+  }
+  return <div className={"rd-tp-flow " + (kind || "tr") + (className ? " " + className : "")}>{nodes}</div>;
+}
+
+function TranslationPairStack({ orig, trans }) {
+  const os = String(orig || "").split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
+  const ts = String(trans || "").split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
+  const n = Math.max(os.length, ts.length, 1);
   return (
-    <div className={className + " rd-tp-struct"}>
-      {paras.map((p, i) => {
-        const t = p.trim();
-        const shortHd = kind === "tr" && t.length < 80 && !/[.!?。！？]$/.test(t);
-        return <p key={i} className={shortHd && i === 0 ? "rd-tp-hd" : ""}>{t}</p>;
-      })}
+    <div className="rd-tp-stack">
+      {Array.from({ length: n }, (_, i) => (
+        <div key={i} className="rd-tp-pair">
+          {os[i] ? <div className="rd-tp-pair-orig"><TranslationFlow text={os[i]} kind="orig" /></div> : null}
+          {ts[i] ? <TranslationFlow text={ts[i]} kind="tr" /> : null}
+        </div>
+      ))}
     </div>
   );
 }
+
+const LAYOUT_MODES = [["inline", "段内对照", Rows3], ["dual", "双栏", Columns2], ["only", "仅译文", FileText]];
 
 function RightPanelShell({ width, onResizeStart, children }) {
   return (
     <div className="rd-right" style={{ width }}>
       <div className="rd-resize rd-resize-left" onPointerDown={onResizeStart} title="拖动调整宽度" />
-      {children}
+      <div className="rd-right-body">{children}</div>
     </div>
   );
 }
@@ -1201,42 +1289,53 @@ function TranslatePanel({ doc, page, numPages, mode, setMode, onClose, pushToast
   }, [numPages, translatePage, pushToast, llmReady]);
 
   const cur = cacheRef.current[page] || { orig: "", trans: "", loading: true };
-  const MODES = [["inline", "段内对照"], ["dual", "双栏对照"], ["only", "仅译文"]];
   const llmBlocked = !llmReady.checking && !llmReady.ok;
+
+  const renderContent = () => {
+    if (cur.loading) return <div className="rd-ai-load"><Loader size={14} className="rd-spin" /> 翻译中…</div>;
+    if (llmBlocked) {
+      if (mode === "only") return null;
+      if (mode === "dual") return <div className="rd-tp-cols"><TranslationFlow text={cur.orig} kind="orig" /></div>;
+      return <TranslationFlow text={cur.orig} kind="orig" />;
+    }
+    if (cur.err) return <div className="rd-tp-warn">{cur.err}</div>;
+    if (mode === "only") return <TranslationFlow text={cur.trans} kind="tr" />;
+    if (mode === "dual") {
+      return (
+        <div className="rd-tp-cols">
+          <div><div className="rd-tp-col-label">原文</div><TranslationFlow text={cur.orig} kind="orig" /></div>
+          <div><div className="rd-tp-col-label">译文</div><TranslationFlow text={cur.trans} kind="tr" /></div>
+        </div>
+      );
+    }
+    return <TranslationPairStack orig={cur.orig} trans={cur.trans} />;
+  };
 
   return (
     <div className="rd-tp">
-      <div className="rd-tp-h">
-        <span><Languages size={15} /> 翻译 · 第 {page}/{numPages || "—"} 页</span>
-        <button className="rd-x" onClick={onClose} title="关闭翻译"><X size={16} /></button>
+      <div className="rd-tp-head">
+        <div className="rd-tp-h">
+          <span><Languages size={15} /> 翻译 · 第 {page}/{numPages || "—"} 页</span>
+          <button className="rd-x" onClick={onClose} title="关闭翻译"><X size={16} /></button>
+        </div>
+        {llmBlocked && <div className="rd-tp-warn">{llmReady.message}</div>}
+        <div className="rd-tp-modes" role="tablist" aria-label="译文布局">
+          {LAYOUT_MODES.map(([id, label, Icon]) => (
+            <button key={id} type="button" role="tab" aria-selected={mode === id} className={mode === id ? "on" : ""} onClick={() => setMode(id)} title={label}>
+              <Icon size={13} /> {label}
+            </button>
+          ))}
+        </div>
+        <div className="rd-tp-toolbar">
+          <button className="rd-tp-all" onClick={translateAll} disabled={!!bulk || llmBlocked}>{bulk ? ("翻译中 " + bulk.done + "/" + bulk.total + "…") : "译全部页"}</button>
+          <div className="rd-tp-cache">
+            {cur.cached ? <span className="rd-tp-cached" title={"已缓存译文（由 " + (cur.model || "未知模型") + " 翻译，重开即用）"}>已缓存{cur.model ? " · " + cur.model : ""}</span> : llmReady.ok ? <span className="rd-tp-cached fresh">{model || "大模型"}</span> : null}
+            <button className="rd-tp-rf" onClick={() => translatePage(page, true)} disabled={cur.loading || llmBlocked} title="用当前模型重新翻译本页（覆盖缓存）"><RefreshCw size={12} /> 重新翻译</button>
+          </div>
+        </div>
       </div>
-      {llmBlocked && <div className="rd-tp-warn">{llmReady.message}</div>}
-      <div className="rd-tp-cache">
-        {cur.cached ? <span className="rd-tp-cached" title={"已缓存译文（由 " + (cur.model || "未知模型") + " 翻译，重开即用）"}>已缓存{cur.model ? " · " + cur.model : ""}</span> : llmReady.ok ? <span className="rd-tp-cached fresh">{model || "大模型"}</span> : null}
-        <button className="rd-tp-rf" onClick={() => translatePage(page, true)} disabled={cur.loading || llmBlocked} title="用当前模型重新翻译本页（覆盖缓存）"><RefreshCw size={12} /> 重新翻译</button>
-      </div>
-      <div className="rd-tp-modes">
-        {MODES.map((mm) => <button key={mm[0]} className={mode === mm[0] ? "on" : ""} onClick={() => setMode(mm[0])}>{mm[1]}</button>)}
-      </div>
-      <button className="rd-tp-all" onClick={translateAll} disabled={!!bulk || llmBlocked}>{bulk ? ("翻译中 " + bulk.done + "/" + bulk.total + "…") : "译全部页"}</button>
-      <div className="rd-tp-body">
-        {cur.loading ? (
-          <div className="rd-ai-load"><Loader size={14} className="rd-spin" /> 翻译中…</div>
-        ) : llmBlocked ? (
-          mode === "only" ? null : mode === "dual" ? (
-            <div className="rd-tp-cols"><div className="rd-tp-orig">{cur.orig}</div></div>
-          ) : (
-            <div className="rd-tp-orig">{cur.orig}</div>
-          )
-        ) : cur.err ? (
-          <div className="rd-tp-warn">{cur.err}</div>
-        ) : mode === "only" ? (
-          <StructuredText text={cur.trans} className="rd-tp-tr" kind="tr" />
-        ) : mode === "dual" ? (
-          <div className="rd-tp-cols"><StructuredText text={cur.orig} className="rd-tp-orig" kind="orig" /><StructuredText text={cur.trans} className="rd-tp-tr" kind="tr" /></div>
-        ) : (
-          <div className="rd-tp-stack"><StructuredText text={cur.orig} className="rd-tp-orig" kind="orig" /><StructuredText text={cur.trans} className="rd-tp-tr" kind="tr" /></div>
-        )}
+      <div className="rd-tp-scroll">
+        <div className="rd-tp-body">{renderContent()}</div>
       </div>
     </div>
   );

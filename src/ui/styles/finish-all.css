@@ -101,5 +101,13 @@
 .brief-lead{ text-wrap:pretty; }
 .brief-lead b, .brief-lead .keep{ white-space:nowrap; }
 
+/* ---- global async spin (canonical keyframes; module aliases share lfspin) ---- */
+.lf-spin{ animation:lfspin 1s linear infinite; }
+@keyframes lfspin{ to{ transform:rotate(360deg); } }
+.sd-spin,.ff-spin,.dg-spin,.lib-spin,.rh-spin,.rd-spin,.set-spin{ animation:lfspin 1s linear infinite; }
+
 /* ---- quality floor ---- */
-@media (prefers-reduced-motion: reduce){ .lf-skel .ln, .lf-side, .lf-abs .body{ animation:none !important; transition:none !important; } }
+@media (prefers-reduced-motion: reduce){
+  .lf-skel .ln, .lf-side, .lf-abs .body{ animation:none !important; transition:none !important; }
+  .lf-spin,.sd-spin,.ff-spin,.dg-spin,.lib-spin,.rh-spin,.rd-spin,.set-spin{ animation:none; }
+}

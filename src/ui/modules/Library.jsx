@@ -106,7 +106,7 @@ const LIB_CSS = `
 .lib-corpus-bar{border:1px solid rgba(14,124,111,.3);background:rgba(14,124,111,.05);border-radius:13px;padding:14px 16px;margin-bottom:14px;display:flex;flex-direction:column;gap:10px}
 .lib-corpus-barh{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;color:var(--gold)}
 .lib-corpus-tools{display:flex;flex-wrap:wrap;gap:8px}
-.lib-corpus-tools button{border:1px solid var(--line2);background:var(--surf);color:var(--ink);border-radius:9px;padding:8px 12px;font-size:12.5px;font-family:inherit;cursor:pointer}
+.lib-corpus-tools button{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line2);background:var(--surf);color:var(--ink);border-radius:9px;padding:8px 12px;font-size:12.5px;font-family:inherit;cursor:pointer}
 .lib-corpus-tools button:hover:not(:disabled){border-color:var(--gold);color:var(--gold)}
 .lib-corpus-tools button:disabled{opacity:.5;cursor:default}
 .lib-corpus-clear{margin-left:auto;color:var(--ink3) !important}
@@ -467,9 +467,9 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
         <div className="lib-corpus-bar">
           <div className="lib-corpus-barh"><Sparkles size={14} /> 跨篇分析 · 已选 {sel.size} 篇{sel.size < 2 ? "（至少选 2 篇）" : ""}</div>
           <div className="lib-corpus-tools">
-            <button disabled={sel.size < 2 || !!corpusRunning} onClick={() => runCorpus("corpus_framing")}>{corpusRunning === "corpus_framing" ? "分析中…" : "主流框定地图"}</button>
-            <button disabled={sel.size < 2 || !!corpusRunning} onClick={() => runCorpus("corpus_contradiction")}>{corpusRunning === "corpus_contradiction" ? "分析中…" : "矛盾发现"}</button>
-            <button disabled={sel.size < 2 || !!corpusRunning} onClick={() => runCorpus("corpus_recipe")}>{corpusRunning === "corpus_recipe" ? "分析中…" : "方法配方汇编"}</button>
+            <button disabled={sel.size < 2 || !!corpusRunning} onClick={() => runCorpus("corpus_framing")}>{corpusRunning === "corpus_framing" ? <><Loader size={13} className="lf-spin" /> 分析中…</> : "主流框定地图"}</button>
+            <button disabled={sel.size < 2 || !!corpusRunning} onClick={() => runCorpus("corpus_contradiction")}>{corpusRunning === "corpus_contradiction" ? <><Loader size={13} className="lf-spin" /> 分析中…</> : "矛盾发现"}</button>
+            <button disabled={sel.size < 2 || !!corpusRunning} onClick={() => runCorpus("corpus_recipe")}>{corpusRunning === "corpus_recipe" ? <><Loader size={13} className="lf-spin" /> 分析中…</> : "方法配方汇编"}</button>
             {sel.size > 0 && <button className="lib-corpus-clear" onClick={() => setSel(new Set())}>清空</button>}
             {sel.size > 0 && LS.length > 0 && onAddManyToList && (
               <label className="lib-batch-grp">

@@ -139,10 +139,10 @@ function DigestItem({ p, query, subLabels, subIds, fetchedMeta, fetchingMeta, on
       )}
       <div className="dg-acts">
         <button className="dg-act" onClick={() => onFetch(p, fetchOpts || { provenance: "subscription", channel: "digest" })} disabled={isFetching || got}>
-          {isFetching ? <><Loader size={13} className="rd-spin" /> {prog && prog.stageText}</> : got ? <><Check size={13} /> 已取全文</> : <><Download size={13} /> 获取全文</>}
+          {isFetching ? <><Loader size={13} className="dg-spin" /> {prog && prog.stageText}</> : got ? <><Check size={13} /> 已取全文</> : <><Download size={13} /> 获取全文</>}
         </button>
         {got && onReadPaper && <button className="dg-act" onClick={() => onReadPaper(p)}><BookOpen size={13} /> 阅读</button>}
-        <button className="dg-act" onClick={doSum} disabled={summing}>{summing ? <><Loader size={13} className="rd-spin" /> 总结中…</> : sum ? <><Sparkles size={13} /> 重新总结</> : <><Sparkles size={13} /> AI 总结</>}</button>
+        <button className="dg-act" onClick={doSum} disabled={summing}>{summing ? <><Loader size={13} className="dg-spin" /> 总结中…</> : sum ? <><Sparkles size={13} /> 重新总结</> : <><Sparkles size={13} /> AI 总结</>}</button>
         <button className="dg-act" onClick={() => onRead(p.id, subIds)}><Check size={13} /> 标记已读</button>
       </div>
     </div>
@@ -233,7 +233,7 @@ function SubDialog({ initial, onClose, onSave }) {
   );
 }
 
-export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMeta = {}, fetchTick = 0, onFetch: onFetchProp, onFetchBatch, onReadPaper, onSubsChange, inLibFn, onOpenSettings, tabActive = true }) {
+export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMeta = {}, fetchTick = 0, onFetch: onFetchProp, onFetchBatch, onReadPaper, onSubsChange, inLibFn, onOpenSettings, tabActive = true, onActivityChange }) {
   const [subs, setSubs] = useState([]);
   const [activeSub, setActiveSub] = useState(() => {
     try { return localStorage.getItem("lumina_subs_active") || "all"; } catch { return "all"; }
@@ -308,6 +308,16 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
     if (r) setDigestReport(r);
     return r;
   }, [backend, reportScope]);
+
+  const reportScopeRef = useRef(reportScope);
+  useEffect(() => {
+    if (!backend) return;
+    if (reportScopeRef.current !== reportScope) {
+      reportScopeRef.current = reportScope;
+      setDigestReport(null);
+    }
+    void loadReport();
+  }, [backend, loadReport, reportScope]);
 
   const generateReport = useCallback(async (force = true) => {
     if (!backend) {
@@ -386,9 +396,12 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
       tabWasActiveRef.current = tabActive;
       return;
     }
-    if (!tabWasActiveRef.current) void refreshSubs();
+    if (!tabWasActiveRef.current) {
+      void refreshSubs();
+      void loadReport();
+    }
     tabWasActiveRef.current = tabActive;
-  }, [tabActive, backend, refreshSubs]);
+  }, [tabActive, backend, refreshSubs, loadReport]);
 
   const persist = useCallback(async (sub) => { await bridge.subsSave(sub); }, []);
   const subPatch = useCallback((id, patch) => { setSubs((s) => s.map((x) => { if (x.id !== id) return x; const u = { ...x, ...patch }; persist(u); return u; })); }, [persist]);
@@ -484,6 +497,12 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
   const shown = activeSub === "all" ? subs : subs.filter((s) => s.id === activeSub);
   const total = shown.reduce((n, s) => n + (s.enabled !== false ? unread(s).length : 0), 0);
   const preprintCount = shown.reduce((n, s) => n + unread(s).filter((p) => p.preprint).length, 0);
+
+  useEffect(() => {
+    if (!backend) return;
+    void loadReport();
+  }, [backend, loadReport, subs, total]);
+
   const allPending = [];
   shown.forEach((s) => { if (s.enabled !== false) unread(s).forEach((p) => { if (!isFetched(fetchedMeta[p.id]) && !fetchingMeta[p.id]) allPending.push(p); }); });
 
@@ -530,10 +549,11 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
   const bumpLoad = (gid, totalN) => setLoadMore((m) => ({ ...m, [gid]: Math.min(totalN, (m[gid] || DIGEST_PAGE) + DIGEST_PAGE) }));
 
   useEffect(() => {
-    if (!backend) return;
-    setDigestReport(null);
-    void loadReport();
-  }, [backend, loadReport, subs, total, reportScope]);
+    if (!onActivityChange) return;
+    const busy = !!(reportGenerating || runProgress || digestReport?.status === "generating");
+    onActivityChange(busy);
+    return () => { onActivityChange(false); };
+  }, [reportGenerating, runProgress, digestReport?.status, onActivityChange]);
 
   useEffect(() => {
     if (!backend || !bridge.onDigestReportUpdated) return;
@@ -619,7 +639,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
           )}
           {runProgress && (
             <div className="dg-run-progress">
-              <Loader size={14} className="rd-spin" />
+              <Loader size={14} className="dg-spin" />
               <span>{runProgress.label}</span>
               {runProgress.total > 0 && <span className="dg-run-frac">{runProgress.current}/{runProgress.total}</span>}
             </div>
@@ -628,7 +648,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
         </div>
         <div className="dg-list">
           {loading ? (
-            <div className="dg-empty"><Loader size={22} className="rd-spin" /><p>读取订阅…</p></div>
+            <div className="dg-empty"><Loader size={22} className="dg-spin" /><p>读取订阅…</p></div>
           ) : subs.length === 0 ? (
             <div className="dg-empty"><Rss size={28} strokeWidth={1.6} /><h2>还没有订阅</h2><p>新建一个主题订阅（关键词 + 频率 + 成本闸），每日的新发表会汇成证据简报，可一键取全文或 AI 总结。</p></div>
           ) : total === 0 ? (

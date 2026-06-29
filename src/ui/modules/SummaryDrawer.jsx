@@ -51,7 +51,7 @@ const DRAWER_CSS = `
 .sd-act{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:9px;padding:8px 13px;font-size:12.5px;cursor:pointer;font-family:inherit}
 .sd-act:hover{border-color:var(--gold);color:var(--gold)}
 .sd-soon{font-size:10px;opacity:.6;margin-left:2px}
-.sd-spin{animation:lfspin 1s linear infinite}
+.sd-spin{animation:lfspin 1s linear infinite;display:inline-flex}
 `;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

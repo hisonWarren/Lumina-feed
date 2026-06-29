@@ -11,6 +11,8 @@ import {
 } from "./digest-search.ts";
 
 export const DIGEST_REPORT_CAP = 50;
+/** 超过此毫秒仍停留在 generating，视为进程中断（重启/崩溃），读库时降级为 failed 以便重试 */
+export const DIGEST_REPORT_GENERATING_STALE_MS = 120_000;
 export const DIGEST_REPORT_DISCLAIMER =
   "推断 · 基于标题与摘要 · 是否纳入你的研究由你判断";
 
@@ -112,6 +114,17 @@ export function collectDigestReportInputs(
   };
 }
 
+export function recoverStaleGeneratingReport(report: DigestReport): DigestReport {
+  if (report.status !== "generating") return report;
+  const at = report.generatedAt ? new Date(report.generatedAt).getTime() : 0;
+  if (!at || Date.now() - at < DIGEST_REPORT_GENERATING_STALE_MS) return report;
+  return {
+    ...report,
+    status: "failed",
+    error: "generation_interrupted",
+  };
+}
+
 export function loadDigestReport(store: Store, dateKey: string, scope: "all" | string): DigestReport {
   try {
     store.db.exec("CREATE TABLE IF NOT EXISTS sources_cache(key TEXT PRIMARY KEY, payload TEXT, fetched_at TEXT);");
@@ -119,7 +132,8 @@ export function loadDigestReport(store: Store, dateKey: string, scope: "all" | s
     const r = store.db.prepare("SELECT payload FROM sources_cache WHERE key=?").get(key) as { payload?: string } | undefined;
     if (!r?.payload) return emptyDigestReport(dateKey, scope);
     const parsed = JSON.parse(r.payload) as DigestReport;
-    return { ...emptyDigestReport(dateKey, scope), ...parsed, dateKey, scope };
+    const merged = { ...emptyDigestReport(dateKey, scope), ...parsed, dateKey, scope };
+    return recoverStaleGeneratingReport(merged);
   } catch {
     return emptyDigestReport(dateKey, scope);
   }

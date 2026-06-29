@@ -123,6 +123,7 @@ export default function LuminaApp() {
   const [subsNew, setSubsNew] = useState(0);
   const [showOnboardingEmail, setShowOnboardingEmail] = useState(false);
   const [findSession, setFindSession] = useState(null);
+  const [subsBusy, setSubsBusy] = useState(false);
   const [settingsCat, setSettingsCat] = useState("llm");
   const [ctxMenu, setCtxMenu] = useState(null);
   const ctxEditTarget = useRef(null);
@@ -564,7 +565,7 @@ export default function LuminaApp() {
                 <span className="lf-badge lf-badge-soft">{findSession.count > 99 ? "99+" : findSession.count}</span>
               )}
             </button>
-            <button role="tab" aria-selected={view === "subs"} className={"lf-tab" + (view === "subs" ? " on" : "")} onClick={() => setMode("subs")}><Rss size={15} /> 订阅简报 {subsNew > 0 && <span className="lf-badge">{subsNew}</span>}</button>
+            <button role="tab" aria-selected={view === "subs"} className={"lf-tab" + (view === "subs" ? " on" : "")} onClick={() => setMode("subs")}><Rss size={15} /> 订阅简报 {subsBusy && view !== "subs" && <span className="lf-tab-pulse" aria-label="简报进行中" />}{subsNew > 0 && <span className="lf-badge">{subsNew}</span>}</button>
             <button role="tab" aria-selected={view === "library"} className={"lf-tab" + (view === "library" ? " on" : "")} onClick={() => setMode("library")}><BookMarked size={15} /> 我的文献 {lib.length > 0 && <span className="lf-badge">{lib.length}</span>}</button>
             <button role="tab" aria-selected={view === "read"} className={"lf-tab" + (view === "read" ? " on" : "")} onClick={() => setMode("read")}><BookOpen size={15} /> 阅读</button>
           </nav>
@@ -617,6 +618,7 @@ export default function LuminaApp() {
                 inLibFn={inLibFn}
                 onOpenSettings={openSettings}
                 tabActive={view === "subs"}
+                onActivityChange={setSubsBusy}
               />
           </div>
           <div className={"lf-pane" + (view === "read" ? "" : " is-hidden")} aria-hidden={view !== "read"}>

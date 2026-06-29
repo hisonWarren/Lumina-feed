@@ -146,6 +146,12 @@
 .dg-rp-expand:hover{border-color:var(--gold);background:color-mix(in srgb,var(--gold) 8%,transparent)}
 .dg-rp-foot{margin-top:16px;padding-top:10px;border-top:1px solid var(--line2);font-family:'Space Mono',monospace;font-size:10.5px;color:var(--ink4)}
 
+/* 简报模块自洽加载动画（不依赖 Reader 模块是否挂载） */
+.dg-spin{animation:dgspin 1s linear infinite}
+@keyframes dgspin{to{transform:rotate(360deg)}}
+.dg-rp-state-icon.busy{animation:dg-pulse 1.35s ease-in-out infinite}
+@keyframes dg-pulse{0%,100%{opacity:.5;transform:scale(.96)}50%{opacity:1;transform:scale(1.04)}}
+
 /* 状态卡（加载 / 失败 / 未就绪）：居中成卡，告别「空荡全宽」 */
 .dg-rp-state{max-width:520px;margin:30px auto;display:flex;flex-direction:column;align-items:center;text-align:center;gap:7px;padding:36px 28px;border:1px solid var(--line2);border-radius:16px;background:var(--surf2)}
 .dg-rp-state-icon{color:var(--gold);opacity:.9}
@@ -163,4 +169,5 @@
 
 @media (prefers-reduced-motion: reduce){
   .dg-rp-back,.dg-rp-refresh,.dg-rp-link,.dg-rp-pick-i,.dg-rp-expand,.dg-rp-btn{transition:none}
+  .dg-spin,.dg-rp-state-icon.busy{animation:none}
 }
