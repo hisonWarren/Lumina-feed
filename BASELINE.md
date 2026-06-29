@@ -1,4 +1,4 @@
-# 干净基线清单 · v0.4.0 + 全链
+# 干净基线清单 · v0.4.1 + 全链
 
 ## 当前能力
 
@@ -64,7 +64,7 @@ npm run verify:fetch-meta
 npm run verify:model-presets
 npx @electron/rebuild
 npm start
-npm run dist            # NSIS：Lumina Feed Setup 0.4.0.exe（Windows 可设 CSC_IDENTITY_AUTO_DISCOVERY=false）
+npm run dist            # NSIS：Lumina Feed Setup 0.4.1.exe（Windows 可设 CSC_IDENTITY_AUTO_DISCOVERY=false）
 npm run dist:dir        # win-unpacked
 ```
 

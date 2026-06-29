@@ -11,6 +11,7 @@ import SummaryDrawer from "./SummaryDrawer.jsx";
 import FetchBadges from "../FetchBadges.jsx";
 import FetchTrace from "../components/FetchTrace.jsx";
 import { isFetched, fetchProgressUi } from "../fetch-meta.js";
+import { formatAuthors, normalizeAuthors } from "../lib/format-authors.js";
 import AbstractSnippet from "../components/AbstractSnippet.jsx";
 import BadgeRow from "../components/BadgeRow.jsx";
 import MatchBadge from "../components/MatchBadge.jsx";
@@ -440,12 +441,19 @@ export default function FindFetch({
     const t = setTimeout(() => {
       const scrollTop = resultsScrollRef.current?.scrollTop ?? 0;
       const ts = sessionTs || Date.now();
-      saveFindFetchSession({
-        q, submitted, results, sortBy, field, yearFrom, yearTo, page, pageSize,
+      const snap = {
+        q, submitted, sortBy, field, yearFrom, yearTo, page, pageSize,
         perSource, mergedCount, resolvedFrom, locateMode, primaryPaperId, primaryAmbiguous,
         identifierError, expandedOnce, showExpand, recent, lastFilters: lastFiltersRef.current,
         loading, scrollTop, ts,
-      });
+      };
+      if (loading) {
+        snap.results = [];
+        snap.resultCount = results.length;
+      } else {
+        snap.results = results;
+      }
+      saveFindFetchSession(snap);
     }, 350);
     return () => clearTimeout(t);
   }, [
@@ -475,7 +483,7 @@ export default function FindFetch({
   }, [submitted, shown.length, pageSize]);
 
   useEffect(() => {
-    if (!submitted) return;
+    if (!submitted || loading) return;
     if (!hasBackend() || !bridge.schedulePrefetch) return;
     const root = document.querySelector(".ff-results");
     if (!root) return;
@@ -491,7 +499,7 @@ export default function FindFetch({
     }, { root, rootMargin: "100px", threshold: 0.12 });
     cards.forEach((el) => io.observe(el));
     return () => io.disconnect();
-  }, [submitted, pageItems, fetchedMeta, fetchingMeta]);
+  }, [submitted, loading, pageItems, fetchedMeta, fetchingMeta]);
 
   return (
     <div className="ff">
@@ -648,7 +656,7 @@ export default function FindFetch({
               <div className={"ff-card" + (isPrimary ? " ff-primary" : "")} key={p.id} data-paper-id={p.id}>
                 <MatchBadge kind={p.matchKind} primary={isPrimary && locateMode === "primary"} />
                 <div className="ff-title" onClick={() => openDoi(p.doi)}>{hi(p.title, p.matched)}</div>
-                <div className="ff-meta">{(p.authors || []).slice(0, 4).join(", ")}{(p.authors || []).length > 4 ? " et al." : ""} · {p.journal || p.abbr}{p.year ? ` · ${p.year}` : ""}</div>
+                <div className="ff-meta">{(() => { const a = normalizeAuthors(p.authors); return formatAuthors(a, 4) + (a.length > 4 ? " et al." : ""); })()} · {p.journal || p.abbr}{p.year ? ` · ${p.year}` : ""}</div>
                 <button className="ff-doi" onClick={() => openDoi(p.doi)} title="在浏览器打开"><span>{p.doi}</span><ExternalLink size={11} /></button>
                 <BadgeRow paper={p} />
                 <SourceChips paper={p} sources={p.hitSources} />
@@ -660,8 +668,9 @@ export default function FindFetch({
                 {isFetching && fmeta && fmeta.trace && <FetchTrace steps={fmeta.trace} compact />}
                 <div className="ff-actions lf-actions">
                   <button className={"ff-act ff-ft" + (got ? " on" : "") + (isFetching ? " loading" : "")} disabled={isFetching && !got}
+                    title={isFetching && fmeta?.queued && !got ? "检索进行中，取文已排队" : undefined}
                     onClick={() => (got ? onReadPaper(p) : handleFetch(p))}>
-                    {isFetching && !got ? <><Loader size={13} className="ff-spin" /> {prog?.stageText || "取来中"}{prog && prog.elapsed >= 5 ? <span className="ff-soon"> · {prog.elapsed}s</span> : null}</> : got ? <><BookOpen size={13} /> 阅读</> : <><FileDown size={13} /> 获取全文</>}
+                    {isFetching && !got ? <><Loader size={13} className="ff-spin" /> {fmeta?.queued && !fmeta?.trace?.length ? "排队中" : (prog?.stageText || "取来中")}{prog && prog.elapsed >= 5 ? <span className="ff-soon"> · {prog.elapsed}s</span> : null}</> : got ? <><BookOpen size={13} /> 阅读</> : <><FileDown size={13} /> 获取全文</>}
                   </button>
                   <button className="ff-act" onClick={() => setSel(p)}><Sparkles size={13} /> AI 总结</button>
                   <button className={"ff-act" + (saved ? " on" : "")} onClick={() => onSave(p)}><Bookmark size={13} fill={saved ? "currentColor" : "none"} /> {saved ? "已收藏" : "收藏"}</button>

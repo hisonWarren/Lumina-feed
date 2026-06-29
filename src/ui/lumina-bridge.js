@@ -1,4 +1,6 @@
 // Lumina Feed · 渲染层 ↔ 引擎桥接（干净基线）
+import { normalizeAuthors } from "./lib/format-authors.js";
+
 const A = () => (typeof window !== "undefined" ? window.luminaApi : null);
 const O = () => (typeof window !== "undefined" ? window.luminaOa : null);
 const R = () => (typeof window !== "undefined" ? window.luminaReader : null);
@@ -45,7 +47,7 @@ export function toCardModel(p, query) {
   const hitSources = [...new Set((p.versions || []).map((v) => v.source).filter(Boolean))];
   return {
     id: p.id, doi: p.doi, title: p.title || "(无标题)",
-    authors: Array.isArray(p.authors) ? p.authors : [],
+    authors: normalizeAuthors(p.authors),
     journal: p.journal || "", abbr: p.journalAbbrev || p.journal || p.source || "",
     year: p.year || "", pubDate: p.pubDate || "",
     type: mapType(p.studyTypes),

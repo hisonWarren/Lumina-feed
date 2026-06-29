@@ -1,6 +1,7 @@
 // lumina-feed · IPC（干净基线：检索 · 总结 · OA · 设置）+ reader_engine（OA 取/存/读回 · 阅读器接地 AI）
 import { ipcMain, app, Notification, BrowserWindow, type WebContents } from "electron";
 import fs from "node:fs";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { Store } from "../src/core/store/index.ts";
 import type { SecretStore } from "../src/core/secrets/keyvault.ts";
@@ -61,6 +62,9 @@ import {
   postFetchSuccess,
   reconcileOrphans,
   assertSafePaperId,
+  bindFetchRunner,
+  resumeFetchQueue,
+  setSearchInflightGetter,
   type PaperAssetDeps,
 } from "./paper-asset-ipc.ts";
 import {
@@ -139,6 +143,41 @@ export function registerIpc(deps: IpcDeps): void {
   }
   const prefetchQueue: PrefetchJob[] = [];
   let prefetchActive = 0;
+  let searchInflight = 0;
+  type DeferredPrefetch =
+    | { kind: "oa"; sender: WebContents; paperId: string }
+    | { kind: "locate"; sender: WebContents; paperId: string; resolvedFrom?: string[]; locateMode: "identifier" | "primary" };
+  const deferredPrefetches: DeferredPrefetch[] = [];
+  function flushDeferredPrefetches(): void {
+    const seen = new Set<string>();
+    while (deferredPrefetches.length) {
+      const d = deferredPrefetches.shift()!;
+      const key = `${d.kind}:${d.paperId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (d.sender.isDestroyed()) continue;
+      if (d.kind === "oa") {
+        enqueuePrefetch(d.sender, d.paperId, { priority: 2, oaOnly: true });
+      } else {
+        void scheduleLocatePrefetchNow(d.sender, d.paperId, d.resolvedFrom, d.locateMode);
+      }
+    }
+  }
+
+  function endSearchInflight(): void {
+    searchInflight = Math.max(0, searchInflight - 1);
+    if (searchInflight === 0) {
+      flushDeferredPrefetches();
+      pumpPrefetchQueue();
+      resumeFetchQueue();
+    }
+  }
+
+  function beginSearchInflight(): void {
+    searchInflight++;
+  }
+
+  setSearchInflightGetter(() => searchInflight);
   let paperAssetDepsRef: PaperAssetDeps | null = null;
   const getPaperAssetDeps = (): PaperAssetDeps | null => paperAssetDepsRef;
 
@@ -227,58 +266,74 @@ export function registerIpc(deps: IpcDeps): void {
     };
   });
 
-  // 渐进式检索：Title Fast Lane 首包 + 各源增量；慢源不拖累首屏。
-  ipcMain.handle("search:online-stream", async (e, raw: string, filters, reqId) => {
+  // 渐进式检索：Title Fast Lane 首包 + 各源增量；handler 立即返回，检索在后台跑，不占用 IPC 槽。
+  async function executeSearchOnlineStream(
+    e: { sender: WebContents },
+    raw: string,
+    filters: unknown,
+    reqId: number,
+  ): Promise<void> {
+    beginSearchInflight();
     const opts = await buildSearchOpts();
     const send = (payload: unknown) => { try { e.sender.send("search:stream", payload); } catch { /* 渲染层已关则忽略 */ } };
-    const kind = classifyInput(String(raw || "").trim());
-    if (kind !== "text") {
-      const resolved = await resolveIdentifierInput(String(raw || "").trim(), opts);
-      if (resolved.ok) {
-        store.papers.upsert(resolved.paper);
-        send({
-          reqId,
-          source: "resolve",
-          papers: [resolved.paper],
-          perSource: { resolve: { ok: true, count: 1 } },
-          done: true,
-          locateMode: "identifier",
-          resolvedFrom: resolved.resolvedFrom,
-        });
-        scheduleIdentifierPrefetch(e.sender, resolved.paper.id, resolved.resolvedFrom);
-        return { ok: true };
+    try {
+      const kind = classifyInput(String(raw || "").trim());
+      if (kind !== "text") {
+        const resolved = await resolveIdentifierInput(String(raw || "").trim(), opts);
+        if (resolved.ok) {
+          store.papers.upsert(resolved.paper);
+          send({
+            reqId,
+            source: "resolve",
+            papers: [resolved.paper],
+            perSource: { resolve: { ok: true, count: 1 } },
+            done: true,
+            locateMode: "identifier",
+            resolvedFrom: resolved.resolvedFrom,
+          });
+          scheduleIdentifierPrefetch(e.sender, resolved.paper.id, resolved.resolvedFrom);
+          return;
+        }
+        if (resolved.reason !== "not_identifier") {
+          const spec = rawToSpec(raw, filters);
+          send({
+            reqId,
+            source: "resolve",
+            papers: [],
+            perSource: { resolve: { ok: false, count: 0, error: resolved.message || resolved.reason } },
+            done: false,
+            locateMode: "disambig",
+            identifierError: resolved.message || resolved.reason,
+          });
+          const agg = await aggregateSearchStream(spec, opts, (source, snapshot, perSource) => {
+            send({ reqId, source, papers: snapshot, perSource, done: false, locateMode: "disambig" });
+          });
+          store.papers.upsertMany(agg.papers);
+          send({ reqId, papers: agg.papers, perSource: agg.perSource, done: true, locateMode: "disambig", identifierError: resolved.message || resolved.reason });
+          return;
+        }
       }
-      if (resolved.reason !== "not_identifier") {
-        // P7 · 标识符失败 → 关键词回落
-        const spec = rawToSpec(raw, filters);
-        send({
-          reqId,
-          source: "resolve",
-          papers: [],
-          perSource: { resolve: { ok: false, count: 0, error: resolved.message || resolved.reason } },
-          done: false,
-          locateMode: "disambig",
-          identifierError: resolved.message || resolved.reason,
-        });
-        const agg = await aggregateSearchStream(spec, opts, (source, snapshot, perSource) => {
-          send({ reqId, source, papers: snapshot, perSource, done: false, locateMode: "disambig" });
-        });
-        store.papers.upsertMany(agg.papers);
-        send({ reqId, papers: agg.papers, perSource: agg.perSource, done: true, locateMode: "disambig", identifierError: resolved.message || resolved.reason });
-        return { ok: true };
-      }
+      const agg = await runLocateKeywordStream(raw, filters, opts, (payload) => {
+        send({ reqId, ...payload });
+        if (Array.isArray(payload.papers) && payload.papers.length) {
+          scheduleOaResultsPrefetch(e.sender, payload.papers as Paper[]);
+        }
+        if (payload.done && payload.primaryPaperId && payload.locateMode === "primary") {
+          scheduleLocatePrefetch(e.sender, payload.primaryPaperId, payload.resolvedFrom ?? ["title_fast_lane"], "primary");
+        }
+      }, (titleQ) => searchLocalByTitle(titleQ));
+      store.papers.upsertMany(agg.papers);
+    } catch (err) {
+      console.error("search:online-stream 失败", err);
+      send({ reqId, done: true, resolveError: "search_failed", papers: [] });
+    } finally {
+      endSearchInflight();
     }
-    const agg = await runLocateKeywordStream(raw, filters, opts, (payload) => {
-      send({ reqId, ...payload });
-      if (Array.isArray(payload.papers) && payload.papers.length) {
-        scheduleOaResultsPrefetch(e.sender, payload.papers as Paper[]);
-      }
-      if (payload.done && payload.primaryPaperId && payload.locateMode === "primary") {
-        scheduleLocatePrefetch(e.sender, payload.primaryPaperId, payload.resolvedFrom ?? ["title_fast_lane"], "primary");
-      }
-    }, (titleQ) => searchLocalByTitle(titleQ));
-    store.papers.upsertMany(agg.papers);
-    return { ok: true };
+  }
+
+  ipcMain.handle("search:online-stream", (e, raw: string, filters, reqId) => {
+    void executeSearchOnlineStream(e, raw, filters, reqId);
+    return { ok: true, started: true };
   });
 
   ipcMain.handle("search:resolve-identifier", async (_e, raw: string) => {
@@ -369,7 +424,11 @@ export function registerIpc(deps: IpcDeps): void {
     }
   }
 
+  bindFetchRunner((paperId, onTrace, ctx) =>
+    runFetchPaper(paperId, onTrace as import("../src/core/oa/fetch-trace.ts").FetchTraceCallback, ctx));
+
   function pumpPrefetchQueue(): void {
+    if (searchInflight > 0) return;
     while (prefetchActive < PREFETCH_CONCURRENCY && prefetchQueue.length) {
       const job = prefetchQueue.shift()!;
       prefetchQueued.delete(job.paperId);
@@ -465,11 +524,16 @@ export function registerIpc(deps: IpcDeps): void {
 
   function scheduleOaResultsPrefetch(sender: WebContents, papers: Paper[]): void {
     for (const paper of papers) {
-      if (paper?.id) enqueuePrefetch(sender, paper.id, { priority: 2, oaOnly: true });
+      if (!paper?.id) continue;
+      if (searchInflight > 0) {
+        deferredPrefetches.push({ kind: "oa", sender, paperId: paper.id });
+      } else {
+        enqueuePrefetch(sender, paper.id, { priority: 2, oaOnly: true });
+      }
     }
   }
 
-  function scheduleLocatePrefetch(
+  function scheduleLocatePrefetchNow(
     sender: WebContents,
     paperId: string,
     resolvedFrom: string[] | undefined,
@@ -486,6 +550,19 @@ export function registerIpc(deps: IpcDeps): void {
         oaOnly: false,
       });
     })();
+  }
+
+  function scheduleLocatePrefetch(
+    sender: WebContents,
+    paperId: string,
+    resolvedFrom: string[] | undefined,
+    locateMode: "identifier" | "primary",
+  ): void {
+    if (searchInflight > 0) {
+      deferredPrefetches.push({ kind: "locate", sender, paperId, resolvedFrom, locateMode });
+      return;
+    }
+    scheduleLocatePrefetchNow(sender, paperId, resolvedFrom, locateMode);
   }
 
   function scheduleIdentifierPrefetch(
@@ -702,7 +779,8 @@ export function registerIpc(deps: IpcDeps): void {
       assertSafePaperId(paperId, pdfDir);
       const p = pdfPath(paperId);
       if (!fs.existsSync(p)) return null;
-      return new Uint8Array(fs.readFileSync(p));
+      const buf = await readFile(p);
+      return new Uint8Array(buf);
     } catch { return null; }
   });
   // 列出已下载全文（关联 store 取标题；按最近打开 / 文件时间排序）。
@@ -1045,10 +1123,14 @@ export function registerIpc(deps: IpcDeps): void {
       return deleteLocalPdf(deps, paperId, opts?.removeFromLibrary !== false);
     } catch { return false; }
   });
-  ipcMain.handle("papers:enqueueFetch", (e, jobs: Array<{ paperId: string; provenance?: string; channel?: string }>) => {
+  ipcMain.handle("papers:enqueueFetch", (e, jobs: Array<{ paperId: string; provenance?: string; channel?: string; priority?: number }>) => {
     try {
       return enqueueFetch(
-        (jobs || []).map((j) => ({ paperId: j.paperId, ctx: { provenance: j.provenance, channel: j.channel } })),
+        (jobs || []).map((j) => ({
+          paperId: j.paperId,
+          priority: typeof j.priority === "number" ? j.priority : (j.channel === "manual" ? 0 : j.channel === "batch" ? 1 : 2),
+          ctx: { provenance: j.provenance, channel: j.channel },
+        })),
         e.sender,
         (paperId, onTrace, ctx) => runFetchPaper(paperId, onTrace as import("../src/core/oa/fetch-trace.ts").FetchTraceCallback, ctx),
       );

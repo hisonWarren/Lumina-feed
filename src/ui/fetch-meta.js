@@ -123,10 +123,13 @@ export function oaStatusBadge(oa, fetchedMeta, prefix = "ff-b", fetchingMeta = n
   }
   if (fetchingMeta && fetchingMeta.startedAt) {
     const { stageText } = fetchProgressUi(fetchingMeta, Date.now());
-    const tip = fetchingMeta.prefetching ? `后台预取 · ${stageText}` : stageText;
+    const queued = fetchingMeta.queued && !(fetchingMeta.trace && fetchingMeta.trace.length);
+    const tip = fetchingMeta.prefetching
+      ? `后台预取 · ${stageText}`
+      : queued ? `排队中 · ${stageText}` : stageText;
     return {
       cls: prefix + "-fetching",
-      text: "取来中",
+      text: queued ? "排队中" : "取来中",
       title: tip,
     };
   }

@@ -7,6 +7,7 @@ import { bridge } from "../lumina-bridge.js";
 import { BookMarked, Search, Copy, Download, Trash2, ChevronDown, BookOpen, Quote, Layers, FolderPlus, Check, X, Folder, Sparkles, Lightbulb, FileDown, Loader, Pencil } from "lucide-react";
 import { STYLES, formatCitation, exportBib, exportRis, exportCslJson } from "../cite.js";
 import { isFetched, oaStatusBadge, fetchProgressUi } from "../fetch-meta.js";
+import { formatAuthors, normalizeAuthors } from "../lib/format-authors.js";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 
 const PROV_LABEL = { find_fetch: "检索结果", subscription: "订阅", recovered: "本机恢复", "": "未分组" };
@@ -283,7 +284,8 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
       {selMode && <button role="checkbox" aria-checked={sel.has(p.id)} className={"lib-cb" + (sel.has(p.id) ? " on" : "")} onClick={() => toggleSel(p.id)} aria-label="选择本篇做跨篇分析">{sel.has(p.id) ? <Check size={14} /> : null}</button>}
       <div className="lib-title">{p.title || "(无标题)"}</div>
       <div className="lib-meta">
-        {(p.authors || []).slice(0, 4).join(", ")}{(p.authors || []).length > 4 ? " 等" : ""}
+        {formatAuthors(p.authors, 4)}
+        {normalizeAuthors(p.authors).length > 4 ? " 等" : ""}
         {p.journal ? " · " + p.journal : ""}{p.year ? " · " + p.year : ""}
       </div>
       <div className="lib-badges">

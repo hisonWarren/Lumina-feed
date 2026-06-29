@@ -21,7 +21,8 @@ html,body,#root{height:100%;margin:0}
 body{background:#F4F4F1;font-family:Inter,system-ui,sans-serif}
 .lf{--gold:#0E7C6F;--goldDim:#0B5F55;--gold-tint:color-mix(in srgb,var(--gold) 10%,transparent);--gold-line:color-mix(in srgb,var(--gold) 28%,transparent);--petrol:var(--gold);--petrol-deep:var(--goldDim);--petrol-tint:var(--gold-tint);--petrol-line:var(--gold-line);--ink:#12151C;--ink2:#3A3F4A;--ink3:#6B7280;--ink4:#9CA3AF;--surf:#fff;--surf2:#F8F8F6;--line:#E5E5E0;--line2:#D8D8D2;--raise:#fff;--r:13px;--amber:#BE7A18;--ok:#2C8A60;--danger:#BC3B2B;--shadow:0 1px 2px rgba(20,22,26,.04),0 8px 24px rgba(20,22,26,.06);--shadow-lg:0 24px 60px rgba(20,22,26,.16),0 4px 12px rgba(20,22,26,.08);--sans:Inter,system-ui,sans-serif;height:100vh;width:100%;display:flex;flex-direction:column;color:var(--ink)}
 .lf button:focus-visible,.lf input:focus-visible,.lf [role="tab"]:focus-visible,.lf [role="menuitemradio"]:focus-visible{outline:2px solid var(--gold-line);outline-offset:2px}
-.lf-top{display:flex;align-items:center;gap:18px;padding:13px 20px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,var(--surf2),var(--surf));flex-shrink:0;position:relative;z-index:40}
+.lf-top{display:flex;align-items:center;gap:18px;padding:16px 20px 13px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,var(--surf2),var(--surf));flex-shrink:0;position:relative;z-index:40}
+.lf.platform-win32 .lf-top{padding-top:20px}
 .lf-brand{display:flex;align-items:center;gap:11px;flex-shrink:0}
 .lf-logo{width:34px;height:34px;border-radius:10px;flex-shrink:0;display:block;object-fit:cover;box-shadow:0 3px 10px rgba(20,22,26,.20)}
 .lf-wm{display:flex;flex-direction:column;line-height:1}
@@ -121,6 +122,7 @@ export default function LuminaApp() {
   const [incomingPdf, setIncomingPdf] = useState(null);
   const [subsNew, setSubsNew] = useState(0);
   const [showOnboardingEmail, setShowOnboardingEmail] = useState(false);
+  const [findSession, setFindSession] = useState(null);
   const [settingsCat, setSettingsCat] = useState("llm");
   const [ctxMenu, setCtxMenu] = useState(null);
   const ctxEditTarget = useRef(null);
@@ -283,60 +285,86 @@ export default function LuminaApp() {
     if (!hasBackend() || !bridge.onFetchQueue) return;
     const stop = bridge.onFetchQueue((ev) => {
       if (!ev || !ev.paperId) return;
-      if (ev.status === "done" && ev.result && ev.result.ok) {
-        const meta = buildFetchedMeta(ev.result);
-        if (meta) setFetchedMeta((m) => ({ ...m, [ev.paperId]: meta }));
+      const id = ev.paperId;
+      const steps = ev.trace && (ev.trace.steps || (Array.isArray(ev.trace) ? ev.trace : null));
+      if (steps) {
+        setFetchingMeta((m) => ({
+          ...m,
+          [id]: {
+            startedAt: m[id]?.startedAt ?? Date.now(),
+            trace: steps,
+            queued: !!m[id]?.queued,
+          },
+        }));
       }
-      if (ev.status === "done" || ev.status === "failed") {
-        setFetchingMeta((m) => { const n = { ...m }; delete n[ev.paperId]; return n; });
-      } else if (ev.status === "running") {
-        setFetchingMeta((m) => ({ ...m, [ev.paperId]: { startedAt: Date.now(), trace: ev.trace || null, queued: true } }));
+      if (ev.status === "running" && !steps) {
+        setFetchingMeta((m) => ({
+          ...m,
+          [id]: {
+            startedAt: m[id]?.startedAt ?? Date.now(),
+            trace: m[id]?.trace || null,
+            queued: !!m[id]?.queued,
+          },
+        }));
+      } else if (ev.status === "done") {
+        const r = ev.result;
+        if (r && r.ok) {
+          const meta = buildFetchedMeta(r);
+          if (meta) {
+            setFetchedMeta((m) => ({ ...m, [id]: meta }));
+            void refreshLib();
+            pushToast("已获取全文 · " + meta.label + " · 已保存到本机，可在阅读或我的文献打开");
+          }
+        } else if (r) {
+          const hint = fetchFailHint(r.reason);
+          if (hint) pushToast(hint);
+          else pushToast("取文未成功（" + (r.reason || "未知原因") + "）。可稍后重试或经机构访问");
+        }
+        setFetchingMeta((m) => { const n = { ...m }; delete n[id]; return n; });
+      } else if (ev.status === "failed") {
+        const r = ev.result;
+        const hint = fetchFailHint(r && r.reason);
+        pushToast(hint || "取文失败，请稍后重试");
+        setFetchingMeta((m) => { const n = { ...m }; delete n[id]; return n; });
       }
     });
     return () => stop?.();
-  }, []);
+  }, [pushToast, refreshLib]);
 
   const onFetch = useCallback(async (p, opts = {}) => {
     const provenance = opts.provenance || "find_fetch";
     const channel = opts.channel || "manual";
-    setFetchingMeta((m) => ({ ...m, [p.id]: { startedAt: Date.now(), trace: null } }));
+    const searchBusy = !!findSession?.loading;
+    const priority = channel === "manual" || channel === "library" || channel === "digest" ? 0 : channel === "batch" ? 1 : 2;
+    setFetchingMeta((m) => ({
+      ...m,
+      [p.id]: { startedAt: Date.now(), trace: null, queued: searchBusy },
+    }));
     try {
       if (hasBackend()) {
-        const r = await bridge.fetchFullText(p, (ev) => {
-          if (ev && ev.steps) {
-            setFetchingMeta((m) => ({
-              ...m,
-              [p.id]: { startedAt: m[p.id]?.startedAt ?? Date.now(), trace: ev.steps },
-            }));
-          }
-        }, { provenance, channel });
-        const meta = buildFetchedMeta(r);
-        if (meta) {
-          setFetchedMeta((m) => ({ ...m, [p.id]: meta }));
-          await refreshLib();
-          pushToast("已获取全文 · " + meta.label + " · 已保存到本机，可在阅读或我的文献打开");
-        } else {
-          const why = r && r.reason;
-          const hint = fetchFailHint(why);
-          if (hint) {
-            pushToast(hint);
-          } else {
-            pushToast("取文未成功（" + (why || "未知原因") + "）。可稍后重试或经机构访问");
-          }
+        await bridge.enqueueFetch([{ paperId: p.id, provenance, channel, priority }]);
+        if (searchBusy && priority === 0) {
+          pushToast("检索进行中，取文已排队（完成后优先处理）");
         }
-        return r;
+        return { queued: true };
       } else {
-        await new Promise((res) => setTimeout(res, 500));
-        const mockSource = p.oa !== "closed" ? "unpaywall_mock" : "libgen_mock";
-        const meta = buildFetchedMeta({ ok: true, source: mockSource });
-        setFetchedMeta((m) => ({ ...m, [p.id]: meta }));
-        pushToast("（原型模拟）已取全文 · " + meta.label);
-        return { ok: true, source: mockSource };
+        try {
+          await new Promise((res) => setTimeout(res, 500));
+          const mockSource = p.oa !== "closed" ? "unpaywall_mock" : "libgen_mock";
+          const meta = buildFetchedMeta({ ok: true, source: mockSource });
+          setFetchedMeta((m) => ({ ...m, [p.id]: meta }));
+          pushToast("（原型模拟）已取全文 · " + meta.label);
+          return { ok: true, source: mockSource };
+        } finally {
+          setFetchingMeta((m) => { const n = { ...m }; delete n[p.id]; return n; });
+        }
       }
-    } finally {
+    } catch {
       setFetchingMeta((m) => { const n = { ...m }; delete n[p.id]; return n; });
+      pushToast("取文请求失败，请稍后重试");
+      return { ok: false, reason: "enqueue_failed" };
     }
-  }, [pushToast, refreshLib]);
+  }, [pushToast, findSession]);
 
   const onFetchBatch = useCallback(async (papers, opts = {}) => {
     if (!hasBackend() || !papers.length) {
@@ -494,8 +522,6 @@ export default function LuminaApp() {
   }, [lists]);
   const deleteList = useCallback((lid) => { const next = lists.filter((L) => L.id !== lid); setLists(next); bridge.listsSave(next); }, [lists]);
 
-  const [findSession, setFindSession] = useState(null);
-
   const view = mode === "settings" ? prevMode : mode; // 设置弹窗时底层视图保持不变
 
   const findTabHint = findSession?.submitted && view !== "find"
@@ -505,7 +531,7 @@ export default function LuminaApp() {
   return (
     <>
       <style>{BASE_CSS + THEME_CSS}</style>
-      <div className={"lf" + (isLight(theme) ? " day" : "")} data-theme={theme}>
+      <div className={"lf" + (isLight(theme) ? " day" : "") + (ctxPlatform === "win32" ? " platform-win32" : "")} data-theme={theme}>
         <header className="lf-top">
           <div className="lf-brand">
             <img className="lf-logo" src={LOGO_DATA_URI} alt="Lumina Feed" width={34} height={34} />

@@ -83,10 +83,13 @@ export async function postFetchSuccess(
     ensureStubPaper(deps, paperId);
     libraryAdd(deps.store.db, paperId, ctx.provenance || "find_fetch", !libraryHas(deps.store.db, paperId));
   }
-  try {
-    const buf = fs.readFileSync(deps.pdfPath(paperId));
-    await indexPdfFulltext(deps, paperId, new Uint8Array(buf));
-  } catch { /* ignore */ }
+  void (async () => {
+    try {
+      const { readFile } = await import("node:fs/promises");
+      const buf = await readFile(deps.pdfPath(paperId));
+      await indexPdfFulltext(deps, paperId, new Uint8Array(buf));
+    } catch { /* 全文索引后台执行，不阻塞取文返回 */ }
+  })();
   broadcastPapersChanged({ paperId, action: "fetched", source });
 }
 
@@ -174,21 +177,59 @@ export function deleteLocalPdf(deps: PaperAssetDeps, paperId: string, removeFrom
   return true;
 }
 
-// ── 取文队列（并发上限 2）──
-type QueueJob = { paperId: string; ctx: FetchContext; reqId?: number; sender?: WebContents };
+// ── 取文队列（检索进行中降为 1 路并行，避免与多源检索抢主进程）──
+type QueueJob = { paperId: string; ctx: FetchContext; sender?: WebContents; priority: number };
 type FetchRunner = (paperId: string, onTrace: ((ev: unknown) => void) | undefined, ctx: FetchContext) => Promise<unknown>;
 
 const fetchQueue: QueueJob[] = [];
 let fetchActive = 0;
-const FETCH_CONCURRENCY = 2;
+const FETCH_CONCURRENCY_IDLE = 2;
+const FETCH_CONCURRENCY_SEARCH = 1;
+let searchInflightGetter: () => number = () => 0;
+
+export function setSearchInflightGetter(fn: () => number): void {
+  searchInflightGetter = fn;
+}
+
+function fetchConcurrencyLimit(): number {
+  return searchInflightGetter() > 0 ? FETCH_CONCURRENCY_SEARCH : FETCH_CONCURRENCY_IDLE;
+}
+
+function insertFetchJob(job: QueueJob): void {
+  const dup = fetchQueue.findIndex((q) => q.paperId === job.paperId);
+  if (dup >= 0) {
+    const ex = fetchQueue[dup];
+    if (job.priority < ex.priority) ex.priority = job.priority;
+    if (job.ctx?.channel === "manual") ex.ctx = { ...ex.ctx, ...job.ctx };
+    return;
+  }
+  const idx = fetchQueue.findIndex((q) => q.priority > job.priority);
+  if (idx === -1) fetchQueue.push(job);
+  else fetchQueue.splice(idx, 0, job);
+}
+
+let boundRunFetch: FetchRunner | null = null;
+
+export function bindFetchRunner(runFetch: FetchRunner): void {
+  boundRunFetch = runFetch;
+}
+
+export function resumeFetchQueue(): void {
+  if (boundRunFetch) void drainFetchQueue(boundRunFetch);
+}
 
 export function enqueueFetch(
-  jobs: Array<{ paperId: string; ctx?: FetchContext }>,
+  jobs: Array<{ paperId: string; ctx?: FetchContext; priority?: number }>,
   sender: WebContents | undefined,
   runFetch: FetchRunner,
 ): { queued: number } {
   for (const j of jobs) {
-    fetchQueue.push({ paperId: j.paperId, ctx: j.ctx || {}, sender });
+    insertFetchJob({
+      paperId: j.paperId,
+      ctx: j.ctx || {},
+      sender,
+      priority: typeof j.priority === "number" ? j.priority : 2,
+    });
   }
   void drainFetchQueue(runFetch);
   broadcastPapersChanged({ action: "queue_enqueued", count: jobs.length });
@@ -196,7 +237,8 @@ export function enqueueFetch(
 }
 
 async function drainFetchQueue(runFetch: FetchRunner): Promise<void> {
-  while (fetchActive < FETCH_CONCURRENCY && fetchQueue.length > 0) {
+  const limit = fetchConcurrencyLimit();
+  while (fetchActive < limit && fetchQueue.length > 0) {
     const job = fetchQueue.shift();
     if (!job) break;
     fetchActive++;
