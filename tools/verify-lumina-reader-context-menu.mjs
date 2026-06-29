@@ -13,11 +13,12 @@ const app = read("src/ui/LuminaApp.jsx");
 
 console.log("\n[1] ReaderContextMenu 组件");
 ok(menu && menu.includes("ReaderContextMenu"), "组件存在");
-ok(menu && menu.includes("顺时针旋转") && menu.includes("逆时针旋转"), "旋转双向");
+ok(menu && menu.includes("上一页") && menu.includes("页内查找"), "空白区核心项（翻页·查找）");
+ok(menu && !menu.includes("适配宽度") && !menu.includes("夜读反色"), "空白区已移除顶栏重复项（缩放·显示模式）");
 ok(menu && menu.includes("复制带页码引用") && menu.includes("高亮 · 黄"), "选区菜单项");
 
-ok(menu && menu.includes("缩放与适配") && menu.includes('type: "submenu"'), "空白区折叠子菜单（缩放与适配）");
-ok(menu && menu.includes("显示与工具") && menu.includes("lf-ctx-scroll"), "显示与工具分组 + 滚动容器");
+ok(menu && menu.includes("显示更多选项") && menu.includes("buildSelectionMore"), "选区「显示更多选项」（查找所选·撤销）");
+ok(menu && menu.includes("text-overflow:ellipsis") && !menu.includes("lf-ctx-scroll"), "无滚动条 · 标签省略");
 ok(menu && menu.includes("撤销上一批注"), "右键撤销批注项");
 
 console.log("\n[2] Reader 集成");

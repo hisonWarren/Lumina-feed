@@ -55,6 +55,7 @@
 | `synra_patch_lumina_results_paging` | `verify-lumina-results-paging.mjs` · `test-paginate.mjs`（15/15） |
 | `synra_patch_lumina_reader_hilite_fix` | `verify-lumina-reader-hilite-fix.mjs`（12/12）· `apply-hilite-fix.mjs` |
 | `synra_patch_lumina_reader_plus_fix` | `verify-lumina-reader-plus-fix.mjs`（27/27） |
+| `synra_patch_lumina_reader_translation` | `verify-lumina-reader-translation.mjs`（36/36） |
 | **直推·订阅简报 2.0** | `verify-lumina-subs-digest-sync.mjs`（26/26） |
 
 ## 验收

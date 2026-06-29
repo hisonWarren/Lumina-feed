@@ -175,23 +175,26 @@ try {
   opened?.ok ? pass("UX-open-pdf", "Attention PDF 已打开") : fail("UX-open-pdf", opened?.reason || JSON.stringify(opened));
 
   if (opened?.ok && llm?.ok) {
-    // ── 翻译面板：双栏模式 ──
+    // ── 翻译面板：段内对照（两模式，无双栏）──
     await evalJs(cdp, `
       const btn = document.querySelector(".rd-trwrap .rd-btn");
       if (!btn) throw new Error("no translate btn");
       btn.click();
       await new Promise(r => setTimeout(r, 250));
-      const dual = [...document.querySelectorAll(".rd-tmenu button")].find(b => (b.textContent||"").includes("双栏"));
-      if (!dual) throw new Error("no dual menu item");
-      dual.click();
+      const inline = [...document.querySelectorAll(".rd-tmenu button")].find(b => (b.textContent||"").includes("段内"));
+      if (!inline) throw new Error("no inline menu item");
+      inline.click();
       await new Promise(r => setTimeout(r, 400));
       return true;
     `);
     const hasPanel = await evalJs(cdp, `return !!document.querySelector(".rd-tp");`);
     hasPanel ? pass("UX-tp-open", "翻译面板已打开") : fail("UX-tp-open", "无 .rd-tp");
 
-    const modeCount = await evalJs(cdp, `return document.querySelectorAll(".rd-tp-modes button").length;`);
-    modeCount === 3 ? pass("UX-tp-modes", "三模式 segmented control") : fail("UX-tp-modes", `buttons=${modeCount}`);
+    const modeMeta = await evalJs(cdp, `
+      const btns = [...document.querySelectorAll(".rd-tp-modes button")].map(b => b.textContent.trim());
+      return { count: btns.length, labels: btns, hasDual: btns.some(t => t.includes("双栏")) };
+    `);
+    modeMeta.count === 2 && !modeMeta.hasDual ? pass("UX-tp-modes", "两模式：" + modeMeta.labels.join("/")) : fail("UX-tp-modes", JSON.stringify(modeMeta));
 
     // 等待翻译完成
     let tpState = null;
@@ -201,7 +204,7 @@ try {
         const loading = !!document.querySelector(".rd-tp .rd-ai-load");
         const text = tp?.innerText || "";
         const rawMd = /\\*\\*[^*]+\\*\\*/.test(text);
-        const structured = document.querySelectorAll(".rd-tp-prose, .rd-tp-title, .rd-tp-sec, .rd-tp-eyebrow").length;
+        const structured = document.querySelectorAll(".rd-tp-prose, .rd-tp-title, .rd-tp-sec, .rd-tp-eyebrow, .rd-tp-unit, .rd-tp-zh").length;
         const cols = !!document.querySelector(".rd-tp-cols");
         const colLabels = document.querySelectorAll(".rd-tp-col-label").length;
         const right = document.querySelector(".rd-right");
@@ -211,16 +214,15 @@ try {
       if (!tpState.loading && tpState.textLen > 80) break;
       await new Promise((r) => setTimeout(r, 2000));
     }
-    shots.push(await shot(cdp, "01-translate-dual"));
-    pass("UX-shot-01", "截图双栏译文", shots.at(-1));
+    shots.push(await shot(cdp, "01-translate-inline"));
+    pass("UX-shot-01", "截图段内对照", shots.at(-1));
 
     !tpState?.loading ? pass("UX-tp-done", "翻译完成") : fail("UX-tp-done", "仍在 loading");
     tpState?.structured >= 1 ? pass("UX-tp-struct", `结构化块 ${tpState.structured}`) : fail("UX-tp-struct", JSON.stringify(tpState));
     !tpState?.rawMd ? pass("UX-tp-no-md", "界面无裸 ** markdown") : fail("UX-tp-no-md", "仍见 ** 标记");
-    tpState?.cols && tpState?.colLabels >= 2 ? pass("UX-tp-dual-cols", "双栏 + 列标题") : fail("UX-tp-dual-cols", JSON.stringify(tpState));
+    !tpState?.cols ? pass("UX-tp-no-dual", "无双栏布局") : fail("UX-tp-no-dual", JSON.stringify(tpState));
 
-    // 切换三模式并截图
-    for (const [label, file] of [["段内对照", "02-translate-inline"], ["仅译文", "03-translate-only"], ["双栏", "04-translate-dual2"]]) {
+    for (const [label, file] of [["段内对照", "02-translate-inline"], ["仅译文", "03-translate-only"]]) {
       await evalJs(cdp, `
         const btn = [...document.querySelectorAll(".rd-tp-modes button")].find(b => (b.textContent||"").includes(${JSON.stringify(label)}));
         if (!btn) throw new Error("mode ${label}");
@@ -317,7 +319,7 @@ try {
       if (rep?.status === "ready" || rep?.status === "failed") break;
       await new Promise((r) => setTimeout(r, 2500));
     }
-    rep?.status === "ready" ? pass("UX-digest-ready", `hl=${rep.hl}`) : fail("UX-digest-ready", (rep?.status || "timeout") + " " + (rep?.err || ""));
+    rep?.status === "ready" ? pass("UX-digest-ready", `hl=${rep.hl}`) : rep?.status === "skipped" ? pass("UX-digest-ready", "无订阅数据，报告跳过") : fail("UX-digest-ready", (rep?.status || "timeout") + " " + (rep?.err || ""));
   } catch (e) {
     fail("UX-digest-section", e.message);
   }

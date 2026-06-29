@@ -194,7 +194,7 @@ const READER_CSS = `
 .rd-tlabel:hover{background:var(--surf2);color:var(--gold)}
 .rd-empty2{font-size:12px;color:var(--ink4);padding:10px 6px;line-height:1.6}
 .rd-view{flex:1;min-width:0;overflow:auto;padding:22px;display:flex;flex-direction:column;align-items:center;gap:20px;background:var(--surf2)}
-.rd-spread{display:flex;gap:16px;justify-content:center}
+.rd-spread{display:flex;gap:16px;justify-content:safe center;align-self:stretch}
 .rd-pg{position:relative;box-shadow:0 4px 18px rgba(0,0,0,.14);background:#fff;line-height:0}
 .rd-pg canvas{display:block}
 .textLayer{position:absolute;inset:0;overflow:clip;opacity:1;line-height:1;text-align:initial;text-size-adjust:none;forced-color-adjust:none;transform-origin:0 0;z-index:2;caret-color:CanvasText}
@@ -288,20 +288,28 @@ const READER_CSS = `
 .rd-tp-all:hover:not(:disabled){border-color:var(--gold);color:var(--gold)}
 .rd-tp-all:disabled{opacity:.6;cursor:default}
 .rd-tp-scroll{flex:1;min-height:0;overflow-x:hidden;overflow-y:auto;padding:4px 10px 14px 12px;scrollbar-gutter:stable}
-.rd-tp-body{font-size:13px;line-height:1.75;color:var(--ink)}
-.rd-tp-cols{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
-.rd-tp-col-label{font-family:'Space Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink4);margin:0 0 8px;padding-bottom:6px;border-bottom:1px solid var(--line2)}
+.rd-tp-body{font-size:13.5px;line-height:1.8;color:var(--ink)}
+/* 翻译面板 · 重做：仅译文=干净阅读列；段内对照=中文为主+英文次级（左细线）。
+   与「助手·整篇总结」区分：总结用孔雀绿整条左脊+页码 chip；翻译用轻量眉签(短刻度)+双语单元，无页码引用。 */
 .rd-tp-flow{display:flex;flex-direction:column;gap:0}
-.rd-tp-sec{margin:0 0 12px;padding:10px 12px;border:1px solid var(--line2);border-radius:11px;background:var(--surf2)}
-.rd-tp-flow.orig .rd-tp-sec{background:var(--surf);border-color:var(--line)}
-.rd-tp-eyebrow{font-family:'Space Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--gold);margin:0 0 6px}
-.rd-tp-title{font-family:'Source Serif 4',Georgia,serif;font-size:15px;font-weight:600;line-height:1.45;color:var(--ink);margin:0 0 12px}
-.rd-tp-prose{font-size:13px;line-height:1.75;color:var(--ink);margin:0;white-space:pre-wrap;word-break:break-word}
+.rd-tp-sec{margin:0 0 16px;padding:0}
+.rd-tp-eyebrow{font-family:'Space Mono',monospace;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);margin:0 0 8px;display:flex;align-items:center;gap:8px}
+.rd-tp-eyebrow::before{content:"";width:14px;height:2px;border-radius:2px;background:var(--gold);flex:0 0 auto}
+.rd-tp-title{font-family:'Source Serif 4',Georgia,serif;font-size:16px;font-weight:600;line-height:1.5;color:var(--ink);margin:0 0 6px}
+.rd-tp-prose{font-size:13.5px;line-height:1.85;color:var(--ink);margin:0 0 13px;white-space:normal;word-break:break-word}
+.rd-tp-prose:last-child{margin-bottom:0}
 .rd-tp-prose strong{font-weight:600;color:var(--ink)}
-.rd-tp-flow.orig .rd-tp-prose{color:var(--ink3)}
-.rd-tp-stack .rd-tp-pair{margin-bottom:14px;padding-bottom:14px;border-bottom:1px dashed var(--line2)}
-.rd-tp-stack .rd-tp-pair:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
-.rd-tp-pair-orig{margin-bottom:8px}
+.rd-tp-flow.orig .rd-tp-prose{color:var(--ink3);font-size:12.5px;line-height:1.7}
+/* 段内对照单元：中文(主) + 英文(次，左孔雀绿细线) */
+.rd-tp-stack{display:flex;flex-direction:column;gap:0}
+.rd-tp-unit{padding:13px 0;border-bottom:1px solid var(--line2)}
+.rd-tp-unit:last-child{border-bottom:none;padding-bottom:2px}
+.rd-tp-unit.head{padding-top:18px}
+.rd-tp-zh{font-size:14px;line-height:1.85;color:var(--ink);margin:0;word-break:break-word}
+.rd-tp-zh strong{font-weight:600}
+.rd-tp-en{font-size:12px;line-height:1.7;color:var(--ink4);margin:8px 0 0;padding-left:11px;border-left:2px solid color-mix(in srgb,var(--gold) 30%,var(--line2));word-break:break-word}
+.rd-tp-unit.head .rd-tp-eyebrow,.rd-tp-unit.head .rd-tp-title{margin-bottom:0}
+.rd-tp-unit.head .rd-tp-en{margin-top:9px}
 .rd.focus .rd-tp{display:none}
 .rd-hl{position:absolute;z-index:1;border-radius:2px;pointer-events:none;mix-blend-mode:multiply}
 .hl-yellow{background:rgba(245,210,70,.5)}
@@ -1215,17 +1223,30 @@ function TranslationPairStack({ orig, trans }) {
   const n = Math.max(os.length, ts.length, 1);
   return (
     <div className="rd-tp-stack">
-      {Array.from({ length: n }, (_, i) => (
-        <div key={i} className="rd-tp-pair">
-          {os[i] ? <div className="rd-tp-pair-orig"><TranslationFlow text={os[i]} kind="orig" /></div> : null}
-          {ts[i] ? <TranslationFlow text={ts[i]} kind="tr" /> : null}
-        </div>
-      ))}
+      {Array.from({ length: n }, (_, i) => {
+        const zhRaw = ts[i] || "";
+        const enRaw = os[i] || "";
+        const zh = zhRaw ? classifyBlock(zhRaw, "tr", i) : null;
+        if (zh && (zh.type === "eyebrow" || zh.type === "title")) {
+          return (
+            <div key={i} className="rd-tp-unit head">
+              {zh.type === "eyebrow" ? <div className="rd-tp-eyebrow">{zh.label}</div> : <h3 className="rd-tp-title">{zh.text}</h3>}
+              {enRaw ? <p className="rd-tp-en">{stripMarkdownBold(enRaw)}</p> : null}
+            </div>
+          );
+        }
+        return (
+          <div key={i} className="rd-tp-unit">
+            {zhRaw ? <p className="rd-tp-zh">{renderTpInline(zhRaw)}</p> : null}
+            {enRaw ? <p className="rd-tp-en">{stripMarkdownBold(enRaw)}</p> : null}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-const LAYOUT_MODES = [["inline", "段内对照", Rows3], ["dual", "双栏", Columns2], ["only", "仅译文", FileText]];
+const LAYOUT_MODES = [["inline", "段内对照", Rows3], ["only", "仅译文", FileText]];
 
 function RightPanelShell({ width, onResizeStart, children }) {
   return (
@@ -1236,7 +1257,7 @@ function RightPanelShell({ width, onResizeStart, children }) {
   );
 }
 
-function TranslatePanel({ doc, page, numPages, mode, setMode, onClose, pushToast, docKey, model }) {
+function TranslatePanel({ doc, page, numPages, mode, setMode, view, onClose, pushToast, docKey, model }) {
   const cacheRef = useRef({}); // page -> {orig, trans, loading, cached, model, err}
   const [, setTick] = useState(0);
   const [bulk, setBulk] = useState(null);
@@ -1295,19 +1316,10 @@ function TranslatePanel({ doc, page, numPages, mode, setMode, onClose, pushToast
     if (cur.loading) return <div className="rd-ai-load"><Loader size={14} className="rd-spin" /> 翻译中…</div>;
     if (llmBlocked) {
       if (mode === "only") return null;
-      if (mode === "dual") return <div className="rd-tp-cols"><TranslationFlow text={cur.orig} kind="orig" /></div>;
       return <TranslationFlow text={cur.orig} kind="orig" />;
     }
     if (cur.err) return <div className="rd-tp-warn">{cur.err}</div>;
     if (mode === "only") return <TranslationFlow text={cur.trans} kind="tr" />;
-    if (mode === "dual") {
-      return (
-        <div className="rd-tp-cols">
-          <div><div className="rd-tp-col-label">原文</div><TranslationFlow text={cur.orig} kind="orig" /></div>
-          <div><div className="rd-tp-col-label">译文</div><TranslationFlow text={cur.trans} kind="tr" /></div>
-        </div>
-      );
-    }
     return <TranslationPairStack orig={cur.orig} trans={cur.trans} />;
   };
 
@@ -1315,7 +1327,7 @@ function TranslatePanel({ doc, page, numPages, mode, setMode, onClose, pushToast
     <div className="rd-tp">
       <div className="rd-tp-head">
         <div className="rd-tp-h">
-          <span><Languages size={15} /> 翻译 · 第 {page}/{numPages || "—"} 页</span>
+          <span><Languages size={15} /> 翻译 · 第 {page}/{numPages || "—"} 页{view === "two" ? "（双页·左）" : ""}</span>
           <button className="rd-x" onClick={onClose} title="关闭翻译"><X size={16} /></button>
         </div>
         {llmBlocked && <div className="rd-tp-warn">{llmReady.message}</div>}
@@ -1437,7 +1449,7 @@ export default function Reader({ source, onClose, pushToast }) {
   const [err, setErr] = useState(null);
   const [findOpen, setFindOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
-  const [transMode, setTransMode] = useState(null);     // 段内 inline / 双栏 dual / 仅译文 only
+  const [transMode, setTransMode] = useState(null);     // 段内对照 inline / 仅译文 only（双栏已并入段内对照）
   const [transMenuOpen, setTransMenuOpen] = useState(false);
   const [annos, setAnnos] = useState([]);
   const [zone, setZone] = useState("assist");
@@ -1486,6 +1498,9 @@ export default function Reader({ source, onClose, pushToast }) {
   const panRef = useRef(null);                  // 平移会话 {x,y,sl,st}
   const posLoadedRef = useRef(false);           // 本 doc 是否已尝试恢复位置（避免覆盖用户翻页）
   const viewRef = useRef(null);
+  const suppressPageScroll = useRef(false); // true 时跳过一次 page→scrollIntoView（滚动联动改 page 时用，避免与用户滚动打架）
+  const scrollSpyRaf = useRef(0);
+  const spreadManualZoomRef = useRef(false); // 双页下用户手动缩放后，不再被自动 fit 覆盖
   const rootRef = useRef(null);
   const strCache = useRef({});
   const annoUndoRef = useRef([]);
@@ -1505,14 +1520,22 @@ export default function Reader({ source, onClose, pushToast }) {
     if (!ctxMenu) return;
     const close = () => { setCtxMenu(null); ctxSelectionRef.current = null; };
     const onKey = (e) => { if (e.key === "Escape") close(); };
-    const onDown = (e) => { if (!(e.target && e.target.closest && e.target.closest(".rd-ctx"))) close(); };
+    const onDown = (e) => {
+      if (e.button !== 0) return;
+      if (e.target && e.target.closest && e.target.closest(".rd-ctx")) return;
+      close();
+    };
+    const onScroll = (e) => {
+      if (e.target && e.target.closest && e.target.closest(".rd-ctx")) return;
+      close();
+    };
     window.addEventListener("keydown", onKey);
     window.addEventListener("mousedown", onDown);
-    window.addEventListener("scroll", close, true);
+    window.addEventListener("scroll", onScroll, true);
     return () => {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("scroll", onScroll, true);
     };
   }, [ctxMenu]);
 
@@ -1610,9 +1633,13 @@ export default function Reader({ source, onClose, pushToast }) {
       if (mod && (e.key === "f" || e.key === "F")) { e.preventDefault(); setFindOpen(true); }
       else if (e.key === "Home") { e.preventDefault(); setPage(1); }
       else if (e.key === "End") { e.preventDefault(); setPage(numPages); }
-      else if (mod && (e.key === "=" || e.key === "+")) { e.preventDefault(); setScale((s) => Math.min(4, +(s * 1.1).toFixed(3))); }
-      else if (mod && e.key === "-") { e.preventDefault(); setScale((s) => Math.max(0.3, +(s * 0.9).toFixed(3))); }
-      else if (mod && e.key === "0") { e.preventDefault(); if (doc && viewRef.current) fitWidthScale(doc, page, viewRef.current.clientWidth, rotation).then(setScale).catch(() => {}); }
+      else if (mod && (e.key === "=" || e.key === "+")) { e.preventDefault(); if (view === "two") spreadManualZoomRef.current = true; setScale((s) => Math.min(4, +(s * 1.1).toFixed(3))); }
+      else if (mod && e.key === "-") { e.preventDefault(); if (view === "two") spreadManualZoomRef.current = true; setScale((s) => Math.max(0.3, +(s * 0.9).toFixed(3))); }
+      else if (mod && e.key === "0") {
+        e.preventDefault();
+        if (view === "two" && doc) { spreadManualZoomRef.current = false; fitSpread(); }
+        else if (doc && viewRef.current) fitWidthScale(doc, page, viewRef.current.clientWidth, rotation).then(setScale).catch(() => {});
+      }
       else if (!mod && (e.key === "r" || e.key === "R") && e.shiftKey) { e.preventDefault(); setRotation((r) => (r + 270) % 360); }
       else if (!mod && (e.key === "r" || e.key === "R")) { e.preventDefault(); setRotation((r) => (r + 90) % 360); }
       else if (mod && (e.key === "p" || e.key === "P")) { e.preventDefault(); const api = window.luminaApi; if (api && api.contextAction) api.contextAction("print"); }
@@ -1623,21 +1650,48 @@ export default function Reader({ source, onClose, pushToast }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, numPages, step, findOpen, sel, transMenuOpen, transMode, snipMode, aiOpen, zoomMenuOpen, doc, page, rotation]); // undoAnno/redoAnno stable via refs
+  }, [onClose, numPages, step, findOpen, sel, transMenuOpen, transMode, snipMode, aiOpen, zoomMenuOpen, doc, page, rotation, view, fitSpread]); // undoAnno/redoAnno stable via refs
 
   useEffect(() => {
     if (view !== "continuous") return;
+    if (suppressPageScroll.current) { suppressPageScroll.current = false; return; } // 本次 page 变化由滚动联动触发 → 不再回滚
     const el = document.getElementById("rd-pg-" + page);
     if (el && el.scrollIntoView) el.scrollIntoView({ block: "start", behavior: "smooth" });
   }, [page, view]);
 
-  const zoomOut = () => setScale((s) => Math.max(0.3, +(s * 0.9).toFixed(3)));
-  const zoomIn = () => setScale((s) => Math.min(4, +(s * 1.1).toFixed(3)));
-  const fit = useCallback(async () => {
-    if (!doc || !viewRef.current) return;
-    try { setScale(await fitWidthScale(doc, page, viewRef.current.clientWidth, rotation)); } catch (e) { /* noop */ }
-  }, [doc, page, rotation]);
-  const actualSize = () => { setScale(1); setZoomMenuOpen(false); };
+  // 连续模式滚动联动：滚动时把顶栏页码（及翻译/批注所依据的 page）同步为当前主视区页
+  const onViewScroll = useCallback(() => {
+    if (sel) setSel(null);
+    if (view !== "continuous") return;
+    const root = viewRef.current;
+    if (!root || scrollSpyRaf.current) return;
+    scrollSpyRaf.current = requestAnimationFrame(() => {
+      scrollSpyRaf.current = 0;
+      const r0 = root.getBoundingClientRect();
+      const line = r0.top + root.clientHeight * 0.3; // 视区上三分之一处为「当前页」判定线
+      let best = 1;
+      for (let nn = 1; nn <= (numPages || 1); nn++) {
+        const el = document.getElementById("rd-pg-" + nn);
+        if (!el) continue;
+        if (el.getBoundingClientRect().top <= line) best = nn; else break; // 页按序排列：越过判定线的最后一页即当前页
+      }
+      setPage((p) => { if (p !== best) { suppressPageScroll.current = true; return best; } return p; });
+    });
+  }, [sel, view, numPages]);
+
+  const zoomOut = () => {
+    if (view === "two") spreadManualZoomRef.current = true;
+    setScale((s) => Math.max(0.3, +(s * 0.9).toFixed(3)));
+  };
+  const zoomIn = () => {
+    if (view === "two") spreadManualZoomRef.current = true;
+    setScale((s) => Math.min(4, +(s * 1.1).toFixed(3)));
+  };
+  const actualSize = () => {
+    if (view === "two") spreadManualZoomRef.current = true;
+    setScale(1);
+    setZoomMenuOpen(false);
+  };
   const fitPage = useCallback(async () => {
     setZoomMenuOpen(false);
     if (!doc || !viewRef.current) return;
@@ -1648,6 +1702,40 @@ export default function Reader({ source, onClose, pushToast }) {
       if (vp.height > 0) setScale(Math.max(0.3, Math.min(4, +(h / vp.height).toFixed(3))));
     } catch (e) { /* noop */ }
   }, [doc, page, rotation]);
+  // 双页：两页+间隙整体缩放进视区（宽/高取 min）；仅首次进双页或 Ctrl+0「适配双页」时自动算 scale，之后可自由放大缩小
+  const fitSpread = useCallback(async () => {
+    if (!doc || !viewRef.current) return;
+    try {
+      const pg = await doc.getPage(page);
+      const vp = pg.getViewport({ scale: 1, rotation });
+      const root = viewRef.current;
+      const availW = root.clientWidth - 44 - 16; // .rd-view 左右内边距(22*2) + 双页间隙(16)
+      const availH = root.clientHeight - 32;
+      if (vp.width <= 0 || vp.height <= 0 || availW <= 0 || availH <= 0) return;
+      const scaleW = (availW / 2) / vp.width;
+      const scaleH = availH / vp.height;
+      setScale(Math.max(0.3, Math.min(4, +Math.min(scaleW, scaleH).toFixed(3))));
+    } catch (e) { /* noop */ }
+  }, [doc, page, rotation]);
+  const fit = useCallback(async () => {
+    if (!doc || !viewRef.current) return;
+    if (view === "two") { spreadManualZoomRef.current = false; await fitSpread(); return; }
+    try { setScale(await fitWidthScale(doc, page, viewRef.current.clientWidth, rotation)); } catch (e) { /* noop */ }
+  }, [doc, page, rotation, view, fitSpread]);
+  const fitSpreadRef = useRef(fitSpread);
+  fitSpreadRef.current = fitSpread;
+  useEffect(() => {
+    if (view !== "two") return;
+    spreadManualZoomRef.current = false;
+    fitSpreadRef.current();
+  }, [view]);
+  // 侧栏/右面板开合改变视区宽时：仅在用户未手动缩放时再自适应（避免覆盖 +/- 放大）
+  useEffect(() => {
+    if (view !== "two" || spreadManualZoomRef.current) return;
+    const t = setTimeout(() => { fitSpreadRef.current(); }, 120);
+    return () => clearTimeout(t);
+  }, [view, sidebar, sidePanel, sideWidth, aiOpen, transMode, rightWidth, focus]);
+
   const rotateCw = () => setRotation((r) => (r + 90) % 360);
   const rotateCcw = () => setRotation((r) => (r + 270) % 360);
   const download = () => {
@@ -1987,7 +2075,7 @@ export default function Reader({ source, onClose, pushToast }) {
             )}
           </span>
           <button className="rd-btn" onClick={zoomIn} title="放大 (Ctrl/⌘ +)"><Plus size={15} /></button>
-          <button className="rd-btn" onClick={fit} title="适配宽度 (Ctrl/⌘ 0)"><Maximize size={15} /></button>
+          <button className="rd-btn" onClick={fit} title={view === "two" ? "适配双页 (Ctrl/⌘ 0)" : "适配宽度 (Ctrl/⌘ 0)"}><Maximize size={15} /></button>
         </div>
         <div className="rd-grp">
           <button className="rd-btn" onClick={rotateCw} title="顺时针旋转 (R)"><RotateCw size={15} /></button>
@@ -2007,7 +2095,7 @@ export default function Reader({ source, onClose, pushToast }) {
             <button className={"rd-btn" + (transMode ? " on" : "")} onClick={() => setTransMenuOpen((v) => !v)} title="翻译"><Languages size={15} /> 译 <ChevronDown size={13} /></button>
             {transMenuOpen && (
               <div className="rd-tmenu">
-                {[["inline", "段内对照"], ["dual", "双栏对照"], ["only", "仅译文"]].map((mm) => (
+                {[["inline", "段内对照"], ["only", "仅译文"]].map((mm) => (
                   <button key={mm[0]} onClick={() => { setTransMode(mm[0]); setAiOpen(false); setTransMenuOpen(false); }}>{mm[1]}</button>
                 ))}
               </div>
@@ -2078,7 +2166,7 @@ export default function Reader({ source, onClose, pushToast }) {
           </div>
         )}
 
-        <div className={"rd-view" + (snipMode ? " snip" : "") + (hand ? " hand" : "")} ref={viewRef} onMouseDown={onViewMouseDown} onMouseMove={onViewMouseMove} onMouseUp={onViewMouseUp} onScroll={() => { if (sel) setSel(null); }}>
+        <div className={"rd-view" + (snipMode ? " snip" : "") + (hand ? " hand" : "")} ref={viewRef} onMouseDown={onViewMouseDown} onMouseMove={onViewMouseMove} onMouseUp={onViewMouseUp} onScroll={onViewScroll}>
           {loading ? (
             <div className="rd-loading"><Loader size={26} className="rd-spin" /><div>正在打开 PDF…</div></div>
           ) : err ? (
@@ -2104,7 +2192,7 @@ export default function Reader({ source, onClose, pushToast }) {
         )}
         {transMode && !loading && !err && doc && (
           <RightPanelShell width={rightWidth} onResizeStart={startRightResize}>
-            <TranslatePanel doc={doc} page={page} numPages={numPages} mode={transMode} setMode={setTransMode} onClose={() => setTransMode(null)} pushToast={pushToast} docKey={docKey} model={llmModel} />
+            <TranslatePanel doc={doc} page={page} numPages={numPages} mode={transMode} setMode={setTransMode} onClose={() => setTransMode(null)} pushToast={pushToast} docKey={docKey} model={llmModel} view={view} />
           </RightPanelShell>
         )}
       </div>

@@ -18,8 +18,8 @@ if(exists("src/ui/modules/Reader.jsx")&&balance("src/ui/modules/Reader.jsx")) ok
 console.log("\n— 3. 翻译三模式 —");
 if(exists("src/ui/modules/Reader.jsx")){ const s=read("src/ui/modules/Reader.jsx");
   /function TranslatePanel/.test(s)?ok("TranslatePanel 面板"):bad("缺 TranslatePanel");
-  /段内对照/.test(s)&&/双栏对照/.test(s)&&/仅译文/.test(s)?ok("三模式 段内/双栏/仅译文"):bad("三模式不全");
-  /rd-tp-cols/.test(s)&&/rd-tp-stack/.test(s)?ok("双栏/段内布局"):wn("布局类缺");
+  /段内对照/.test(s)&&/仅译文/.test(s)?ok("两模式 段内对照/仅译文（双栏已并入段内对照）"):bad("译文模式不全");
+  /rd-tp-stack/.test(s)&&/rd-tp-unit/.test(s)?ok("段内对照=中文为主+英文次级单元布局"):wn("布局类缺");
   /bridge\.readerTranslate/.test(s)?ok("按页调 readerTranslate"):bad("未调 readerTranslate");
   /getPageStrings/.test(s)?ok("按页取文（getPageStrings）"):bad("未取页文本");
   /translateAll/.test(s)?ok("译全部页（整篇）"):wn("缺译全部页");

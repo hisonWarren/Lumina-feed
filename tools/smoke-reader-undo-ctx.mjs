@@ -73,6 +73,8 @@ async function openReader(cdp) {
       await new Promise(r => setTimeout(r, 500));
     }
     if (!document.querySelector(".rd")) throw new Error("阅读器未打开");
+    document.querySelector(".rd-tp-h .rd-x")?.click();
+    await new Promise(r => setTimeout(r, 200));
     for (let i = 0; i < 40 && !document.querySelector(".textLayer span"); i++) {
       await new Promise(r => setTimeout(r, 500));
     }
@@ -137,31 +139,44 @@ try {
   toolbar.undoDisabled === true ? pass("RD-UC3", "初始撤销禁用") : fail("RD-UC3", "初始撤销应禁用", JSON.stringify(toolbar));
 
   const ctxBlank = await evalJs(cdp, `
-    const view = document.querySelector(".rd-view") || document.querySelector(".rd-body") || document.querySelector(".rd");
-    if (!view) throw new Error("no rd view");
-    view.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 320, clientY: 280 }));
-    await new Promise(r => setTimeout(r, 200));
-    const menu = document.querySelector(".rd-ctx");
+    const targets = [
+      document.querySelector(".rd"),
+      document.querySelector(".rd-view"),
+      document.querySelector(".rd-pg canvas"),
+    ].filter(Boolean);
+    let menu = null;
+    for (const el of targets) {
+      const r = el.getBoundingClientRect();
+      const x = Math.round(r.left + r.width * 0.45);
+      const y = Math.round(r.top + r.height * 0.45);
+      el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 2 }));
+      await new Promise(res => setTimeout(res, 220));
+      menu = document.querySelector(".rd-ctx");
+      if (menu) break;
+    }
     if (!menu) throw new Error("右键菜单未出现");
-    const labels = [...menu.querySelectorAll(".lf-ctx-scroll > .lf-ctx-item .lf-ctx-lbl, .lf-ctx-scroll > .lf-ctx-sub > .lf-ctx-item .lf-ctx-lbl")]
-      .map(el => el.textContent.trim());
-    const subs = menu.querySelectorAll(".lf-ctx-sub").length;
-    const scroll = !!menu.querySelector(".lf-ctx-scroll");
-    const h = menu.getBoundingClientRect().height;
-    document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-    await new Promise(r => setTimeout(r, 100));
-    return { labels, subs, scroll, height: Math.round(h), topCount: labels.length };
+    const labels = [...menu.querySelectorAll(".lf-ctx-item .lf-ctx-lbl")].map(el => el.textContent.trim());
+    const h = Math.round(menu.getBoundingClientRect().height);
+    document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+    await new Promise(r => setTimeout(r, 120));
+    return {
+      labels, height: h, count: labels.length,
+      hasMore: labels.includes("显示更多选项"),
+      scroll: !!menu.querySelector(".lf-ctx-scroll"),
+      stillOpen: !!document.querySelector(".rd-ctx"),
+    };
   `);
-  ctxBlank.scroll ? pass("RD-UC4", "菜单滚动容器") : fail("RD-UC4", "缺 lf-ctx-scroll");
-  ctxBlank.subs >= 3 ? pass("RD-UC5", "折叠子菜单", `${ctxBlank.subs} 组`) : fail("RD-UC5", "子菜单不足", JSON.stringify(ctxBlank));
-  ctxBlank.labels.includes("缩放与适配") && ctxBlank.labels.includes("显示与工具")
-    ? pass("RD-UC6", "分组标签", ctxBlank.labels.join(" | "))
-    : fail("RD-UC6", "分组标签", ctxBlank.labels.join(" | "));
-  ctxBlank.topCount <= 14 ? pass("RD-UC7", "顶层项数可控", `${ctxBlank.topCount} 项 · 高 ${ctxBlank.height}px`)
-    : fail("RD-UC7", "顶层仍过多", `${ctxBlank.topCount} 项`);
-  !ctxBlank.labels.includes("下载 PDF") || ctxBlank.labels.includes("文件")
-    ? pass("RD-UC8", "下载移入文件分组")
-    : fail("RD-UC8", "下载仍在顶层");
+  !ctxBlank.scroll ? pass("RD-UC4", "菜单无滚动条") : fail("RD-UC4", "仍含 lf-ctx-scroll");
+  !ctxBlank.hasMore ? pass("RD-UC5", "空白区无「显示更多选项」（已精简）") : fail("RD-UC5", "空白区仍含显示更多");
+  ctxBlank.labels.includes("页内查找") && ctxBlank.labels.includes("上一页")
+    ? pass("RD-UC6", "核心项在首屏", ctxBlank.labels.join(" | "))
+    : fail("RD-UC6", "首屏项", ctxBlank.labels.join(" | "));
+  ctxBlank.count <= 8 ? pass("RD-UC7", "首屏项数可控", `${ctxBlank.count} 项 · 高 ${ctxBlank.height}px`)
+    : fail("RD-UC7", "首屏仍过多", `${ctxBlank.count} 项`);
+  !ctxBlank.labels.includes("下载 PDF") && !ctxBlank.labels.includes("放大")
+    ? pass("RD-UC8", "下载/缩放已移出菜单")
+    : fail("RD-UC8", "仍含下载或缩放", ctxBlank.labels.join(" | "));
+  !ctxBlank.stillOpen ? pass("RD-UC9", "点外部可关闭") : fail("RD-UC9", "外部点击后仍打开");
 
   const annoFlow = await (async () => {
     const pre = await evalJs(cdp, `
@@ -219,9 +234,9 @@ try {
   })().catch((e) => ({ ok: false, reason: e.message }));
 
   if (annoFlow?.ok !== false && annoFlow?.canRedo !== undefined) {
-    pass("RD-UC9", "高亮 → 撤销 → 重做", `${annoFlow.via || ""} undo后禁用=${annoFlow.undoDisabledAfter} redo=${annoFlow.canRedo}`);
+    pass("RD-UC10", "高亮 → 撤销 → 重做", `${annoFlow.via || ""} undo后禁用=${annoFlow.undoDisabledAfter} redo=${annoFlow.canRedo}`);
   } else {
-    skip("RD-UC9", annoFlow?.reason || "批注撤销流（无批注或自动化划词未命中）");
+    skip("RD-UC10", annoFlow?.reason || "批注撤销流（无批注或自动化划词未命中）");
   }
 
   cdp.ws.close();
