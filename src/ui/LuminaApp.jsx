@@ -12,6 +12,7 @@ import Subscriptions from "./modules/Subscriptions.jsx";
 import { buildFetchedMeta, isFetched, fetchProgressUi, metaFromAsset, fetchFailHint } from "./fetch-meta.js";
 import EmailPrompt from "./components/EmailPrompt.jsx";
 import ConfirmDialog from "./components/ConfirmDialog.jsx";
+import FetchFailDialog from "./components/FetchFailDialog.jsx";
 import { persistSettings } from "./settings-persist.js";
 import AppContextMenu from "./components/AppContextMenu.jsx";
 import { runEditAction } from "./context-menu-actions.js";
