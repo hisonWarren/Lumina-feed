@@ -34,6 +34,14 @@ const MODEL_PRESETS = {
 };
 const presetOf = (id) => PROVIDERS.find((p) => p.id === id) || PROVIDERS[0];
 
+function formatLlmTestError(provider, preset, raw) {
+  const err = String(raw || "连接失败");
+  if (/401/.test(err)) return `${preset.label}：API Key 无效或已过期 · 请重新粘贴密钥 → 保存 → 再测（401 未授权）`;
+  if (/403/.test(err)) return `${preset.label}：密钥无权限或账户受限（403）`;
+  if (/404/.test(err)) return `${preset.label}：模型不存在或 endpoint 有误 · 请检查模型名`;
+  return err;
+}
+
 // 设置分类（左侧导航）：随类目增长，左栏才名副其实——本版把视觉读图独立为「隐私」，并新增「阅读」「关于」。
 const CATS = [
   { id: "llm", label: "大模型", icon: Cpu },
@@ -463,8 +471,15 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
   const onTestLlm = useCallback(async () => {
     setTesting(true); setTestResult(null);
     try {
-      const res = await bridge.testLlm({ provider, model: (model || preset.model).trim(), baseUrl: preset.showBase ? baseUrl.trim() : undefined, apiKey: apiKey.trim() || undefined });
-      setTestResult(res && typeof res.ok === "boolean" ? res : { ok: false, error: "无响应" });
+      const res = await bridge.testLlm({
+        provider,
+        model: (model || preset.model).trim(),
+        baseUrl: preset.showBase ? baseUrl.trim() : (preset.base || undefined),
+        apiKey: apiKey.trim() || undefined,
+      });
+      setTestResult(res && typeof res.ok === "boolean"
+        ? (res.ok ? res : { ok: false, error: formatLlmTestError(provider, preset, res.error) })
+        : { ok: false, error: "无响应" });
     } catch (e) { setTestResult({ ok: false, error: "测试失败" }); }
     finally { setTesting(false); }
   }, [provider, model, baseUrl, apiKey, preset]);

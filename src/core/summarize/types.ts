@@ -40,7 +40,7 @@ export interface SummaryResult {
 
 // ── 可插拔 LLM ──
 export interface LlmMessage { role: "system" | "user" | "assistant"; content: string }
-export interface LlmCompleteOpts { maxTokens?: number; temperature?: number; signal?: AbortSignal; images?: string[] }
+export interface LlmCompleteOpts { maxTokens?: number; temperature?: number; signal?: AbortSignal; images?: string[]; /** DeepSeek V4：显式开 thinking；默认关（简报/总结走 content） */ thinking?: boolean }
 export interface LlmClient {
   id: "anthropic" | "openai" | "ollama" | string;
   model: string;

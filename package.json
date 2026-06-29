@@ -1,6 +1,6 @@
 {
   "name": "lumina-feed",
-  "version": "0.4.3",
+  "version": "0.4.7",
   "description": "Lumina Feed · 干净基线（检索取文 + 接地总结）",
   "author": "hisonWarren",
   "main": "build/main.cjs",
@@ -56,6 +56,7 @@
     "smoke:open-sources-man": "node tools/smoke-open-sources-man.mjs",
     "smoke:subs-digest": "node tools/smoke-subs-digest.mjs",
     "smoke:subs-digest-ai": "node tools/smoke-subs-digest-ai.mjs",
+    "smoke:v047": "node tools/smoke-v047-full.mjs",
     "build:electron": "node tools/build-electron.mjs",
     "start": "npm run build:electron && electron .",
     "quickstart": "node tools/quickstart.mjs",

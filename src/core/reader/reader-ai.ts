@@ -62,7 +62,8 @@ export function extractCitations(text: string): ReaderCitation[] {
 
 const TRANSLATE_SYS =
   "你是专业的学术翻译。把用户提供的文本忠实、通顺地翻译为简体中文；若原文已是中文，则翻译为英文。" +
-  "只输出译文，不加解释、不加页码、不要编造；保留专有名词与术语准确。";
+  "输入常来自学术论文 PDF 单页：跳过页眉页脚、页码、期刊名、重复栏目标签、版权行；作者与单位可极简处理或省略；" +
+  "着重翻译摘要、章节标题与正文段落。段落之间用空行分隔；只输出译文，不加解释、不加页码、不要编造；保留专有名词与术语准确。";
 
 /** 划词/整篇翻译：忠实翻译给定文本（非接地、无页码引用）。 */
 export async function translateText(text: string, llm: LlmClient, opts: { signal?: AbortSignal } = {}): Promise<string> {

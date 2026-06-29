@@ -1,6 +1,6 @@
 /** 各供应商设置下拉精选（listModels 全量 API 回落到此；未列出的 ID 仍可自填） */
 export const CURATED_MODELS: Record<string, readonly string[]> = {
-  deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"],
+  deepseek: ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner"],
   anthropic: ["claude-sonnet-4-6", "claude-opus-4-8", "claude-haiku-4-5"],
   openai: ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"],
   moonshot: ["kimi-k2.6", "kimi-k2.5", "kimi-k2.7-code"],

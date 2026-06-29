@@ -133,74 +133,135 @@ export function saveDigestReport(store: Store, report: DigestReport): void {
   ).run(key, JSON.stringify(report), report.generatedAt || new Date().toISOString());
 }
 
-function parseReportJson(raw: string, inputs: DigestReportPaperInput[]): Partial<DigestReport> {
+// 从坏 JSON 起始 { 处提取顶层平衡对象（字符串/转义安全），遇顶层 ] 停。
+function salvageObjects(s: string, fromBracket: number): string[] {
+  const out: string[] = [];
+  let depth = 0, start = -1, inStr = false, esc = false;
+  for (let i = fromBracket; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') { inStr = true; continue; }
+    if (c === "{") { if (depth === 0) start = i; depth++; }
+    else if (c === "}") { depth--; if (depth === 0 && start >= 0) { out.push(s.slice(start, i + 1)); start = -1; } }
+    else if (c === "]" && depth === 0) break;
+  }
+  return out;
+}
+
+// 截断/脏 JSON 救援：定位 "key":[ 后逐个对象 parse，丢弃坏的那个（拿回完整的前几条）。
+function salvageArray(raw: string, key: string): Record<string, unknown>[] | null {
+  const m = new RegExp('"' + key + '"\\s*:\\s*\\[').exec(raw);
+  if (!m) return null;
+  const objs = salvageObjects(raw, m.index + m[0].length - 1);
+  const arr: Record<string, unknown>[] = [];
+  for (const o of objs) { try { arr.push(JSON.parse(o) as Record<string, unknown>); } catch { /* drop bad */ } }
+  return arr.length ? arr : null;
+}
+
+export interface ReportCaps { highlights: number; themes: number; picks: number; themePapers: number; }
+
+function parseReportJson(raw: string, inputs: DigestReportPaperInput[], caps: ReportCaps): Partial<DigestReport> {
   const idSet = new Set(inputs.map((p) => p.id));
   const titleById = new Map(inputs.map((p) => [p.id, p.title]));
-  let obj: Record<string, unknown>;
+  const trimmed = (raw || "").trim();
+  let obj: Record<string, unknown> | null = null;
   try {
-    const trimmed = raw.trim();
     const jsonStart = trimmed.indexOf("{");
     const jsonEnd = trimmed.lastIndexOf("}");
-    obj = JSON.parse(trimmed.slice(jsonStart >= 0 ? jsonStart : 0, jsonEnd >= 0 ? jsonEnd + 1 : trimmed.length));
+    obj = JSON.parse(trimmed.slice(jsonStart >= 0 ? jsonStart : 0, jsonEnd >= 0 ? jsonEnd + 1 : trimmed.length)) as Record<string, unknown>;
   } catch {
-    return { highlights: [raw.slice(0, 400)], themes: [], priorityPicks: [] };
+    // 截断救援：尽量从坏 JSON 里捞回各数组与 headline，避免把原文当一条要点直接抛给用户。
+    const hMatch = /"highlights"\s*:\s*\[([\s\S]*?)\]/.exec(trimmed);
+    let sH: unknown = null;
+    if (hMatch) { try { sH = JSON.parse("[" + hMatch[1] + "]"); } catch { sH = null; } }
+    const sT = salvageArray(trimmed, "themes");
+    const sP = salvageArray(trimmed, "priorityPicks");
+    const headMatch = /"headline"\s*:\s*"([^"]{1,200})"/.exec(trimmed);
+    if (sH || sT || sP || headMatch) {
+      obj = { headline: headMatch ? headMatch[1] : undefined, highlights: sH || [], themes: sT || [], priorityPicks: sP || [] };
+    } else {
+      return { highlights: ["本次结构化结果不完整（可能被模型截断），请点「刷新」重试，或在设置中换用上下文更长的模型。"], themes: [], priorityPicks: [], headline: undefined };
+    }
   }
-  const highlights = Array.isArray(obj.highlights)
-    ? obj.highlights.map((h) => String(h).trim()).filter(Boolean).slice(0, 5)
+  const o = obj || {};
+  const highlights = Array.isArray(o.highlights)
+    ? o.highlights.map((h) => String(h).trim().slice(0, 280)).filter(Boolean).slice(0, caps.highlights)
     : [];
-  const themes: DigestReportTheme[] = Array.isArray(obj.themes)
-    ? obj.themes.slice(0, 5).map((t: Record<string, unknown>) => ({
+  const themes: DigestReportTheme[] = Array.isArray(o.themes)
+    ? o.themes.slice(0, caps.themes).map((t: Record<string, unknown>) => ({
         title: String(t.title || "主题").slice(0, 80),
-        summary: String(t.summary || "").slice(0, 500),
+        summary: String(t.summary || "").slice(0, 600),
         paperIds: (Array.isArray(t.paperIds) ? t.paperIds : [])
           .map(String)
           .filter((id) => idSet.has(id))
-          .slice(0, 8),
+          .slice(0, caps.themePapers),
       })).filter((t) => t.summary)
     : [];
-  const priorityPicks: DigestReportPick[] = Array.isArray(obj.priorityPicks)
-    ? obj.priorityPicks.slice(0, 5).map((p: Record<string, unknown>) => {
+  const priorityPicks: DigestReportPick[] = Array.isArray(o.priorityPicks)
+    ? o.priorityPicks.slice(0, caps.picks).map((p: Record<string, unknown>) => {
         const paperId = String(p.paperId || "");
         return {
           paperId,
           title: titleById.get(paperId) || String(p.title || "").slice(0, 200),
-          reason: String(p.reason || "").slice(0, 240),
+          reason: String(p.reason || "").slice(0, 280),
         };
       }).filter((p) => p.paperId && idSet.has(p.paperId) && p.reason)
     : [];
-  const headline = obj.headline ? String(obj.headline).slice(0, 200) : (highlights[0] || undefined);
+  const headline = o.headline ? String(o.headline).slice(0, 200) : (highlights[0] || undefined);
   return { headline, highlights, themes, priorityPicks };
 }
 
-const SYS = `你是学术文献「今日证据简报」编辑。基于用户今日订阅命中的论文标题与摘要，写一份跨篇归纳报告。
+const SYS_ALL = `你是学术文献「今日证据简报」主编。用户今天订阅了若干主题，下面是跨**所有**订阅命中的论文（标题+摘要）。写一份「跨主题综合概览」——突出广度、以及不同主题之间的呼应与对比。
 规则：
 - 只使用给定文献信息，不编造事实、不替用户做纳入/排除判断
-- 用中文，简洁可读
+- 用中文，简洁、有编辑视角
 - 若摘要缺失较多，在 highlights 中说明依据有限
 - 只输出一个 JSON 对象，字段：
-  headline（一句话总览，≤60字）
-  highlights（数组，3-5条，今日最重要的跨篇要点）
-  themes（数组，2-4组；每组 title、summary（1-2句）、paperIds（文献 id 数组））
+  headline（一句话总览，≤60字，点出今天跨主题的整体图景）
+  highlights（数组，3-5条，今日最重要的跨主题要点）
+  themes（数组，2-4组；每组 title、summary（1-2句，可跨订阅）、paperIds（文献 id 数组））
   priorityPicks（数组，3-5条；每条 paperId、reason（为何值得优先看，1句））
 不要 markdown，不要多余文字。`;
+
+const SYS_SINGLE = `你是学术文献单主题「今日深度简报」编辑。下面是用户**某一个**订阅主题今天命中的论文（标题+摘要）。写一份比综合概览更**细致、更有层次**的单主题报告——突出深度。
+规则：
+- 只使用给定文献信息，不编造事实、不替用户做纳入/排除判断
+- 用中文，信息密度高但仍清晰；尽量写清各文献之间的方法/结论差异与联系
+- 若摘要缺失较多，在 highlights 中说明依据有限
+- 只输出一个 JSON 对象，字段：
+  headline（一句话点出该主题今天的核心进展，≤60字）
+  highlights（数组，4-6条，更细的要点：方法 / 发现 / 争议 / 趋势）
+  themes（数组，3-6组，更细的子方向；每组 title、summary（2-3句，写清差异与联系）、paperIds（文献 id 数组））
+  priorityPicks（数组，4-8条；每条 paperId、reason（为何值得优先看，1-2句，可点出与其他文献的关系））
+不要 markdown，不要多余文字。`;
+
+const CAPS_ALL: ReportCaps = { highlights: 5, themes: 4, picks: 5, themePapers: 8 };
+const CAPS_SINGLE: ReportCaps = { highlights: 6, themes: 6, picks: 8, themePapers: 10 };
 
 export async function generateDigestReportContent(
   inputs: DigestReportPaperInput[],
   llm: LlmClient,
+  scope: "all" | string = "all",
 ): Promise<Partial<DigestReport>> {
   if (!inputs.length) {
     return { highlights: ["今日没有待读文献。"], themes: [], priorityPicks: [], headline: "今日没有待读" };
   }
+  const single = scope !== "all";
   const lines = inputs.map((p, i) => {
     const tags = [p.preprint ? "预印本" : null, ...p.subLabels.map((l) => `订阅:${l}`)].filter(Boolean).join(" · ");
     const abs = p.abstract.trim() || "（无摘要，仅标题/metadata）";
     return `[${i + 1}] id=${p.id}\n标题：${p.title}\n${tags ? "标签：" + tags + "\n" : ""}摘要：${abs}`;
   }).join("\n\n");
   const text = await llm.complete([
-    { role: "system", content: SYS },
+    { role: "system", content: single ? SYS_SINGLE : SYS_ALL },
     { role: "user", content: `今日共 ${inputs.length} 篇待读：\n\n${lines}` },
-  ], { maxTokens: 2200, temperature: 0.25 });
-  return parseReportJson(text || "", inputs);
+  ], { maxTokens: single ? 3800 : 2200, temperature: 0.25 });
+  return parseReportJson(text || "", inputs, single ? CAPS_SINGLE : CAPS_ALL);
 }
 
 export async function runDigestReportGeneration(
@@ -234,7 +295,7 @@ export async function runDigestReportGeneration(
   };
   saveDigestReport(store, generating);
   try {
-    const parsed = await generateDigestReportContent(inputs, llm);
+    const parsed = await generateDigestReportContent(inputs, llm, scope);
     const ready: DigestReport = {
       ...generating,
       status: "ready",

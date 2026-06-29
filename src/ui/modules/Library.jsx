@@ -9,6 +9,10 @@ import { STYLES, formatCitation, exportBib, exportRis, exportCslJson } from "../
 import { isFetched, oaStatusBadge, fetchProgressUi } from "../fetch-meta.js";
 import { formatAuthors, normalizeAuthors } from "../lib/format-authors.js";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
+import { loadJsonPref, patchJsonPref, corpusCacheKey } from "../ui-prefs.js";
+
+const LIB_PREFS_KEY = "lumina_library_prefs";
+const _libPref0 = loadJsonPref("local", LIB_PREFS_KEY, {});
 
 const PROV_LABEL = { find_fetch: "检索结果", subscription: "订阅", recovered: "本机恢复", "": "未分组" };
 const provName = (p) => {
@@ -146,18 +150,18 @@ function CorpusCard({ env }) {
 }
 
 export default function Library({ lib, lists, onCreateList, onToggleInList, onDeleteList, onRenameList, onAddManyToList, onRemove, onRead, onFetch, fetchedMeta, fetchingMeta = {}, fetchTick = 0, pushToast }) {
-  const [query, setQuery] = useState("");
-  const [fFulltext, setFFulltext] = useState(false);
-  const [fPreprint, setFPreprint] = useState(false);
-  const [fOa, setFOa] = useState(false);
-  const [fSummary, setFSummary] = useState(false);
-  const [fAnno, setFAnno] = useState(false);
+  const [query, setQuery] = useState(_libPref0.query || "");
+  const [fFulltext, setFFulltext] = useState(!!_libPref0.fFulltext);
+  const [fPreprint, setFPreprint] = useState(!!_libPref0.fPreprint);
+  const [fOa, setFOa] = useState(!!_libPref0.fOa);
+  const [fSummary, setFSummary] = useState(!!_libPref0.fSummary);
+  const [fAnno, setFAnno] = useState(!!_libPref0.fAnno);
   const [bodyIds, setBodyIds] = useState(null); // 引擎正文 FTS 命中的 paperId 集（query 变化时取）
-  const [sort, setSort] = useState("recent");
-  const [grouped, setGrouped] = useState(false);
+  const [sort, setSort] = useState(_libPref0.sort || "recent");
+  const [grouped, setGrouped] = useState(!!_libPref0.grouped);
   const [citeFor, setCiteFor] = useState(null);
   const [exportOpen, setExportOpen] = useState(false);
-  const [activeList, setActiveList] = useState(null);
+  const [activeList, setActiveList] = useState(_libPref0.activeList || null);
   const [listFor, setListFor] = useState(null);
   const [newListName, setNewListName] = useState("");
   const [creatingGroup, setCreatingGroup] = useState(false);
@@ -167,12 +171,20 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
   const topNewRef = useRef(null);
   const skipCreateBlurRef = useRef(false);
   const skipRenameBlurRef = useRef(false);
-  const [selMode, setSelMode] = useState(false);
-  const [sel, setSel] = useState(() => new Set());
+  const [selMode, setSelMode] = useState(!!_libPref0.selMode);
+  const [sel, setSel] = useState(() => new Set(Array.isArray(_libPref0.sel) ? _libPref0.sel : []));
   const [corpusEnv, setCorpusEnv] = useState(null);
   const [corpusRunning, setCorpusRunning] = useState("");
+  const [corpusLastKind, setCorpusLastKind] = useState(_libPref0.corpusLastKind || "corpus_framing");
   const [deleteGroupConfirm, setDeleteGroupConfirm] = useState(null);
   const LS = lists || [];
+
+  useEffect(() => {
+    patchJsonPref("local", LIB_PREFS_KEY, {
+      query, fFulltext, fPreprint, fOa, fSummary, fAnno, sort, grouped, activeList, selMode,
+      sel: Array.from(sel), corpusLastKind,
+    });
+  }, [query, fFulltext, fPreprint, fOa, fSummary, fAnno, sort, grouped, activeList, selMode, sel, corpusLastKind]);
 
   useEffect(() => {
     if (creatingGroup && topNewRef.current) topNewRef.current.focus();
@@ -266,11 +278,30 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
   };
 
   const toggleSel = (id) => setSel((st) => { const n = new Set(st); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+
+  useEffect(() => {
+    if (sel.size < 2) { setCorpusEnv(null); return; }
+    let alive = true;
+    const kind = corpusLastKind || "corpus_framing";
+    const key = corpusCacheKey(kind, sel);
+    bridge.readerAnalysisGet(key, kind).then((env) => { if (alive && env) setCorpusEnv(env); }).catch(() => {});
+    return () => { alive = false; };
+  }, [sel, corpusLastKind]);
+
   const runCorpus = async (kind) => {
     if (sel.size < 2) return;
-    setCorpusRunning(kind); setCorpusEnv(null);
-    try { const env = await bridge.readerCorpus(kind, Array.from(sel)); setCorpusEnv(env || null); }
-    catch (e) { pushToast && pushToast("跨篇分析失败"); }
+    setCorpusLastKind(kind);
+    setCorpusRunning(kind);
+    setCorpusEnv(null);
+    const ids = Array.from(sel);
+    const key = corpusCacheKey(kind, ids);
+    try {
+      const env = await bridge.readerCorpus(kind, ids);
+      setCorpusEnv(env || null);
+      if (env && !env.refused) bridge.readerAnalysisSave(key, env);
+      if (env && env.refused && env.refused.reason) pushToast && pushToast(env.refused.reason);
+      else if (!env) pushToast && pushToast("跨篇分析失败");
+    } catch (e) { pushToast && pushToast("跨篇分析失败"); }
     finally { setCorpusRunning(""); }
   };
 

@@ -604,8 +604,7 @@ export default function LuminaApp() {
               onOpenSettings={openSettings}
             />
           </div>
-          {view === "subs" && (
-            <div className="lf-pane">
+          <div className={"lf-pane" + (view === "subs" ? "" : " is-hidden")} aria-hidden={view !== "subs"}>
               <Subscriptions
                 pushToast={pushToast}
                 fetchedMeta={fetchedMeta}
@@ -617,11 +616,10 @@ export default function LuminaApp() {
                 onSubsChange={refreshSubsBadge}
                 inLibFn={inLibFn}
                 onOpenSettings={openSettings}
+                tabActive={view === "subs"}
               />
-            </div>
-          )}
-          {view === "read" && (
-            <div className="lf-pane">
+          </div>
+          <div className={"lf-pane" + (view === "read" ? "" : " is-hidden")} aria-hidden={view !== "read"}>
               <ReaderModule
                 pushToast={pushToast}
                 incoming={incomingPdf}
@@ -631,13 +629,10 @@ export default function LuminaApp() {
                 inLibFn={inLibFn}
                 onAddToLibrary={(p) => onSave(p)}
               />
-            </div>
-          )}
-          {view === "library" && (
-            <div className="lf-pane">
+          </div>
+          <div className={"lf-pane" + (view === "library" ? "" : " is-hidden")} aria-hidden={view !== "library"}>
               <Library lib={lib} lists={lists} onCreateList={createList} onToggleInList={toggleInList} onDeleteList={deleteList} onRenameList={renameList} onAddManyToList={addManyToList} onRemove={onRemoveLib} onRead={onReadFromLib} onFetch={onFetch} fetchedMeta={fetchedMeta} fetchingMeta={fetchingMeta} fetchTick={fetchTick} pushToast={pushToast} />
-            </div>
-          )}
+          </div>
         </main>
         {mode === "settings" && (
           <Settings theme={theme} onTheme={onTheme} pushToast={pushToast} onClose={() => setMode(prevMode)} initialCat={settingsCat} />

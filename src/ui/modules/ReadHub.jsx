@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { FolderOpen, Upload, Clock, Download, FileText, BookOpen, Loader, Home, X, ChevronDown, ChevronUp, Trash2, AlertCircle } from "lucide-react";
 import { bridge } from "../lumina-bridge.js";
+import { loadJsonPref, saveJsonPref } from "../ui-prefs.js";
 import Reader from "./Reader.jsx";
 
 const HUB_CSS = `
@@ -207,11 +208,13 @@ function ReadHub({
 }
 
 const MAX_TABS = 6;
+const TABS_PREF_KEY = "lumina_reader_open_tabs";
 let _tabSeq = 0;
 const tabKey = (t) => t.entryKey || (t.paperId ? "p:" + t.paperId : (t.localPath ? "l:" + t.localPath : "n:" + t.name));
 
 export default function ReaderModule({ pushToast, incoming, onIncomingHandled, readTarget, onReadTargetHandled, inLibFn, onAddToLibrary }) {
   const [st, setSt] = useState({ tabs: [], activeId: null });
+  const tabsRestoredRef = useRef(false);
   const [continueList, setContinueList] = useState([]);
   const [loadingContinue, setLoadingContinue] = useState(true);
   const [downloaded, setDownloaded] = useState([]);
@@ -254,6 +257,34 @@ export default function ReaderModule({ pushToast, incoming, onIncomingHandled, r
     }
   }, [st.activeId, refreshContinue, refreshDownloaded]);
 
+  useEffect(() => {
+    if (tabsRestoredRef.current) return;
+    tabsRestoredRef.current = true;
+    const pref = loadJsonPref("session", TABS_PREF_KEY, null);
+    if (!pref || !Array.isArray(pref.tabs) || !pref.tabs.length) return;
+    let alive = true;
+    (async () => {
+      const restored = [];
+      let seq = _tabSeq;
+      for (const meta of pref.tabs) {
+        if (!meta || (!meta.paperId && !meta.localPath)) continue;
+        let data = null;
+        try {
+          if (meta.paperId) data = await bridge.readPdf(meta.paperId);
+          else if (meta.localPath) data = await bridge.readLocalPdf(meta.localPath);
+        } catch { /* skip */ }
+        if (!alive || !data || !data.byteLength) continue;
+        seq += 1;
+        restored.push({ id: seq, name: meta.name || "document.pdf", data, paperId: meta.paperId, localPath: meta.localPath, entryKey: meta.entryKey, startPage: meta.startPage || 1 });
+      }
+      if (!alive || !restored.length) return;
+      _tabSeq = seq;
+      const active = pref.activeKey ? restored.find((t) => tabKey(t) === pref.activeKey) : restored[0];
+      setSt({ tabs: restored, activeId: active ? active.id : restored[0].id });
+    })();
+    return () => { alive = false; };
+  }, []);
+
   const mountTab = useCallback((item) => {
     setSt((s) => {
       const key = tabKey(item);
@@ -275,6 +306,18 @@ export default function ReaderModule({ pushToast, incoming, onIncomingHandled, r
       };
     });
   }, []);
+
+  useEffect(() => {
+    if (!st.tabs.length && st.activeId === null) {
+      try { sessionStorage.removeItem(TABS_PREF_KEY); } catch { /* ignore */ }
+      return;
+    }
+    const activeTab = st.tabs.find((t) => t.id === st.activeId);
+    saveJsonPref("session", TABS_PREF_KEY, {
+      activeKey: activeTab ? tabKey(activeTab) : null,
+      tabs: st.tabs.map(({ name, paperId, localPath, entryKey, startPage }) => ({ name, paperId, localPath, entryKey, startPage })),
+    });
+  }, [st]);
 
   const openWithPayload = useCallback(async (payload) => {
     const dup = st.tabs.some((t) => tabKey(t) === tabKey(payload));

@@ -714,12 +714,13 @@ export function registerIpc(deps: IpcDeps): void {
       if (!provider || !model) return { ok: false, error: "请先选择提供方与模型" };
       const llmCfg: any = { provider, model };
       if (cfg && cfg.baseUrl) llmCfg.baseUrl = cfg.baseUrl;
+      else if (settings.llm?.baseUrl && (provider === "custom" || provider === "ollama")) llmCfg.baseUrl = settings.llm.baseUrl;
       const getKey = async () => (cfg && cfg.apiKey) ? cfg.apiKey : await secrets.get(`${provider}_key`);
       const llm = await llmFromConfig(llmCfg, getKey);
       const t0 = Date.now();
-      const out = await llm.complete([{ role: "user", content: "回复两个字：你好" }], { maxTokens: 8, temperature: 0 });
+      const out = await llm.complete([{ role: "user", content: "回复两个字：你好" }], { maxTokens: 32, temperature: 0 });
       const ms = Date.now() - t0;
-      if (!out || !String(out).trim()) return { ok: false, error: "已连接，但模型未返回内容（请检查模型名）" };
+      if (!out || !String(out).trim()) return { ok: false, error: "已连接，但模型未返回内容（请检查模型名；DeepSeek V4 需非 thinking 模式或更大 max_tokens）" };
       return { ok: true, model, ms };
     } catch (e: any) { return { ok: false, error: (e && e.message) ? String(e.message) : "连接失败" }; }
   });

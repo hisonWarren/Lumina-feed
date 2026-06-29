@@ -57,26 +57,50 @@ function openAiCompatPaths(base: string) {
   return { chat: `${b}/v1/chat/completions`, models: `${b}/v1/models` };
 }
 
+/** DeepSeek V4 默认 thinking=enabled，content 可能为空；简报/测试需关 thinking 或读 reasoning_content */
+function isDeepSeekThinkingCapable(model: string): boolean {
+  const m = String(model || "").toLowerCase();
+  return /^deepseek-v4-/.test(m) || m === "deepseek-chat" || m === "deepseek-reasoner";
+}
+
+function extractOpenAiChoiceText(data: any): string {
+  const msg = data?.choices?.[0]?.message;
+  if (!msg) return "";
+  const content = String(msg.content ?? "").trim();
+  if (content) return content;
+  return String(msg.reasoning_content ?? "").trim();
+}
+
 /** OpenAI Chat Completions（也兼容 OpenAI 兼容网关） */
-export function openaiClient(cfg: { model: string; apiKey: string }, deps: ClientDeps = {}): LlmClient {
+export function openaiClient(cfg: { model: string; apiKey: string; label?: string }, deps: ClientDeps = {}): LlmClient {
   const f = deps.fetchImpl ?? fetch;
   const base = deps.baseUrl ?? "https://api.openai.com";
   const paths = openAiCompatPaths(base);
+  const tag = cfg.label || "openai";
   return {
-    id: "openai", model: cfg.model,
+    id: tag, model: cfg.model,
     async complete(messages, opts: LlmCompleteOpts = {}) {
       const imgs = opts.images || [];
       let msgs: any[] = messages;
       if (imgs.length) { const li = lastUserIdx(messages); msgs = messages.map((m, i) => i !== li ? m : ({ role: m.role, content: [{ type: "text", text: m.content }, ...imgs.map((u) => ({ type: "image_url", image_url: { url: u } }))] })); }
+      const body: Record<string, unknown> = {
+        model: cfg.model,
+        messages: msgs,
+        max_tokens: opts.maxTokens ?? 1024,
+        temperature: opts.temperature ?? 0.2,
+      };
+      if (isDeepSeekThinkingCapable(cfg.model)) {
+        body.thinking = { type: opts.thinking ? "enabled" : "disabled" };
+      }
       const res = await f(paths.chat, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}` },
-        body: JSON.stringify({ model: cfg.model, messages: msgs, max_tokens: opts.maxTokens ?? 1024, temperature: opts.temperature ?? 0.2 }),
+        body: JSON.stringify(body),
         signal: opts.signal,
       });
-      if (!res.ok) throw new Error(`openai HTTP ${res.status}`);
+      if (!res.ok) throw new Error(`${tag} HTTP ${res.status}`);
       const data: any = await res.json();
-      return (data.choices?.[0]?.message?.content ?? "").trim();
+      return extractOpenAiChoiceText(data);
     },
   };
 }
@@ -127,7 +151,7 @@ export async function llmFromConfig(cfg: LlmConfig, getKey: () => Promise<string
     return anthropicClient({ model: cfg.model, apiKey: key }, { ...deps, baseUrl: cfg.baseUrl });
   // openai 及所有 OpenAI 兼容（openai / deepseek / moonshot / 自定义 baseUrl）
   const base = cfg.baseUrl ?? OPENAI_COMPAT_BASE[cfg.provider];
-  return openaiClient({ model: cfg.model, apiKey: key }, { ...deps, baseUrl: base });
+  return openaiClient({ model: cfg.model, apiKey: key, label: cfg.provider }, { ...deps, baseUrl: base });
 }
 
 /** 列出供应商可用模型：云端 GET /v1/models（OpenAI 兼容 + Anthropic），Ollama GET /api/tags。

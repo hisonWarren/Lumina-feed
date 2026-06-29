@@ -90,6 +90,49 @@ export async function getPageStrings(doc, pageNum) {
   return (tc.items || []).map((it) => (it && it.str) || "");
 }
 
+/** 翻译取文：按版面 y 坐标去页眉页脚、合并行与段落（双换行分隔）。 */
+export async function extractPageTextForTranslate(doc, pageNum) {
+  const page = await doc.getPage(pageNum);
+  const viewport = page.getViewport({ scale: 1 });
+  const pageH = viewport.height;
+  const tc = await page.getTextContent();
+  const raw = (tc.items || [])
+    .map((it) => {
+      if (!it || !String(it.str || "").trim()) return null;
+      const tr = it.transform || [1, 0, 0, 1, 0, 0];
+      return { str: String(it.str).trim(), x: tr[4] || 0, y: pageH - (tr[5] || 0) };
+    })
+    .filter(Boolean);
+  if (!raw.length) return "";
+  const topCut = pageH * 0.08;
+  const botCut = pageH * 0.92;
+  const body = raw.filter((l) => l.y > topCut && l.y < botCut);
+  const lines = body.length ? body : raw;
+  lines.sort((a, b) => (a.y - b.y) || (a.x - b.x));
+  const grouped = [];
+  for (const l of lines) {
+    const last = grouped[grouped.length - 1];
+    if (last && Math.abs(last.y - l.y) < 6) {
+      last.parts.push(l);
+      last.y = (last.y + l.y) / 2;
+    } else grouped.push({ y: l.y, parts: [l] });
+  }
+  for (const g of grouped) {
+    g.str = g.parts.sort((a, b) => a.x - b.x).map((p) => p.str).join(" ");
+  }
+  const paras = [];
+  let buf = [];
+  for (let i = 0; i < grouped.length; i++) {
+    if (i > 0 && grouped[i].y - grouped[i - 1].y > 18) {
+      if (buf.length) paras.push(buf.join(" "));
+      buf = [];
+    }
+    buf.push(grouped[i].str);
+  }
+  if (buf.length) paras.push(buf.join(" "));
+  return paras.join("\n\n");
+}
+
 /** 文档大纲（书签）。无则空数组。 */
 export async function getOutline(doc) {
   try { return (await doc.getOutline()) || []; } catch { return []; }

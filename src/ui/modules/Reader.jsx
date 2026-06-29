@@ -4,7 +4,7 @@
 // 续读位置(按 docKey) · 键盘快捷键 · 夜读反色 · 抓手平移。真实 PDF 渲染/文本层/选择/查找/各交互仅真机可验。
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { ArrowLeft, X, PanelLeft, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Minus, Plus, Maximize, RotateCw, RotateCcw, Expand, Download, Search, Sparkles, Send, Languages, Copy, RefreshCw, List, Images, Highlighter, StickyNote, Crop, Trash2, FileDown, Loader, AlertTriangle, Square, Rows3, Columns2, Shield, Info, Layers, Lightbulb, Eye, Ban, Target, Scale, FlaskConical, ListChecks, Link2, Check, Quote, Bookmark, Workflow, Map, Moon, Hand, ScanLine, Undo2, Redo2 } from "lucide-react";
-import { openPdf, getOutline, getPageStrings, renderTextLayer, destToPageNumber, fitWidthScale, getDocPages, splitCites, renderRegion } from "../pdf-engine.js";
+import { openPdf, getOutline, getPageStrings, extractPageTextForTranslate, renderTextLayer, destToPageNumber, fitWidthScale, getDocPages, splitCites, renderRegion } from "../pdf-engine.js";
 import { bridge } from "../lumina-bridge.js";
 import { persistSettings } from "../settings-persist.js";
 import { exportAnnotatedPdf, exportNotesMarkdown } from "../pdf-export.js";
@@ -95,6 +95,7 @@ const READER_CSS = `
 .rd-tool:hover{border-color:var(--gold);background:var(--surf2)}
 .rd-tool:disabled{opacity:.55;cursor:default}
 .rd-tool.rec{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold) inset}
+.rd-tool.on{border-color:var(--gold);background:rgba(14,124,111,.10)}
 .rd-toolname{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600}
 .rd-toolname svg{color:var(--gold);flex-shrink:0}
 .rd-tooldesc{font-size:10.5px;color:var(--ink3);line-height:1.4}
@@ -105,6 +106,8 @@ const READER_CSS = `
 .rd-pchip.on{background:var(--gold);color:#fff;border-color:var(--gold)}
 .rd-phint{font-size:11px;color:var(--goldDim);background:rgba(14,124,111,.07);border:1px solid rgba(14,124,111,.20);border-radius:8px;padding:7px 9px;line-height:1.5}
 .rd-swipe-save{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--gold);background:rgba(14,124,111,.08);color:var(--goldDim);border-radius:9px;padding:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;width:100%}
+.rd-rerun{display:inline-flex;align-items:center;justify-content:center;gap:5px;margin-top:7px;border:1px solid var(--line2);background:var(--surf2);color:var(--ink3);border-radius:8px;padding:5px 10px;font-size:11.5px;cursor:pointer;font-family:inherit}
+.rd-rerun:hover{border-color:var(--gold);color:var(--goldDim)}
 .rd-swipe-save:hover{background:rgba(14,124,111,.14)}
 .rd-swipe{border-top:1px solid var(--line);margin-top:4px;padding-top:10px;display:flex;flex-direction:column;gap:7px}
 .rd-swipe-h{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink3);font-family:'Space Mono',monospace}
@@ -112,6 +115,7 @@ const READER_CSS = `
 .rd-swipe-item .x{margin-left:auto;border:none;background:transparent;color:var(--ink4);cursor:pointer;flex-shrink:0;padding:0;display:grid;place-items:center}
 .rd-swipe-item .x:hover{color:var(--danger,#c0584e)}
 .inf-pane .inf-card{margin-top:10px}
+.inf-pane .rd-flowtool{margin-top:10px}
 .inf-h .inf-right{flex:0 0 auto;margin-left:auto;display:inline-flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px 7px}
 .inf-h .inf-right .chev{margin-left:0}
 .guess-box{display:flex;flex-direction:column;gap:7px}
@@ -209,7 +213,9 @@ const READER_CSS = `
 .rd.focus .rd-side{display:none}
 .rd.focus .rd-topbar{opacity:.55}
 .rd.focus .rd-topbar:hover{opacity:1}
-.rd-ai{width:340px;flex-shrink:0;border-left:1px solid var(--line);background:var(--surf);overflow-y:auto;display:flex;flex-direction:column;gap:16px;padding:14px}
+.rd-right{position:relative;flex-shrink:0;min-width:0;border-left:1px solid var(--line);background:var(--surf);display:flex;flex-direction:column;overflow:hidden}
+.rd-resize-left{left:0;right:auto}
+.rd-ai{width:100%;flex:1;min-height:0;border-left:none;overflow-y:auto;display:flex;flex-direction:column;gap:16px;padding:14px}
 .rd-ai-h{display:flex;align-items:center;gap:7px;font-family:'Source Serif 4',Georgia,serif;font-size:15px;font-weight:600;color:var(--ink)}
 .rd-ai-h svg{color:var(--gold)}
 .rd-ai-sec{display:flex;flex-direction:column;gap:10px}
@@ -265,7 +271,7 @@ const READER_CSS = `
 .rd-tp-rf{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:7px;padding:4px 9px;font-size:11px;cursor:pointer;font-family:inherit}
 .rd-tp-rf:hover:not(:disabled){border-color:var(--gold);color:var(--gold)}
 .rd-tp-rf:disabled{opacity:.5;cursor:default}
-.rd-tp{width:380px;flex-shrink:0;border-left:1px solid var(--line);background:var(--surf);overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding:14px}
+.rd-tp{width:100%;flex:1;min-height:0;border-left:none;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding:14px}
 .rd-tp-h{display:flex;align-items:center;justify-content:space-between;font-family:'Source Serif 4',Georgia,serif;font-size:14px;font-weight:600;color:var(--ink)}
 .rd-tp-h span{display:inline-flex;align-items:center;gap:6px}
 .rd-tp-h svg{color:var(--gold)}
@@ -280,6 +286,9 @@ const READER_CSS = `
 .rd-tp-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .rd-tp-orig{color:var(--ink3);white-space:pre-wrap}
 .rd-tp-tr{color:var(--ink);white-space:pre-wrap}
+.rd-tp-struct p{margin:0 0 10px;line-height:1.75}
+.rd-tp-struct p:last-child{margin-bottom:0}
+.rd-tp-struct .rd-tp-hd{font-family:'Source Serif 4',Georgia,serif;font-weight:600;color:var(--ink);font-size:14px}
 .rd-tp-stack .rd-tp-orig{padding-bottom:8px;margin-bottom:8px;border-bottom:1px dashed var(--line2)}
 .rd.focus .rd-tp{display:none}
 .rd-hl{position:absolute;z-index:1;border-radius:2px;pointer-events:none;mix-blend-mode:multiply}
@@ -508,6 +517,69 @@ const EVTYPE = { internal_data: "内部数据", cites_others: "引用他人", au
 const PURPOSE_REC = { replicate: ["recipe", "repro"], cite: ["citerole", "cars"], critique: ["ledger", "falsify"], borrow: ["recipe"] };
 const PURPOSE_HINT = { replicate: "已为「复现/设计」推荐：方法配方 + 可复现性清单。", cite: "已为「引为背景」推荐：引文角色 + 论证逻辑。", critique: "已为「批判性评估」推荐：claim 账本 + 可证伪边界；并建议看『推读』的硬核/保护带。", borrow: "已为「借方法/写法」推荐：方法配方；划词可提取写作观察。" };
 const DEEP_TOOLS = [["cars", "论证逻辑", "作者如何论证选题（CARS）", Target], ["ledger", "claim 账本", "每条论断给了什么证据", Scale], ["recipe", "方法配方", "可复用的研究设计骨架", FlaskConical], ["repro", "可复现性", "对照 TRIPOD 清单核查", ListChecks], ["falsify", "可证伪边界", "什么观察会推翻它", Target], ["citerole", "引文角色", "每条引用起什么作用", Link2]];
+// 分析缓存键与 docKey 对齐（paper:/local:/文件名:字节），跨重开/切模块自动恢复，省 token。
+function analysisDocKey(source) {
+  if (!source) return "";
+  if (source.paperId) return "paper:" + source.paperId;
+  if (source.localPath) return "local:" + source.localPath;
+  return String(source.name || "doc") + ":" + ((source.data && source.data.byteLength) || 0);
+}
+async function loadCachedAnalysis(source, kind) {
+  const key = analysisDocKey(source);
+  if (!key || !kind) return null;
+  try {
+    let env = await bridge.readerAnalysisGet(key, kind);
+    if (!env && source && source.paperId && key !== source.paperId) {
+      env = await bridge.readerAnalysisGet(source.paperId, kind);
+      if (env) bridge.readerAnalysisSave(key, env);
+    }
+    return env;
+  } catch { return null; }
+}
+function saveCachedAnalysis(source, env) {
+  const key = analysisDocKey(source);
+  if (key && env) bridge.readerAnalysisSave(key, env);
+}
+function notifyAnalysisEnv(env, pushToast, fallback) {
+  if (!env) { pushToast && pushToast(fallback || "分析失败，请重试"); return false; }
+  if (env.refused && env.refused.reason) { pushToast && pushToast(env.refused.reason); return false; }
+  return true;
+}
+const READER_ZONES = ["assist", "deep", "inf", "notes"];
+function loadReaderUiPref(docKey, field, fallback) {
+  try { const v = sessionStorage.getItem("lumina_reader_" + field + ":" + docKey); return v != null ? v : fallback; } catch { return fallback; }
+}
+function saveReaderUiPref(docKey, field, value) {
+  try { sessionStorage.setItem("lumina_reader_" + field + ":" + docKey, value); } catch { /* ignore */ }
+}
+function selectionHash(text) {
+  const s = String(text || "").trim();
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return "h" + (h >>> 0).toString(36);
+}
+async function loadSelTransCache(docKey, text) {
+  if (!docKey || !text) return null;
+  try {
+    const env = await bridge.readerAnalysisGet(docKey, "seltrans");
+    const hit = env && env.map && env.map[selectionHash(text)];
+    return hit && hit.text ? hit.text : null;
+  } catch { return null; }
+}
+async function saveSelTransCache(docKey, text, translated, model) {
+  if (!docKey || !text || !translated) return;
+  try {
+    const prev = await bridge.readerAnalysisGet(docKey, "seltrans");
+    const map = { ...(prev && prev.map ? prev.map : {}) };
+    map[selectionHash(text)] = { text: translated, model: model || "", at: Date.now() };
+    const keys = Object.keys(map);
+    if (keys.length > 200) {
+      keys.sort((a, b) => (map[a].at || 0) - (map[b].at || 0));
+      for (let i = 0; i < keys.length - 200; i++) delete map[keys[i]];
+    }
+    await bridge.readerAnalysisSave(docKey, { kind: "seltrans", lane: "evidence", model: model || "", title: "划词译文", claims: [], map });
+  } catch { /* ignore */ }
+}
 function StatusIcon({ s }) {
   if (s === "ok") return <Check size={13} style={{ color: "var(--ok, #2e9e6b)", flexShrink: 0, marginTop: 2 }} />;
   if (s === "no") return <Ban size={13} style={{ color: "var(--danger, #c0584e)", flexShrink: 0, marginTop: 2 }} />;
@@ -538,7 +610,7 @@ function EvidenceCard({ env, onGoto }) {
       {env.framing && <div className="framing" style={{ margin: "9px 11px 0" }}><Info size={13} /><div>{env.framing}</div></div>}
       {isCite && <div className="ev-note"><Link2 size={12} /><div>这里是<b>正文里被讨论到的关键引用</b>各起什么作用（背景 / 方法 / 数据 / 对照…），最多展示 {CITEROLE_UI_CAP} 处，<b>不是完整参考文献表</b>。全部书目 → 在「我的文献」<b>导出到 Zotero</b>。</div></div>}
       {claims.length === 0
-        ? <div className="ev-empty"><Info size={13} />未能从本篇正文提取到可标注页码的条目。可点上方按钮重试，或在设置里换更强的模型。</div>
+        ? <div className="ev-empty"><Info size={13} />{env.banner || "未能从本篇正文提取到可标注页码的条目。可点「重新生成」重试，或在设置里换更强的模型。"}</div>
         : <>
             {visible.map((c, i) => (
               <div key={i} className="ev-claim">
@@ -587,14 +659,25 @@ function InfAnalyzer({ kind, ensurePages, source, onGoto, pushToast, practice })
   const [open, setOpen] = useState(false);
   const [guess, setGuess] = useState("");
   const [revealed, setRevealed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    setEnv(null);
+    if (practice) setRevealed(false);
+    loadCachedAnalysis(source, kind).then((e) => {
+      if (!alive || !e) return;
+      setEnv(e);
+      if (practice) setRevealed(true);
+    });
+    return () => { alive = false; };
+  }, [source, kind, practice]);
   const run = useCallback(async () => {
     setBusy(true);
     try {
       const pages = await ensurePages();
       const e = await bridge.readerAnalyze(kind, pages);
       setEnv(e || null);
-      if (!e) pushToast && pushToast("分析失败，请重试");
-      if (e && kind !== "genesis" && source && source.paperId) bridge.readerAnalysisSave(source.paperId, e);
+      if (!notifyAnalysisEnv(e, pushToast, "分析失败，请重试")) return;
+      if (e && kind !== "genesis") saveCachedAnalysis(source, e);
     } catch (err) { pushToast && pushToast("分析失败"); }
     finally { setBusy(false); }
   }, [kind, ensurePages, source, pushToast]);
@@ -759,19 +842,43 @@ function EnvelopeCard({ env, onGoto, defaultOpen }) {
   return <EvidenceCard env={env} onGoto={onGoto} />;
 }
 function EvidencePane({ ensurePages, source, onGoto, pushToast, purpose, moveReq }) {
-  const [env, setEnv] = useState(null);
+  const [byKind, setByKind] = useState({});
+  const [viewKind, setViewKind] = useState("");
   const [running, setRunning] = useState("");
   const [swipe, setSwipe] = useState([]);
   const rec = (purpose && PURPOSE_REC[purpose]) || [];
+  const env = viewKind ? byKind[viewKind] : null;
   useEffect(() => { bridge.swipeGet().then((l) => setSwipe(l || [])).catch(() => {}); }, []);
+  useEffect(() => {
+    let alive = true;
+    setByKind({});
+    setViewKind("");
+    (async () => {
+      const loaded = {};
+      for (const t of DEEP_TOOLS) {
+        const e = await loadCachedAnalysis(source, t[0]);
+        if (e) loaded[t[0]] = e;
+      }
+      if (!alive) return;
+      if (!Object.keys(loaded).length) return;
+      setByKind(loaded);
+      setViewKind((vk) => {
+        if (vk && loaded[vk]) return vk;
+        for (const t of DEEP_TOOLS) if (loaded[t[0]]) return t[0];
+        return vk;
+      });
+    })();
+    return () => { alive = false; };
+  }, [source]);
   const run = useCallback(async (kind, opts) => {
     setRunning(kind);
+    setViewKind(kind);
     try {
       const pages = await ensurePages();
       const e = await bridge.readerAnalyze(kind, pages, opts);
-      setEnv(e || null);
-      if (!e) pushToast && pushToast("分析失败，请重试");
-      if (e && kind !== "move" && source && source.paperId) bridge.readerAnalysisSave(source.paperId, e);
+      if (e) setByKind((m) => ({ ...m, [kind]: e }));
+      if (!notifyAnalysisEnv(e, pushToast, "分析失败，请重试")) return;
+      if (e && kind !== "move") saveCachedAnalysis(source, e);
     } catch (err) { pushToast && pushToast("分析失败"); }
     finally { setRunning(""); }
   }, [ensurePages, source, pushToast]);
@@ -789,7 +896,7 @@ function EvidencePane({ ensurePages, source, onGoto, pushToast, purpose, moveReq
       <div className="rd-lane"><Shield size={11} /> 证据车道 · 每条结论可回原文核对</div>
       <div className="rd-tools">
         {DEEP_TOOLS.map((t) => (
-          <button key={t[0]} aria-label={t[1] + "：" + t[2]} className={"rd-tool" + (rec.includes(t[0]) ? " rec" : "")} onClick={() => run(t[0])} disabled={!!running}>
+          <button key={t[0]} aria-label={t[1] + "：" + t[2]} className={"rd-tool" + (rec.includes(t[0]) ? " rec" : "") + (viewKind === t[0] ? " on" : "")} onClick={() => (byKind[t[0]] && !running ? setViewKind(t[0]) : run(t[0]))} disabled={!!running}>
             {rec.includes(t[0]) && <span className="rd-toolrec">推荐</span>}
             <span className="rd-toolname">{React.createElement(t[3], { size: 13 })} {t[1]}</span>
             <span className="rd-tooldesc">{t[2]}</span>
@@ -797,7 +904,7 @@ function EvidencePane({ ensurePages, source, onGoto, pushToast, purpose, moveReq
         ))}
       </div>
       {running ? <div className="rd-scaffold"><Loader size={13} className="rd-spin" /> 分析中…（结果带页码，可回原文核对）</div>
-        : env ? <><EnvelopeCard env={env} onGoto={onGoto} />{env.kind === "move" && <button className="rd-swipe-save" onClick={() => saveSwipe(env)}><Bookmark size={13} /> 存入写作 swipe file（带出处）</button>}</>
+        : env ? <><EnvelopeCard env={env} onGoto={onGoto} /><button type="button" className="rd-rerun" onClick={() => run(viewKind)}><RefreshCw size={12} /> 重新生成</button>{env.kind === "move" && <button className="rd-swipe-save" onClick={() => saveSwipe(env)}><Bookmark size={13} /> 存入写作 swipe file（带出处）</button>}</>
         : <div className="rd-scaffold">点上面任一工具运行；或在正文划词选「写作观察」提取某句的修辞功能。结果走证据车道，带页码、可回原文核对。</div>}
       {swipe.length > 0 && (
         <div className="rd-swipe">
@@ -818,21 +925,27 @@ function EvidencePane({ ensurePages, source, onGoto, pushToast, purpose, moveReq
 function FlowmapTool({ ensurePages, source, onGoto, pushToast }) {
   const [env, setEnv] = useState(null);
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    setEnv(null);
+    loadCachedAnalysis(source, "flowmap").then((e) => { if (alive && e) setEnv(e); });
+    return () => { alive = false; };
+  }, [source]);
   const run = useCallback(async () => {
     setBusy(true);
     try {
       const pages = await ensurePages();
       const e = await bridge.readerAnalyze("flowmap", pages);
       setEnv(e || null);
-      if (!e) pushToast && pushToast("流程图生成失败，请重试");
-      if (e && source && source.paperId) bridge.readerAnalysisSave(source.paperId, e);
+      if (!notifyAnalysisEnv(e, pushToast, "流程图生成失败，请重试")) return;
+      if (e) saveCachedAnalysis(source, e);
     } catch (err) { pushToast && pushToast("流程图生成失败"); }
     finally { setBusy(false); }
   }, [ensurePages, source, pushToast]);
   return (
     <div className="rd-flowtool">
       <button className="rd-ai-act" onClick={run} disabled={busy}>
-        {busy ? <><Loader size={14} className="rd-spin" /> 生成中…（重建方法 / 逻辑流程）</> : <><Workflow size={14} /> 逻辑流程图（实验）</>}
+        {busy ? <><Loader size={14} className="rd-spin" /> 生成中…（重建方法 / 逻辑流程）</> : <><Workflow size={14} /> {env ? "重新生成流程图" : "逻辑流程图（实验）"}</>}
       </button>
       {env && <EnvelopeCard env={env} onGoto={onGoto} />}
     </div>
@@ -868,12 +981,32 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
   const [outlining, setOutlining] = useState(false);
   const [outlineView, setOutlineView] = useState("map");
 
+  useEffect(() => {
+    let alive = true;
+    setOutlineEnv(null);
+    setSummary(null);
+    (async () => {
+      const ol = await loadCachedAnalysis(source, "outline");
+      if (alive && ol) setOutlineEnv(ol);
+      const sm = await loadCachedAnalysis(source, "summary");
+      if (alive && sm && sm.text) setSummary({ text: sm.text, sourceBasis: sm.sourceBasis, groundedRatio: sm.groundedRatio, banner: sm.banner });
+      const qaCached = await loadCachedAnalysis(source, "qa");
+      if (alive && qaCached && Array.isArray(qaCached.messages) && qaCached.messages.length) setQa(qaCached.messages);
+    })();
+    return () => { alive = false; };
+  }, [source]);
+
   const doSummary = useCallback(async () => {
     setSummarizing(true);
-    try { const pages = await ensurePages(); const r = await bridge.readerSummarize(pages); setSummary(r || null); }
+    try {
+      const pages = await ensurePages();
+      const r = await bridge.readerSummarize(pages);
+      setSummary(r || null);
+      if (r) saveCachedAnalysis(source, { kind: "summary", lane: "evidence", model: r.model || "", title: "整篇接地总结", claims: [], text: r.text, sourceBasis: r.sourceBasis, groundedRatio: r.groundedRatio, banner: r.banner });
+    }
     catch (e) { pushToast && pushToast("总结失败"); }
     finally { setSummarizing(false); }
-  }, [ensurePages, pushToast]);
+  }, [ensurePages, pushToast, source]);
 
   const doOutline = useCallback(async () => {
     setOutlining(true);
@@ -881,8 +1014,8 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
       const pages = await ensurePages();
       const env = await bridge.readerAnalyze("outline", pages);
       setOutlineEnv(env || null);
-      if (!env) pushToast && pushToast("大纲提取失败，请重试");
-      if (env && source && source.paperId) bridge.readerAnalysisSave(source.paperId, env);
+      if (!notifyAnalysisEnv(env, pushToast, "大纲提取失败，请重试")) return;
+      if (env) saveCachedAnalysis(source, env);
     } catch (e) { pushToast && pushToast("大纲提取失败"); }
     finally { setOutlining(false); }
   }, [ensurePages, pushToast, source]);
@@ -895,13 +1028,18 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
     try {
       const pages = await ensurePages();
       const r = await bridge.readerAsk(pages, qq);
-      setQa((list) => list.map((x, i) => (i === list.length - 1
-        ? { q: qq, a: r ? r.text : "（无回答）", sourceBasis: r && r.sourceBasis, groundedRatio: r && r.groundedRatio, banner: r && r.banner, loading: false }
-        : x)));
+      setQa((list) => {
+        const next = list.map((x, i) => (i === list.length - 1
+          ? { q: qq, a: r ? r.text : "（无回答）", sourceBasis: r && r.sourceBasis, groundedRatio: r && r.groundedRatio, banner: r && r.banner, loading: false }
+          : x));
+        const key = analysisDocKey(source);
+        if (key && next.length) saveCachedAnalysis(source, { kind: "qa", lane: "evidence", model: (r && r.model) || "", title: "接地问答", claims: [], messages: next });
+        return next;
+      });
     } catch (e) {
       setQa((list) => list.map((x, i) => (i === list.length - 1 ? { q: qq, a: "（出错，请稍后重试）", loading: false } : x)));
     } finally { setAsking(false); }
-  }, [ensurePages, asking]);
+  }, [ensurePages, asking, source]);
 
   useEffect(() => {
     if (explainReq && explainReq.text) doAsk("请在本文语境中解释这段：" + explainReq.text);
@@ -986,6 +1124,30 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
 }
 
 // 翻译面板：按页懒翻译（同步当前页 + 译全部页），三模式=同一(原文,译文)的三种布局。复用 reader:translate。
+function StructuredText({ text, className, kind }) {
+  const s = String(text || "");
+  const paras = s.split(/\n\n+/).filter((p) => p.trim());
+  if (paras.length <= 1) return <div className={className}>{s}</div>;
+  return (
+    <div className={className + " rd-tp-struct"}>
+      {paras.map((p, i) => {
+        const t = p.trim();
+        const shortHd = kind === "tr" && t.length < 80 && !/[.!?。！？]$/.test(t);
+        return <p key={i} className={shortHd && i === 0 ? "rd-tp-hd" : ""}>{t}</p>;
+      })}
+    </div>
+  );
+}
+
+function RightPanelShell({ width, onResizeStart, children }) {
+  return (
+    <div className="rd-right" style={{ width }}>
+      <div className="rd-resize rd-resize-left" onPointerDown={onResizeStart} title="拖动调整宽度" />
+      {children}
+    </div>
+  );
+}
+
 function TranslatePanel({ doc, page, numPages, mode, setMode, onClose, pushToast, docKey, model }) {
   const cacheRef = useRef({}); // page -> {orig, trans, loading, cached, model, err}
   const [, setTick] = useState(0);
@@ -1008,7 +1170,7 @@ function TranslatePanel({ doc, page, numPages, mode, setMode, onClose, pushToast
     const c = cacheRef.current[pg];
     if (!force && c && (c.trans || c.loading || c.err)) return;
     let orig = "";
-    try { const items = await getPageStrings(doc, pg); orig = items.join(" ").trim(); } catch (e) { /* noop */ }
+    try { orig = await extractPageTextForTranslate(doc, pg); } catch (e) { /* noop */ }
     const hit = !force && pmapRef.current[pg];
     if (hit && hit.text) { cacheRef.current[pg] = { orig, trans: hit.text, loading: false, cached: true, model: hit.model || "" }; setTick((t) => t + 1); return; } // 命中持久缓存 → 跳过 LLM
     if (!llmReady.ok) {
@@ -1069,11 +1231,11 @@ function TranslatePanel({ doc, page, numPages, mode, setMode, onClose, pushToast
         ) : cur.err ? (
           <div className="rd-tp-warn">{cur.err}</div>
         ) : mode === "only" ? (
-          <div className="rd-tp-tr">{cur.trans}</div>
+          <StructuredText text={cur.trans} className="rd-tp-tr" kind="tr" />
         ) : mode === "dual" ? (
-          <div className="rd-tp-cols"><div className="rd-tp-orig">{cur.orig}</div><div className="rd-tp-tr">{cur.trans}</div></div>
+          <div className="rd-tp-cols"><StructuredText text={cur.orig} className="rd-tp-orig" kind="orig" /><StructuredText text={cur.trans} className="rd-tp-tr" kind="tr" /></div>
         ) : (
-          <div className="rd-tp-stack"><div className="rd-tp-orig">{cur.orig}</div><div className="rd-tp-tr">{cur.trans}</div></div>
+          <div className="rd-tp-stack"><StructuredText text={cur.orig} className="rd-tp-orig" kind="orig" /><StructuredText text={cur.trans} className="rd-tp-tr" kind="tr" /></div>
         )}
       </div>
     </div>
@@ -1112,11 +1274,21 @@ function AnnoPanel({ annos, onGoto, onUpdate, onRemove, onExportPdf, onExportMd 
   );
 }
 
-function ReaderPanel({ zone, setZone, doc, source, onGoto, pushToast, explainReq, moveReq, figureEnv, figuring, annos, onUpdate, onRemove, onExportPdf, onExportMd }) {
+function ReaderPanel({ zone, setZone, doc, source, docKey, onGoto, pushToast, explainReq, moveReq, figureEnv, figuring, annos, onUpdate, onRemove, onExportPdf, onExportMd }) {
   const TABS = [["assist", "助手", Sparkles, false], ["deep", "深读", Layers, false], ["inf", "推读", Lightbulb, true], ["notes", "批注", Highlighter, false]];
   const pagesRef = useRef(null);
   const ftIndexedRef = useRef("");
-  const [purpose, setPurpose] = useState(null);
+  const [purpose, setPurpose] = useState(() => {
+    const p = loadReaderUiPref(docKey, "purpose", "");
+    return p || null;
+  });
+  useEffect(() => {
+    const p = loadReaderUiPref(docKey, "purpose", "");
+    setPurpose(p || null);
+  }, [docKey]);
+  useEffect(() => {
+    saveReaderUiPref(docKey, "purpose", purpose || "");
+  }, [docKey, purpose]);
   const ensurePages = useCallback(async () => {
     if (pagesRef.current) return pagesRef.current;
     const pages = await getDocPages(doc);
@@ -1153,8 +1325,12 @@ export default function Reader({ source, onClose, pushToast }) {
   const [sidebar, setSidebar] = useState(true);
   const [sidePanel, setSidePanel] = useState("thumbs"); // 展开面板 thumbs|outline|marks|null(仅图标轨)
   const [sideWidth, setSideWidth] = useState(190);
+  const [rightWidth, setRightWidth] = useState(() => {
+    try { const w = parseInt(localStorage.getItem("lumina_reader_right_width") || "380", 10); return Number.isFinite(w) ? Math.max(280, Math.min(560, w)) : 380; } catch { return 380; }
+  });
   const [navmarks, setNavmarks] = useState([]); // 页面书签（持久化导航，按 docKey，页码升序）
   const sideWidthRef = useRef(190);
+  const rightWidthRef = useRef(rightWidth);
   const [pageInput, setPageInput] = useState("1");
   const [outline, setOutline] = useState([]);
   const [focus, setFocus] = useState(false);
@@ -1178,8 +1354,27 @@ export default function Reader({ source, onClose, pushToast }) {
     if (source && source.localPath) return "local:" + source.localPath;
     return ((source && source.name ? source.name : "doc") + ":" + ((source && source.data && source.data.byteLength) || 0));
   }, [source]);
+
+  useEffect(() => {
+    const z = loadReaderUiPref(docKey, "zone", "assist");
+    if (READER_ZONES.includes(z)) setZone(z);
+  }, [docKey]);
+
+  useEffect(() => {
+    if (READER_ZONES.includes(zone)) saveReaderUiPref(docKey, "zone", zone);
+  }, [docKey, zone]);
+
+  useEffect(() => {
+    const v = loadReaderUiPref(docKey, "ai_open", "0");
+    if (v === "1") setAiOpen(true);
+  }, [docKey]);
+
+  useEffect(() => {
+    saveReaderUiPref(docKey, "ai_open", aiOpen ? "1" : "0");
+  }, [docKey, aiOpen]);
+
   const [sel, setSel] = useState(null);          // 划词浮条 {text,x,y}
-  const [selTrans, setSelTrans] = useState(null); // 选区译文 {loading,text}（划词译走会话内存，不落库）
+  const [selTrans, setSelTrans] = useState(null); // 选区译文（按 docKey+选区哈希持久化缓存）
   const [ctxMenu, setCtxMenu] = useState(null); // PDF 右键 { x,y, kind, selection? }
   const ctxSelectionRef = useRef(null);
   const [llmModel, setLlmModel] = useState("");
@@ -1287,6 +1482,19 @@ export default function Reader({ source, onClose, pushToast }) {
     const startX = e.clientX, startW = sideWidthRef.current;
     const move = (ev) => { const w = Math.max(150, Math.min(420, startW + (ev.clientX - startX))); sideWidthRef.current = w; setSideWidth(w); };
     const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+    window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+  }, []);
+  const startRightResize = useCallback((e) => {
+    e.preventDefault();
+    const startX = e.clientX, startW = rightWidthRef.current;
+    const move = (ev) => {
+      const w = Math.max(280, Math.min(560, startW + (startX - ev.clientX)));
+      rightWidthRef.current = w; setRightWidth(w);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up);
+      try { localStorage.setItem("lumina_reader_right_width", String(rightWidthRef.current)); } catch { /* ignore */ }
+    };
     window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
   }, []);
   const addMark = useCallback(() => setNavmarks((m) => { if (m.includes(page)) return m; const next = [...m, page].sort((a, b) => a - b); bridge.saveNavmarks(docKey, next); return next; }), [page, docKey]);
@@ -1419,9 +1627,16 @@ export default function Reader({ source, onClose, pushToast }) {
       const env = await bridge.readerFigure(dataUrl, caption || "");
       setFigureEnv(env || null);
       if (!env) pushToast && pushToast("图表分析失败，请重试");
+      if (env) saveCachedAnalysis(source, env);
     } catch (er) { pushToast && pushToast("图表分析失败"); }
     finally { setFiguring(false); }
   }, [doc, page, pushToast]);
+
+  useEffect(() => {
+    let alive = true;
+    loadCachedAnalysis(source, "figure").then((e) => { if (alive && e) setFigureEnv(e); });
+    return () => { alive = false; };
+  }, [source]);
 
   useEffect(() => {
     let alive = true; loadedRef.current = false;
@@ -1531,8 +1746,12 @@ export default function Reader({ source, onClose, pushToast }) {
     if (!s) return;
     setSelTrans({ loading: true, text: "" });
     try {
+      const cached = await loadSelTransCache(docKey, s.text);
+      if (cached) { setSelTrans({ loading: false, text: cached }); return; }
       const res = await bridge.readerTranslate(s.text);
-      setSelTrans({ loading: false, text: (res && res.ok) ? (res.text || "（无译文）") : ((res && res.error) || "（翻译失败）") });
+      const text = (res && res.ok) ? (res.text || "（无译文）") : ((res && res.error) || "（翻译失败）");
+      setSelTrans({ loading: false, text });
+      if (res && res.ok && res.text) saveSelTransCache(docKey, s.text, res.text, res.model);
     } catch (e) { setSelTrans({ loading: false, text: "（翻译失败）" }); }
   };
   const onCopySelFrom = (fromSel) => {
@@ -1780,10 +1999,14 @@ export default function Reader({ source, onClose, pushToast }) {
         </div>
 
         {aiOpen && !transMode && !loading && !err && doc && (
-          <ReaderPanel zone={zone} setZone={setZone} doc={doc} source={source} onGoto={goto} pushToast={pushToast} explainReq={explainReq} moveReq={moveReq} figureEnv={figureEnv} figuring={figuring} annos={annos} onUpdate={updateAnno} onRemove={removeAnno} onExportPdf={onExportPdf} onExportMd={onExportMd} />
+          <RightPanelShell width={rightWidth} onResizeStart={startRightResize}>
+            <ReaderPanel zone={zone} setZone={setZone} doc={doc} source={source} docKey={docKey} onGoto={goto} pushToast={pushToast} explainReq={explainReq} moveReq={moveReq} figureEnv={figureEnv} figuring={figuring} annos={annos} onUpdate={updateAnno} onRemove={removeAnno} onExportPdf={onExportPdf} onExportMd={onExportMd} />
+          </RightPanelShell>
         )}
         {transMode && !loading && !err && doc && (
-          <TranslatePanel doc={doc} page={page} numPages={numPages} mode={transMode} setMode={setTransMode} onClose={() => setTransMode(null)} pushToast={pushToast} docKey={docKey} model={llmModel} />
+          <RightPanelShell width={rightWidth} onResizeStart={startRightResize}>
+            <TranslatePanel doc={doc} page={page} numPages={numPages} mode={transMode} setMode={setTransMode} onClose={() => setTransMode(null)} pushToast={pushToast} docKey={docKey} model={llmModel} />
+          </RightPanelShell>
         )}
       </div>
 

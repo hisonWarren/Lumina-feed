@@ -2,7 +2,7 @@
 // 订阅【关键词 或 期刊(ISSN 锚定)】+ 频率 + 成本闸；今日证据简报（每条可取全文/总结/标记已读，一键批量取 OA）。
 // 诚实分层：订阅 CRUD 经 bridge（接引擎 subs:* / 无引擎走会话内存 mock）；今日命中需引擎调度真实检索——
 // 无引擎时简报为空并标注「需引擎调度」，绝不伪造命中（红线：不臆造、AI 不替判定纳入）。
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Rss, Clock, Plus, Inbox, Download, X, Check, Pause, Play, Pencil, Trash2, Sparkles, FileText, BookOpen, BookText, Loader, AlertTriangle, Info } from "lucide-react";
 import { bridge, hasBackend } from "../lumina-bridge.js";
 import FetchBadges from "../FetchBadges.jsx";
@@ -56,6 +56,9 @@ const SUBS_CSS = `
 .dg-grp-h .ct{font-size:11px;font-family:'Space Mono',monospace;color:var(--ink3)}
 .dg-grp-h .ln{flex:1;height:1px;background:var(--line)}
 .dg-item{border:1px solid var(--line);border-radius:12px;padding:13px 15px;background:var(--surf)}
+.dg-item-flash{animation:dgItemFlash 1.6s ease-out}
+@keyframes dgItemFlash{0%{box-shadow:0 0 0 3px rgba(14,124,111,.45);border-color:var(--gold)}100%{box-shadow:0 0 0 0 rgba(14,124,111,0)}}
+@media (prefers-reduced-motion: reduce){.dg-item-flash{animation:none;box-shadow:0 0 0 2px rgba(14,124,111,.45)}}
 .dg-t{font-family:'Source Serif 4',Georgia,serif;font-size:15px;font-weight:600;line-height:1.4;color:var(--ink)}
 .dg-m{font-size:12.5px;color:var(--ink3);margin-top:5px}
 .dg-badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
@@ -197,6 +200,7 @@ function SubDialog({ initial, onClose, onSave }) {
         <div className="subs-f"><label>成本闸（自动总结）</label>
           <div className="subs-seg">{AUTO_OPTS.map(([k, l]) => <button key={k} className={autoSummarize === k ? "on" : ""} onClick={() => setAuto(k)}>{l}</button>)}</div>
           <span className="subs-hint">默认「相关说明」：每条一句为何相关（推荐）。abstract/topN 会调用完整总结管线。未配置 LLM 时将跳过并提示。</span>
+          <span className="subs-hint">「不自动总结」仅控制命中后是否自动摘要单篇；今日报告由「设置 → 简报报告」总开关统一控制，与此处无关。</span>
         </div>
         {backend && (
           <div className="subs-f">
@@ -229,9 +233,11 @@ function SubDialog({ initial, onClose, onSave }) {
   );
 }
 
-export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMeta = {}, fetchTick = 0, onFetch: onFetchProp, onFetchBatch, onReadPaper, onSubsChange, inLibFn, onOpenSettings }) {
+export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMeta = {}, fetchTick = 0, onFetch: onFetchProp, onFetchBatch, onReadPaper, onSubsChange, inLibFn, onOpenSettings, tabActive = true }) {
   const [subs, setSubs] = useState([]);
-  const [activeSub, setActiveSub] = useState("all");
+  const [activeSub, setActiveSub] = useState(() => {
+    try { return localStorage.getItem("lumina_subs_active") || "all"; } catch { return "all"; }
+  });
   const [dlgOpen, setDlgOpen] = useState(false);
   const [editSub, setEditSub] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -239,12 +245,26 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
   const [runProgress, setRunProgress] = useState(null);
   const [digestReport, setDigestReport] = useState(null);
   const [reportGenerating, setReportGenerating] = useState(false);
-  const [viewMode, setViewMode] = useState("scan");
+  const [viewMode, setViewMode] = useState(() => {
+    try { return localStorage.getItem("lumina_subs_view") || "scan"; } catch { return "scan"; }
+  });
   const [reportCollapsed, setReportCollapsed] = useState(() => {
     try { return localStorage.getItem("lumina_digest_report_collapsed") === "1"; } catch { return false; }
   });
   const backend = hasBackend();
   const reportScope = activeSub === "all" ? "all" : activeSub;
+  const scopeMode = activeSub === "all" ? "all" : "single";
+  const scopeLabel = activeSub === "all"
+    ? "今日全部简报"
+    : (() => { const s = subs.find((x) => x.id === activeSub); return s ? String(subLabel(s)).slice(0, 40) : "订阅"; })();
+  const reportRetryRef = useRef({});
+
+  useEffect(() => {
+    try { localStorage.setItem("lumina_subs_active", activeSub); } catch { /* ignore */ }
+  }, [activeSub]);
+  useEffect(() => {
+    try { localStorage.setItem("lumina_subs_view", viewMode); } catch { /* ignore */ }
+  }, [viewMode]);
 
   useEffect(() => {
     let alive = true; setLoading(true);
@@ -300,9 +320,12 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
       if (r?.report) setDigestReport(r.report);
       if (!force && r?.report?.skippedReason === "auto_off") return;
       if (r?.ok && r.report?.status === "ready") {
-        pushToast && pushToast("今日简报报告已就绪");
-        setReportCollapsed(false);
-        try { localStorage.setItem("lumina_digest_report_collapsed", "0"); } catch { /* ignore */ }
+        reportRetryRef.current[reportScope] = 0;
+        if (force) {
+          pushToast && pushToast("今日简报报告已就绪");
+          setReportCollapsed(false);
+          try { localStorage.setItem("lumina_digest_report_collapsed", "0"); } catch { /* ignore */ }
+        }
       } else if (r?.report?.skippedReason === "llm_not_configured") {
         pushToast && pushToast("未配置 LLM · 请在设置中填写 API Key");
       } else if (r?.report?.status === "failed") {
@@ -324,11 +347,30 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
   }, []);
 
   const jumpToPaper = useCallback((paperId) => {
+    if (!paperId) return;
     setViewMode("scan");
-    requestAnimationFrame(() => {
+    // 1) 若目标文献被分页折叠（某订阅下 >10 篇），先把它所在分组展开到能渲染它。
+    const gs = groupsRef.current || [];
+    for (const g of gs) {
+      const idx = g.papers.findIndex((x) => x && x.id === paperId);
+      if (idx >= 0) {
+        setLoadMore((m) => { const need = idx + 1; const cur = m[g.key] || DIGEST_PAGE; return cur >= need ? m : { ...m, [g.key]: need }; });
+        break;
+      }
+    }
+    // 2) 等卡片真正挂载再滚动（从「今日报告」切回扫描列表时，单帧 rAF 太早、DOM 尚未提交）。
+    let tries = 0;
+    const tick = () => {
       const el = document.getElementById("digest-card-" + paperId);
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.classList.remove("dg-item-flash"); void el.offsetWidth; el.classList.add("dg-item-flash");
+        window.setTimeout(() => el.classList.remove("dg-item-flash"), 1800);
+        return;
+      }
+      if (tries++ < 40) requestAnimationFrame(tick); // 最多约 0.6s 重试
+    };
+    requestAnimationFrame(tick);
   }, []);
 
   const refreshSubs = useCallback(async () => {
@@ -337,6 +379,16 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
     onSubsChange?.();
     return list;
   }, [onSubsChange]);
+
+  const tabWasActiveRef = useRef(tabActive);
+  useEffect(() => {
+    if (!backend || !tabActive) {
+      tabWasActiveRef.current = tabActive;
+      return;
+    }
+    if (!tabWasActiveRef.current) void refreshSubs();
+    tabWasActiveRef.current = tabActive;
+  }, [tabActive, backend, refreshSubs]);
 
   const persist = useCallback(async (sub) => { await bridge.subsSave(sub); }, []);
   const subPatch = useCallback((id, patch) => { setSubs((s) => s.map((x) => { if (x.id !== id) return x; const u = { ...x, ...patch }; persist(u); return u; })); }, [persist]);
@@ -468,11 +520,18 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
     }));
   };
   const groups = buildGroups();
+  // id→标题映射：给「主题分组」的跳转按钮显示真实文献标题（替代千篇一律的「跳转文献」）。
+  const paperTitleById = {};
+  groups.forEach((g) => g.papers.forEach((p) => { if (p && p.id) paperTitleById[p.id] = p.title || ""; }));
+  // 让 jumpToPaper（deps []）始终读到当前分组，便于定位目标文献所在组并按需展开分页。
+  const groupsRef = useRef(groups);
+  groupsRef.current = groups;
   const visibleLimit = (gid) => loadMore[gid] || DIGEST_PAGE;
   const bumpLoad = (gid, totalN) => setLoadMore((m) => ({ ...m, [gid]: Math.min(totalN, (m[gid] || DIGEST_PAGE) + DIGEST_PAGE) }));
 
   useEffect(() => {
     if (!backend) return;
+    setDigestReport(null);
     void loadReport();
   }, [backend, loadReport, subs, total, reportScope]);
 
@@ -488,6 +547,12 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
     if (!backend || total <= 0) return;
     if (reportGenerating || digestReport?.status === "generating") return;
     if (digestReport?.skippedReason === "auto_off" || digestReport?.skippedReason === "llm_not_configured") return;
+    // 失败的报告不再被「卡死」：按 scope 自动重试一次（持续失败时不死循环；成功后计数清零）。
+    if (digestReport?.status === "failed") {
+      const tries = reportRetryRef.current[reportScope] || 0;
+      if (tries < 1) { reportRetryRef.current[reportScope] = tries + 1; void generateReport(false); }
+      return;
+    }
     const stale = !digestReport || digestReport.status === "idle"
       || (digestReport.status === "ready" && digestReport.unreadCount !== total);
     if (!stale) return;
@@ -504,12 +569,12 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
           <div className="sc"><Inbox size={13} /> {subs.reduce((n, s) => n + unread(s).length, 0)} 篇待读 · {subs.length} 个订阅</div>
         </button>
         {subs.map((s) => (
-          <div key={s.id} className={"subitem" + (activeSub === s.id ? " on" : "") + (s.enabled === false ? " off" : "")}>
-            <div onClick={() => setActiveSub(s.id)} style={{ cursor: "pointer" }}>
+          <div key={s.id} className={"subitem" + (activeSub === s.id ? " on" : "") + (s.enabled === false ? " off" : "")} onClick={() => setActiveSub(s.id)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setActiveSub(s.id); } }}>
+            <div style={{ cursor: "pointer" }}>
               <div className="q">{subKind(s) === "journal" ? <BookText size={13} style={{ verticalAlign: "-2px", marginRight: 4, color: "var(--gold)" }} /> : null}{subLabel(s).slice(0, 24)}{unread(s).length ? <span className="nw">+{unread(s).length}</span> : null}</div>
               <div className="sc">{subKind(s) === "journal" ? <span className="subkind">期刊{s.journal && s.journal.issn ? " · " + s.journal.issn : ""}</span> : null}<Clock size={12} /> {FREQ[s.freq] || s.freq} {s.time}{s.enabled === false ? " · 已暂停" : ""} · {AUTO[s.autoSummarize || "off"]}</div>
             </div>
-            <div className="subctl">
+            <div className="subctl" onClick={(e) => e.stopPropagation()}>
               <button title="立即运行一次" onClick={() => subRunNow(s)}><Clock size={13} /></button>
               <button title={s.enabled === false ? "恢复" : "暂停"} onClick={() => subPatch(s.id, { enabled: s.enabled === false })}>{s.enabled === false ? <Play size={13} /> : <Pause size={13} />}</button>
               <button title="编辑" onClick={() => { setEditSub(s); setDlgOpen(true); }}><Pencil size={13} /></button>
@@ -552,19 +617,6 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
               <button type="button" role="tab" aria-selected={viewMode === "report"} className={viewMode === "report" ? "on" : ""} onClick={() => setViewMode("report")}>今日报告</button>
             </div>
           )}
-          {total > 0 && viewMode === "scan" && (
-            <DigestReportHero
-              report={digestReport}
-              collapsed={reportCollapsed}
-              onToggleCollapse={toggleReportCollapsed}
-              onGenerate={generateReport}
-              generating={reportGenerating}
-              onOpenSettings={() => onOpenSettings && onOpenSettings("general")}
-              onJumpPaper={jumpToPaper}
-              onViewReport={() => setViewMode("report")}
-              viewMode={viewMode}
-            />
-          )}
           {runProgress && (
             <div className="dg-run-progress">
               <Loader size={14} className="rd-spin" />
@@ -588,9 +640,30 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
               onBackToScan={() => setViewMode("scan")}
               onGenerate={generateReport}
               generating={reportGenerating}
+              paperTitleById={paperTitleById}
+              scopeMode={scopeMode}
+              scopeLabel={scopeLabel}
+              onOpenSettings={() => onOpenSettings && onOpenSettings("general")}
             />
           ) : (
-            groups.map((g) => {
+            <>
+              {viewMode === "scan" && (
+                <DigestReportHero
+                  report={digestReport}
+                  collapsed={reportCollapsed}
+                  onToggleCollapse={toggleReportCollapsed}
+                  onGenerate={generateReport}
+                  generating={reportGenerating}
+                  onOpenSettings={() => onOpenSettings && onOpenSettings("general")}
+                  onJumpPaper={jumpToPaper}
+                  onViewReport={() => setViewMode("report")}
+                  viewMode={viewMode}
+                  paperTitleById={paperTitleById}
+                  scopeMode={scopeMode}
+                  scopeLabel={scopeLabel}
+                />
+              )}
+              {groups.map((g) => {
               const lim = visibleLimit(g.key);
               const slice = g.papers.slice(0, lim);
               return (
@@ -618,7 +691,8 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
                   </button>
                 )}
               </div>
-            ); })
+            ); })}
+            </>
           )}
         </div>
       </div>

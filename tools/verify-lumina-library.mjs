@@ -35,6 +35,8 @@ if(exists("src/ui/modules/Library.jsx")){ const s=read("src/ui/modules/Library.j
   /onRemove/.test(s)?ok("移除"):bad("缺移除");
   /未经同行评议/.test(s)?ok("预印本标注（红线5）"):bad("缺预印本标注");
   /已撤稿|retracted/.test(s)?ok("撤稿标注（红线6）"):bad("缺撤稿标注");
+  /LIB_PREFS_KEY/.test(s)&&/patchJsonPref/.test(s)?ok("文献库 UI 偏好 localStorage 持久化"):bad("缺文献库偏好持久化");
+  /corpusCacheKey/.test(s)&&/readerAnalysisSave/.test(s)?ok("跨篇分析结果缓存"):bad("缺跨篇分析缓存");
 }
 
 console.log("\n— 5. 壳接线 —");

@@ -19,6 +19,8 @@ const st = read("src/ui/modules/Settings.jsx");
 const app = read("src/ui/LuminaApp.jsx");
 const hub = read("src/ui/modules/ReadHub.jsx");
 const ff = read("src/ui/modules/FindFetch.jsx");
+const subs = read("src/ui/modules/Subscriptions.jsx");
+const lib = read("src/ui/modules/Library.jsx");
 
 console.log("\n[1] 阅读器 · 续读位置 / 快捷键 / 缩放预设 / 夜读 / 抓手");
 ok(has(rd, "const [rememberPos, setRememberPos]") && has(rd, "posLoadedRef"), "续读位置状态 + 单次恢复守卫");
@@ -54,7 +56,14 @@ ok(has(app, 'const view = mode === "settings" ? prevMode : mode'), "底层视图
 ok(has(app, '{mode === "settings" && (') && /onClose=\{\(\) => setMode\(prevMode\)\}/.test(app), "Settings 作为叠加层渲染 + onClose 回前视图");
 ok(/onClick=\{\(\) => \{ if \(mode !== "settings"\) setPrevMode\(mode\); setMode\("settings"\); \}\}/.test(app), "齿轮记忆当前视图再开设置");
 ok(has(app, "lf-pane") && has(app, "is-hidden") && has(app, "onSessionChange={setFindSession}"), "检索 keep-alive：切换 Tab 不卸载 FindFetch");
-ok(has(app, 'view === "read"') && has(app, 'view === "library"'), "其它模块仍按 view 切换");
+ok(/view === "read" \? "" : " is-hidden"[\s\S]{0,400}<ReaderModule/.test(app), "阅读 keep-alive：切换 Tab 不卸载 ReaderModule");
+ok(/view === "subs" \? "" : " is-hidden"[\s\S]{0,400}<Subscriptions/.test(app), "订阅 keep-alive：切换 Tab 不卸载 Subscriptions");
+ok(/view === "library" \? "" : " is-hidden"[\s\S]{0,400}<Library/.test(app), "文献库 keep-alive：切换 Tab 不卸载 Library");
+ok(has(subs, "lumina_subs_active") && has(subs, "lumina_subs_view"), "订阅简报：选中订阅 + 扫描/报告视图 localStorage");
+ok(has(lib, "LIB_PREFS_KEY") && has(lib, "corpusCacheKey"), "文献库：筛选/排序/跨篇分析缓存");
+
+console.log("\n[4b] 阅读标签 · session 恢复");
+ok(has(hub, "TABS_PREF_KEY") && has(hub, "loadJsonPref") && has(hub, "readPdf"), "ReadHub 打开标签 session 恢复（paperId/localPath 重读盘）");
 
 console.log("\n[4] 阅读首页 · 上下布局 + 列表面板");
 ok(/\.rh-inner\{[^}]*flex-direction:column/.test(hub), "rh-inner 上下布局（column）");

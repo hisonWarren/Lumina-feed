@@ -26,6 +26,8 @@ ok(/function EvidencePane/.test(rd) && /function InferencePane/.test(rd), "Reade
 ok(/function EnvelopeCard/.test(rd), "Reader 信封路由 EnvelopeCard");
 ok(/env\.lane === "inference"/.test(rd), "EnvelopeCard 仅按 env.lane 路由（HC-1，无手选颜色）");
 ok(/doOutline/.test(rd) && /readerAnalyze\("outline"/.test(rd), "助手区接入大纲（reader:analyze outline）");
+ok(/function analysisDocKey/.test(rd) && /loadCachedAnalysis/.test(rd) && /saveCachedAnalysis/.test(rd), "深读/推读/助手分析结果本地缓存与恢复");
+ok(/notifyAnalysisEnv/.test(rd) && /loadReaderUiPref/.test(rd) && /loadSelTransCache/.test(rd), "分析失败 toast + 分区/AI 面板/划词译文持久化");
 ok(/--amber:/.test(rd) && /\.lf:not\(\.day\) \.rd/.test(rd), "琥珀车道 token 明/暗四主题派生");
 ok(!/&&\s*(AssistantPanel|InfCard|EvidenceCard|EnvelopeCard|ReaderPanel)\(/.test(rd), "无危险 Hook 条件调用（组件均 <Comp/> 渲染）");
 ok(!/annoOpen/.test(rd), "annoOpen 已彻底移除（面板归一到 zone）");

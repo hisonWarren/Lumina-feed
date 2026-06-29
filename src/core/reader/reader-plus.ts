@@ -75,7 +75,8 @@ function salvageObjects(s: string, fromBracket: number): string[] {
   }
   return out;
 }
-// 救援指定键的数组（claims / nodes / edges）：先找 "key"…[，再 salvageObjects，逐个尝试 JSON.parse（丢弃坏的那个）。
+// 救援指定键的数组（claims / nodes / edges / outline / sections…）：先找 "key"…[，再 salvageObjects，逐个尝试 JSON.parse（丢弃坏的那个）。
+const SALVAGE_ARRAY_KEYS = ["claims", "outline", "sections", "items", "steps", "structure", "entries", "nodes", "edges"];
 function salvageArray(s: string, key: string): any[] | null {
   const re = new RegExp("\"" + key + "\"\\s*:\\s*\\[");
   const m = re.exec(s);
@@ -93,12 +94,94 @@ function extractJson(raw: string): any {
   const i = s.indexOf("{");
   const j = s.lastIndexOf("}");
   if (i >= 0 && j > i) { try { return JSON.parse(s.slice(i, j + 1)); } catch { /* 进入救援 */ } }
-  const claims = salvageArray(s, "claims");
-  if (claims) return { claims };
-  const nodes = salvageArray(s, "nodes");
-  const edges = salvageArray(s, "edges");
-  if (nodes || edges) return { nodes: nodes || [], edges: edges || [] };
+  for (const key of SALVAGE_ARRAY_KEYS) {
+    const arr = salvageArray(s, key);
+    if (arr) {
+      if (key === "nodes" || key === "edges") {
+        const nodes = key === "nodes" ? arr : salvageArray(s, "nodes");
+        const edges = key === "edges" ? arr : salvageArray(s, "edges");
+        return { nodes: nodes || [], edges: edges || [] };
+      }
+      return { [key === "outline" || key === "sections" || key === "items" || key === "steps" || key === "structure" || key === "entries" ? key : "claims"]: arr };
+    }
+  }
   return null;
+}
+
+const CLAIM_ARRAY_KEYS = ["claims", "outline", "sections", "items", "steps", "structure", "entries"];
+const CLAIM_TEXT_KEYS = ["text", "content", "label", "title", "claim", "summary", "body", "description", "point"];
+const PAGE_REF_KEYS = ["pageRefs", "pages", "page_refs", "refs", "pageNumbers"];
+
+function pickClaimsArray(parsed: any): any[] | null {
+  if (!parsed) return null;
+  if (Array.isArray(parsed)) return parsed;
+  if (typeof parsed !== "object") return null;
+  for (const k of CLAIM_ARRAY_KEYS) {
+    if (Array.isArray(parsed[k])) return parsed[k];
+  }
+  return null;
+}
+
+function claimText(c: any): string {
+  if (c == null) return "";
+  if (typeof c === "string") return c.trim();
+  if (typeof c !== "object") return String(c).trim();
+  for (const k of CLAIM_TEXT_KEYS) {
+    const t = String(c[k] ?? "").trim();
+    if (t) return t;
+  }
+  return "";
+}
+
+function claimPageRefs(c: any, valid: Set<number>): number[] {
+  if (!c || typeof c !== "object") return [];
+  let raw: any = null;
+  for (const k of PAGE_REF_KEYS) {
+    if (c[k] != null) { raw = c[k]; break; }
+  }
+  if (raw == null) return [];
+  const arr = Array.isArray(raw) ? raw : [raw];
+  const out: number[] = [];
+  for (const n of arr) {
+    const p = parseInt(String(n).replace(/[^\d]/g, ""), 10);
+    if (Number.isFinite(p) && valid.has(p)) out.push(p);
+  }
+  return [...new Set(out)];
+}
+
+function mapClaimsFromArray(arr: any[], kind: string, spec: KindSpec, valid: Set<number>): AnalysisClaim[] {
+  return arr.map((c: any) => {
+    const refs = claimPageRefs(c, valid);
+    const claim: AnalysisClaim = { text: claimText(c), pageRefs: refs };
+    if (c && c.evidenceType) claim.evidenceType = c.evidenceType;
+    if (c && c.confidence) claim.confidence = c.confidence;
+    if (c && c.flag) claim.flag = c.flag;
+    if (c && c.status) claim.status = c.status;
+    if (!claim.confidence && spec.lane === "inference") claim.confidence = spec.groundability === "L2" ? "c2" : spec.groundability === "L3" ? "c3" : "c1";
+    if (kind === "stats") { claim.confidence = "c3"; claim.flag = "needs_recheck"; }
+    return claim;
+  }).filter((c: AnalysisClaim) => c.text.length > 0);
+}
+
+function assertStructuredClaims(kind: string, raw: string, parsed: any, claims: AnalysisClaim[]): void {
+  const rawTrim = String(raw || "").trim();
+  if (!rawTrim) {
+    throw new Error("模型未返回任何内容。若使用 DeepSeek V4，请更新到最新版本；或在「设置 → 大模型」关闭思考模式/更换模型后重试。");
+  }
+  if (parsed == null) {
+    throw new Error("模型输出无法解析为结构化 JSON（可能返回了 Markdown 或说明文字）。请重试，或在「设置 → 大模型」换用更强模型。");
+  }
+  const arr = pickClaimsArray(parsed);
+  if (arr == null) {
+    const keys = typeof parsed === "object" && parsed ? Object.keys(parsed).slice(0, 8).join("、") : "";
+    throw new Error("模型 JSON 缺少 claims/outline/sections 等条目数组（检测到字段：" + (keys || "无") + "）。请重试或更换模型。");
+  }
+  if (arr.length === 0) {
+    throw new Error("模型返回了空条目列表。请重试；若反复出现，请换更强的模型或在设置中检查 API 配置。");
+  }
+  if (claims.length === 0) {
+    throw new Error("模型返回了 " + arr.length + " 条结构，但均无有效文本（字段名可能不符）。请重试或更换模型。");
+  }
 }
 
 // 默认逐页拼接（前部优先）；多数分析器只需结构骨架，不必喂全文。
@@ -148,25 +231,9 @@ async function runStructured(kind: string, pages: ReaderPage[], spec: KindSpec, 
     { maxTokens: OUTPUT_MAXTOK[kind] ?? 1400, temperature: 0.2, signal: opts.signal },
   );
   const parsed = extractJson(raw);
-  // 硬解析失败（模型有输出但既非 JSON、也救援不出任何完整条目）→ 抛错，由 IPC 转为可见的 analysisError，
-  // 而非旧版那样吞成「空卡，什么都不显示」。截断但救得回条目的情形，extractJson 已尽量保留。
-  if (parsed == null && String(raw || "").trim().length > 0) {
-    throw new Error("模型输出无法解析为结构化结果（可能被截断或返回了非 JSON）。请重试，或在「设置 → 大模型」换用更强/上下文更长的模型。");
-  }
-  const arr: any[] = parsed && Array.isArray(parsed.claims) ? parsed.claims : [];
-  const claims: AnalysisClaim[] = arr.map((c: any) => {
-    const refs: number[] = Array.isArray(c && c.pageRefs)
-      ? c.pageRefs.map((n: any) => parseInt(n, 10)).filter((n: number) => valid.has(n))
-      : [];
-    const claim: AnalysisClaim = { text: String((c && c.text) || "").trim(), pageRefs: refs };
-    if (c && c.evidenceType) claim.evidenceType = c.evidenceType;
-    if (c && c.confidence) claim.confidence = c.confidence;
-    if (c && c.flag) claim.flag = c.flag;
-    if (c && c.status) claim.status = c.status;
-    if (!claim.confidence && spec.lane === "inference") claim.confidence = spec.groundability === "L2" ? "c2" : spec.groundability === "L3" ? "c3" : "c1";
-    if (kind === "stats") { claim.confidence = "c3"; claim.flag = "needs_recheck"; } // 统计扫描强制最克制：只提示复核、绝不断言出错
-    return claim;
-  }).filter((c: AnalysisClaim) => c.text.length > 0);
+  const arr = pickClaimsArray(parsed) || [];
+  const claims = mapClaimsFromArray(arr, kind, spec, valid);
+  assertStructuredClaims(kind, raw, parsed, claims);
   let outClaims = claims;
   if (kind === "citerole" && outClaims.length > CITEROLE_MAX_CLAIMS) {
     outClaims = outClaims.slice(0, CITEROLE_MAX_CLAIMS);
@@ -263,13 +330,22 @@ async function runFlowmap(kind: string, pages: ReaderPage[], spec: KindSpec, llm
     { maxTokens: OUTPUT_MAXTOK[kind] ?? 1400, temperature: 0.2, signal: opts.signal },
   );
   const parsed: any = extractJson(raw) || {};
+  const rawTrim = String(raw || "").trim();
+  if (!rawTrim) {
+    throw new Error("模型未返回任何内容，无法重建流程图。请重试或更换模型。");
+  }
   const rawNodes: any[] = Array.isArray(parsed.nodes) ? parsed.nodes : [];
   const nodes = rawNodes.map((n: any, i: number) => {
-    const refs: number[] = Array.isArray(n && n.pageRefs)
-      ? n.pageRefs.map((x: any) => parseInt(x, 10)).filter((x: number) => valid.has(x))
-      : [];
-    return { id: String((n && n.id) || ("n" + i)), label: String((n && n.label) || "").trim().slice(0, 40), pageRefs: refs };
+    const refs = claimPageRefs(n, valid);
+    const label = String((n && (n.label ?? n.text ?? n.title ?? n.name)) || "").trim().slice(0, 40);
+    return { id: String((n && n.id) || ("n" + i)), label, pageRefs: refs };
   }).filter((n) => n.label.length > 0);
+  if (!nodes.length) {
+    if (parsed == null || !Object.keys(parsed).length) {
+      throw new Error("模型输出无法解析为流程图 JSON。请重试或更换模型。");
+    }
+    throw new Error("模型未返回有效流程节点。请重试；若正文方法描述很简略，可换更强模型。");
+  }
   const ids = new Set(nodes.map((n) => n.id));
   const rawEdges: any[] = Array.isArray(parsed.edges) ? parsed.edges : [];
   const edges = rawEdges.map((e: any) => {
