@@ -107,13 +107,26 @@ export function bm25Rank<T extends object>(items:T[], pq:ParsedQuery, opts:Bm25O
     });
 
     const nt = normTitle(f.title);
-    let matchKind:MatchKind = 'normal';
-    if(queryPhrase && nt && (nt===queryPhrase || nt.includes(queryPhrase))){ score += 14; matchKind='title_exact'; }
-    else {
-      const titleToks = new Set(d.title);
-      const cover = pq.terms.length ? pq.terms.filter(t=>titleToks.has(t)).length / pq.terms.length : 0;
-      if(cover>=0.85 && pq.terms.length>=2){ score += 6; matchKind='title_strong'; }
-      else if(cover>=0.6){ score += 2; }
+    let matchKind: MatchKind = "normal";
+    if (queryPhrase && nt) {
+      if (nt === queryPhrase) {
+        score += 14;
+        matchKind = "title_exact";
+      } else {
+        const titleToks = new Set(d.title);
+        const cover = pq.terms.length ? pq.terms.filter((t) => titleToks.has(t)).length / pq.terms.length : 0;
+        const phraseInTitle = nt.includes(queryPhrase) && queryPhrase.length >= 8;
+        const titleInQuery = queryPhrase.includes(nt) && nt.length >= 12;
+        if (phraseInTitle || titleInQuery) {
+          score += 8;
+          matchKind = "title_strong";
+        } else if (cover >= 0.85 && pq.terms.length >= 2) {
+          score += 6;
+          matchKind = "title_strong";
+        } else if (cover >= 0.6) {
+          score += 2;
+        }
+      }
     }
     pq.phrases.forEach(ph=>{ const np=normTitle(ph);
       if(np && nt.includes(np)) score+=4;

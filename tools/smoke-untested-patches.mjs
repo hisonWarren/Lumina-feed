@@ -275,11 +275,30 @@ await evalJs(cdp, `
     if (dlRow) dlRow.click();
     else if (rows[0]) rows[0].click();
     await new Promise(r => setTimeout(r, 8000));
+    const reader = !!document.querySelector(".rd");
+    if (reader) {
+      const aiBtn = [...document.querySelectorAll(".rd-toolbar .rd-btn")].find(b => (b.textContent||"").includes("助手") || (b.title||"").includes("阅读助手"));
+      if (aiBtn) aiBtn.click();
+      await new Promise(r => setTimeout(r, 500));
+      const assistTab = [...document.querySelectorAll(".rd-zone")].find(b => (b.textContent||"").includes("助手"));
+      if (assistTab) assistTab.click();
+      await new Promise(r => setTimeout(r, 400));
+      const outlineBtn = [...document.querySelectorAll("button")].find(b => (b.textContent||"").includes("逻辑大纲"));
+      if (outlineBtn) {
+        outlineBtn.click();
+        for (let i = 0; i < 90 && !document.querySelector(".rd-vtoggle"); i++) {
+          await new Promise(r => setTimeout(r, 500));
+        }
+      }
+      const infTab = [...document.querySelectorAll(".rd-zone")].find(b => (b.textContent||"").includes("推读"));
+      if (infTab) infTab.click();
+      await new Promise(r => setTimeout(r, 300));
+    }
     return {
       rhx: !!document.querySelector(".rhx"),
       rail: !!document.querySelector(".rh-rail"),
       rows: rows.length,
-      reader: !!document.querySelector(".rd"),
+      reader,
       vtoggle: !!document.querySelector(".rd-vtoggle"),
       flowBtn: [...document.querySelectorAll("button")].some(b => (b.textContent||"").includes("逻辑流程图")),
     };

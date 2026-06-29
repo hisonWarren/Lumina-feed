@@ -40,7 +40,7 @@ if(exists("src/ui/modules/Library.jsx")){ const s=read("src/ui/modules/Library.j
 console.log("\n— 5. 壳接线 —");
 if(exists("src/ui/LuminaApp.jsx")){ const s=read("src/ui/LuminaApp.jsx");
   /import Library from/.test(s)?ok("引入 Library"):bad("未引入 Library");
-  /mode === "library"/.test(s)?ok("渲染 Library（library 视图）"):bad("未渲染 Library");
+  (/view === "library"/.test(s) || /mode === "library"/.test(s))?ok("渲染 Library（library 视图）"):bad("未渲染 Library");
   /我的文献/.test(s)?ok("我的文献 tab"):bad("缺 tab");
   /lib={lib}/.test(s)?ok("传入工作集 lib"):bad("未传 lib");
 }

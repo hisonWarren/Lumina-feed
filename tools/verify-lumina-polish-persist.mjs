@@ -53,6 +53,11 @@ ok(has(reader, ".rd-trwrap") && has(reader, "pmapRef"), "provider_translate Read
 ok(has(reader, ".rd-rail") && has(reader, "sidePanel") && has(reader, "startResize"), "reader_nav_find 侧栏仍在");
 ok(has(ff, "function sortResults") && (has(ff, "pageItems.map") || has(ff, "shown.map")), "reader_nav_find 排序仍在（pageItems 分页渲染）");
 
+console.log("\n[7] 检索会话 keep-alive + localStorage 恢复");
+ok(has(read("src/ui/find-fetch-session.js"), "saveFindFetchSession") && has(read("src/ui/find-fetch-session.js"), "loadFindFetchSession"), "find-fetch-session 模块");
+ok(has(ff, "loadFindFetchSession") && has(ff, "applySnapshot") && has(ff, "ff-session-bar"), "FindFetch 会话恢复 + 会话条");
+ok(has(app, "lf-pane") && has(app, "is-hidden") && has(app, "onSessionChange"), "LuminaApp keep-alive 检索面板");
+
 console.log("\n[6] 括号平衡（JS/JSX）");
 ok(balancedJs(bridge), "lumina-bridge.js 平衡");
 ok(balancedJs(reader), "Reader.jsx 平衡");

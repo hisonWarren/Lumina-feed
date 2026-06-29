@@ -43,7 +43,7 @@ if(exists("src/ui/modules/Subscriptions.jsx")){ const s=read("src/ui/modules/Sub
 console.log("\n— 5. 壳接线 —");
 if(exists("src/ui/LuminaApp.jsx")){ const s=read("src/ui/LuminaApp.jsx");
   /import Subscriptions from/.test(s)?ok("引入 Subscriptions"):bad("未引入");
-  /mode === "subs"/.test(s)?ok("渲染 Subscriptions"):bad("未渲染");
+  (/view === "subs"/.test(s) || /mode === "subs"/.test(s))?ok("渲染 Subscriptions"):bad("未渲染");
   /订阅简报/.test(s)?ok("订阅简报 tab"):bad("缺 tab");
 }
 

@@ -2,17 +2,26 @@
 import type { Paper } from "../model.ts";
 import type { FullTextProvider } from "../summarize/types.ts";
 import { makeFullTextProvider } from "../summarize/fulltext.ts";
-import { resolvePdfCandidates, type ResolveDeps } from "./oa-resolver.ts";
+import {
+  resolvePdfCandidates,
+  immediatePdfCandidates,
+  resolveAltPdfCandidates,
+  type ResolveDeps,
+} from "./oa-resolver.ts";
 import { fetchScihubPdf, type AltMirrorSettings } from "./alt-sources.ts";
 import { orderMirrors } from "./mirror-health.ts";
 import { fetchPdf, type FetchPdfDeps } from "./pdf-fetch.ts";
 import { extractText, type ExtractDeps } from "./pdf-extract.ts";
 import { makeTraceEmitter, traceStepForSource, type FetchTraceCallback } from "./fetch-trace.ts";
 import { attemptSignal } from "./timeout.ts";
+import { candidateKey, type PdfCandidate } from "./candidate.ts";
 
 export interface OaFullTextDeps extends ResolveDeps, FetchPdfDeps, ExtractDeps {
   minChars?: number;
   perAttemptTimeoutMs?: number;
+  oaAttemptTimeoutMs?: number;
+  /** gold/green 等 OA 标注文献：先耗尽 OA 直链再进备用库 */
+  deferAltSources?: boolean;
   mirrorSettings?: AltMirrorSettings;
   onTrace?: FetchTraceCallback;
 }
@@ -29,7 +38,86 @@ export interface FetchPaperFailure {
   reason: string;
 }
 
-/** 按统一候选链抓取 PDF 字节（OA → LibGen → Anna → Sci-Hub）。 */
+export function isOaMarkedPaper(paper: Paper): boolean {
+  const s = String(paper.oaStatus || "").toLowerCase();
+  if (["gold", "green", "hybrid", "bronze"].includes(s)) return true;
+  if (paper.oaUrl || paper.pmcid || paper.arxivId) return true;
+  if (/arxiv\.\d+\.\d+/i.test(String(paper.doi || ""))) return true;
+  return false;
+}
+
+async function tryOneCandidate(
+  cand: PdfCandidate,
+  deps: OaFullTextDeps,
+  trace: ReturnType<typeof makeTraceEmitter> | null,
+  attemptMs: number,
+  scihubMirrorsRef: { current?: string[] },
+): Promise<FetchPaperResult | null> {
+  const stepId = cand.kind === "scihub" ? "scihub" : traceStepForSource(cand.source);
+  trace?.patch("download", "running", cand.source);
+  const t0 = Date.now();
+  const attempt = attemptSignal(deps.signal, attemptMs);
+  try {
+    if (cand.kind === "scihub") {
+      attempt.clear();
+      if (!scihubMirrorsRef.current) {
+        const { ordered } = await orderMirrors("scihub", deps.mirrorSettings, {
+          fetchImpl: deps.fetchImpl,
+          signal: deps.signal,
+        });
+        scihubMirrorsRef.current = ordered;
+      }
+      const got = await fetchScihubPdf(cand.doi, {
+        fetchImpl: deps.fetchImpl,
+        signal: deps.signal,
+        mirrors: scihubMirrorsRef.current,
+      });
+      if (got?.bytes?.byteLength) {
+        trace?.patch(stepId, "ok", "PDF 已获取", Date.now() - t0);
+        trace?.patch("download", "ok", cand.source, Date.now() - t0);
+        trace?.skipRest(stepId);
+        return { ok: true, bytes: got.bytes, url: got.url, source: cand.source };
+      }
+      trace?.patch(stepId, "fail", "镜像无 PDF", Date.now() - t0);
+      return null;
+    }
+    const bytes = await fetchPdf(cand.url, { ...deps, allowAltSources: true, signal: attempt.signal });
+    if (bytes.byteLength) {
+      trace?.patch(stepId, "ok", "PDF 已获取", Date.now() - t0);
+      trace?.patch("download", "ok", cand.source, Date.now() - t0);
+      trace?.skipRest(stepId);
+      return { ok: true, bytes, url: cand.url, source: cand.source };
+    }
+    trace?.patch(stepId, "fail", attempt.timedOut() ? "超时" : "空响应", Date.now() - t0);
+    return null;
+  } catch (e) {
+    const msg = attempt.timedOut() ? "超时" : String((e as Error)?.message || e);
+    trace?.patch(stepId, "fail", msg, Date.now() - t0);
+    return null;
+  } finally {
+    attempt.clear();
+  }
+}
+
+async function tryCandidateList(
+  candidates: PdfCandidate[],
+  deps: OaFullTextDeps,
+  trace: ReturnType<typeof makeTraceEmitter> | null,
+  attemptMs: number,
+  tried: Set<string>,
+): Promise<FetchPaperResult | null> {
+  const scihubMirrorsRef: { current?: string[] } = {};
+  for (const cand of candidates) {
+    const key = candidateKey(cand);
+    if (!key || tried.has(key)) continue;
+    tried.add(key);
+    const hit = await tryOneCandidate(cand, deps, trace, attemptMs, scihubMirrorsRef);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** 按统一候选链抓取 PDF 字节（OA 快路径 → 元数据 enrich → 备用库）。 */
 export async function fetchPaperPdf(paper: Paper, deps: OaFullTextDeps = {}): Promise<FetchPaperResult | FetchPaperFailure> {
   const trace = deps.onTrace ? makeTraceEmitter(deps.onTrace) : null;
   const onTrace = trace
@@ -37,64 +125,62 @@ export async function fetchPaperPdf(paper: Paper, deps: OaFullTextDeps = {}): Pr
       trace.patch(stepId, status, detail, ms)
     : undefined;
 
-  const candidates = await resolvePdfCandidates(paper, {
+  const dlMs = deps.perAttemptTimeoutMs ?? 22_000;
+  const altMs = deps.perAttemptTimeoutMs ?? 22_000;
+  const deferAlt = deps.deferAltSources !== false && isOaMarkedPaper(paper);
+  const tried = new Set<string>();
+
+  trace?.patch("identifiers", "running");
+  const immediate = immediatePdfCandidates(paper);
+  trace?.patch("identifiers", immediate.length ? "ok" : "skip", immediate.length ? `${immediate.length} 个` : undefined);
+
+  if (immediate.length) {
+    const hit = await tryCandidateList(immediate, deps, trace, dlMs, tried);
+    if (hit) {
+      trace?.done("done", { ok: true, source: hit.source });
+      return hit;
+    }
+  }
+
+  const oaEnriched = await resolvePdfCandidates(paper, {
     ...deps,
-    includeAltSources: deps.includeAltSources !== false,
+    includeAltSources: false,
     mirrorSettings: deps.mirrorSettings,
     onTrace,
   });
+  const oaNew = oaEnriched.filter((c) => !tried.has(candidateKey(c)));
+  if (oaNew.length) {
+    const hit = await tryCandidateList(oaNew, deps, trace, dlMs, tried);
+    if (hit) {
+      trace?.done("done", { ok: true, source: hit.source });
+      return hit;
+    }
+  }
 
-  if (!candidates.length) {
+  if (deps.includeAltSources === false) {
+    trace?.patch("download", "fail", "无 OA 直链");
     trace?.done("done", { ok: false, reason: "no_pdf" });
     return { ok: false, reason: "no_pdf" };
   }
 
-  let scihubMirrors: string[] | undefined;
-  const attemptMs = deps.perAttemptTimeoutMs ?? 25_000;
-  for (const cand of candidates) {
-    const stepId = cand.kind === "scihub" ? "scihub" : traceStepForSource(cand.source);
-    trace?.patch("download", "running", cand.source);
-    const t0 = Date.now();
-    const attempt = attemptSignal(deps.signal, attemptMs);
-    try {
-      if (cand.kind === "scihub") {
-        attempt.clear();
-        if (!scihubMirrors) {
-          const { ordered } = await orderMirrors("scihub", deps.mirrorSettings, {
-            fetchImpl: deps.fetchImpl,
-            signal: deps.signal,
-          });
-          scihubMirrors = ordered;
-        }
-        const got = await fetchScihubPdf(cand.doi, {
-          fetchImpl: deps.fetchImpl,
-          signal: deps.signal,
-          mirrors: scihubMirrors,
-        });
-        if (got?.bytes?.byteLength) {
-          trace?.patch(stepId, "ok", "PDF 已获取", Date.now() - t0);
-          trace?.patch("download", "ok", cand.source, Date.now() - t0);
-          trace.done("done", { ok: true, source: cand.source });
-          return { ok: true, bytes: got.bytes, url: got.url, source: cand.source };
-        }
-        trace?.patch(stepId, "fail", "镜像无 PDF", Date.now() - t0);
-        continue;
-      }
-      const bytes = await fetchPdf(cand.url, { ...deps, allowAltSources: true, signal: attempt.signal });
-      if (bytes.byteLength) {
-        trace?.patch(stepId, "ok", "PDF 已获取", Date.now() - t0);
-        trace?.patch("download", "ok", cand.source, Date.now() - t0);
-        trace.done("done", { ok: true, source: cand.source });
-        return { ok: true, bytes, url: cand.url, source: cand.source };
-      }
-      trace?.patch(stepId, "fail", attempt.timedOut() ? "超时" : "空响应", Date.now() - t0);
-    } catch (e) {
-      const msg = attempt.timedOut() ? "超时" : String((e as Error)?.message || e);
-      trace?.patch(stepId, "fail", msg, Date.now() - t0);
-    } finally {
-      attempt.clear();
+  if (deferAlt) {
+    trace?.patch("libgen", "skip", "OA 阶段未命中，进入备用库");
+    trace?.patch("annas", "skip");
+  }
+
+  const altCands = deferAlt
+    ? await resolveAltPdfCandidates(paper, { ...deps, onTrace })
+    : (await resolvePdfCandidates(paper, { ...deps, includeAltSources: true, onTrace }))
+      .filter((c) => !tried.has(candidateKey(c)));
+
+  if (altCands.length) {
+    const hit = await tryCandidateList(altCands, deps, trace, altMs, tried);
+    if (hit) {
+      trace?.done("done", { ok: true, source: hit.source });
+      return hit;
     }
   }
+
   trace?.patch("download", "fail", "全部候选失败");
   trace?.done("done", { ok: false, reason: "no_pdf" });
   return { ok: false, reason: "no_pdf" };
@@ -113,5 +199,5 @@ export function makeOaFullTextProvider(deps: OaFullTextDeps = {}): FullTextProvi
   });
 }
 
-export { resolvePdfCandidates, resolveOa, type ResolveDeps } from "./oa-resolver.ts";
+export { resolvePdfCandidates, resolveOa, immediatePdfCandidates, resolveAltPdfCandidates, type ResolveDeps } from "./oa-resolver.ts";
 export { fetchPdf, extractText };

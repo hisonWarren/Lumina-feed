@@ -17,6 +17,7 @@ exists("src/ui/FetchBadges.jsx") ? ok("FetchBadges.jsx") : bad("缺 FetchBadges.
 if (exists("src/ui/fetch-meta.js")) {
   const m = read("src/ui/fetch-meta.js");
   /FETCH_STAGES/.test(m) && /开放获取/.test(m) && /备用库/.test(m) ? ok("阶段文案 + 用户语言") : bad("缺阶段/来源映射");
+  /stageTextFromTrace/.test(m) && /fetchFailHint/.test(m) ? ok("trace 驱动阶段 + 失败提示") : bad("缺 trace 阶段映射");
   /sourceLabel/.test(m) && /buildFetchedMeta/.test(m) ? ok("sourceLabel + buildFetchedMeta") : bad("缺核心 API");
   /tier.*alt|ALT_SUMMARY_CAVEAT/.test(m) ? ok("alt tier + 总结 caveat") : bad("缺 alt caveat");
   try { execSync(`node --check "${path.join(ROOT, "src/ui/fetch-meta.js")}"`, { stdio: "pipe" }); ok("fetch-meta node --check"); } catch { bad("fetch-meta 语法"); }

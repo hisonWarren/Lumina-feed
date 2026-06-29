@@ -90,16 +90,44 @@ export default function SourceTogglesPanel({ keysConfigured = {}, pushToast, onS
   );
 }
 
-/** P10 · 标识符直达预取开关 */
+/** P10 · 标识符/Primary 定位预取开关 */
 export function PrefetchToggleRow({ value, onChange }) {
-  const on = !!value;
+  const on = value !== false;
   return (
     <div className="set-kv lf-prefetch-row">
       <div className="set-kv-main">
-        <span className="set-lbl">标识符直达预取全文</span>
-        <span className="set-kv-d">DOI / PMID / arXiv 解析成功后，后台静默尝试获取 PDF；卡片显示「全文就绪」。默认关闭。</span>
+        <span className="set-lbl">定位命中预取全文</span>
+        <span className="set-kv-d">DOI / PMID / 标题 Primary 定位成功后，后台静默获取 PDF；卡片显示「取来中 → 全文就绪」。默认开启。</span>
       </div>
-      <button role="switch" aria-checked={on} className={"set-switch" + (on ? " on" : "")} onClick={() => onChange(!on)} aria-label="标识符预取开关"><i /></button>
+      <button role="switch" aria-checked={on} className={"set-switch" + (on ? " on" : "")} onClick={() => onChange(!on)} aria-label="定位预取开关"><i /></button>
+    </div>
+  );
+}
+
+/** OA 检索结果预取 */
+export function OaPrefetchToggleRow({ value, onChange }) {
+  const on = value !== false;
+  return (
+    <div className="set-kv lf-prefetch-row">
+      <div className="set-kv-main">
+        <span className="set-lbl">OA 检索结果预取</span>
+        <span className="set-kv-d">检索列表中 gold/green OA 文献进入视口后后台取文（最多 4 篇并行）。默认开启。</span>
+      </div>
+      <button role="switch" aria-checked={on} className={"set-switch" + (on ? " on" : "")} onClick={() => onChange(!on)} aria-label="OA 预取开关"><i /></button>
+    </div>
+  );
+}
+
+/** Primary 定位成功后自动打开阅读器 */
+export function PrimaryAutoOpenToggleRow({ value, onChange }) {
+  const on = value !== false;
+  return (
+    <div className="set-kv lf-prefetch-row">
+      <div className="set-kv-main">
+        <span className="set-lbl">定位成功自动阅读</span>
+        <span className="set-kv-d">标题 Primary / 标识符定位且全文就绪后，自动打开阅读器（不打扰时可关）。默认开启。</span>
+      </div>
+      <button role="switch" aria-checked={on} className={"set-switch" + (on ? " on" : "")} onClick={() => onChange(!on)} aria-label="自动打开阅读器开关"><i /></button>
     </div>
   );
 }

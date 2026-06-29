@@ -18,9 +18,12 @@ import { parseDoaj } from "../src/core/sources/doaj.ts";
 import { parseDatacite } from "../src/core/sources/datacite.ts";
 import { classifyInput, parseIdentifier } from "../src/core/locate/parse-identifier.ts";
 import { jaccard } from "../src/core/locate/enrich-metadata.ts";
-import { shouldPrefetchIdentifier } from "../src/core/locate/prefetch-eligibility.ts";
+import { shouldPrefetchIdentifier, shouldPrefetchOaResult } from "../src/core/locate/prefetch-eligibility.ts";
 import { selectAdapters } from "../src/core/sources/index.ts";
+import { bm25Rank, parseQuery } from "../src/core/rank/bm25.ts";
+import { pickPrimaryHit } from "../src/core/locate/primary-hit.ts";
 import { normalize } from "../src/core/normalize.ts";
+import { stageTextFromTrace, fetchProgressUi, fetchFailHint } from "../src/ui/fetch-meta.js";
 
 let ok = 0, ng = 0;
 const t = (n: string, c: boolean) => { console.log((c ? "✓" : "✗") + " " + n); c ? ok++ : ng++; };
@@ -39,19 +42,50 @@ t("去重键 s2 回退", dedupeKeyExt({ s2Id: "S9", title: "t", authors: [] } as
 t("去重键 fp 兜底", /^fp:/.test(dedupeKeyExt({ title: "Some Title", authors: ["Jane Roe"], year: 2020 } as any)));
 
 t("locate: DOI 识别", classifyInput("10.1038/nature12373") === "doi");
+t("locate: doi: 前缀", classifyInput("doi:10.1038/nature12373") === "doi");
+t("locate: DOI: 大写前缀", classifyInput("DOI:10.1038/nature12373") === "doi");
+t("locate: https doi.org", classifyInput("https://doi.org/10.1038/nature12373") === "doi");
+t("locate: http dx.doi.org", classifyInput("http://dx.doi.org/10.1038/nature12373") === "doi");
 t("locate: PMID 识别", classifyInput("pmid:12345678") === "pmid");
 t("locate: arXiv 识别", !!parseIdentifier("2301.00001")?.kind && parseIdentifier("2301.00001")!.kind === "arxiv");
 t("locate: 文本非标识符", classifyInput("covid vaccine") === "text");
 t("enrich: jaccard 高匹配", jaccard("machine learning transformer", "machine learning transformer") === 1);
 t("enrich: jaccard 低匹配", jaccard("covid vaccine efficacy", "deep learning vision") < 0.5);
 
+t("bm25: 子串命中非 title_exact", (() => {
+  const pq = parseQuery("covid vaccine efficacy", "title");
+  const r = bm25Rank([{ title: "Pfizer COVID vaccine efficacy in children aged 5-11 years." }], pq)[0];
+  return r?.matchKind === "title_strong";
+})());
+t("pickPrimary: covid 子串为 title_strong 主候选", (() => {
+  const papers = [{ id: "1", title: "Pfizer COVID vaccine efficacy in children aged 5-11 years." }];
+  const hit = pickPrimaryHit(papers, "covid vaccine efficacy");
+  return hit?.matchKind === "title_strong" && hit.ambiguous === true;
+})());
+t("bm25: 整句一致才 title_exact", (() => {
+  const q = "covid vaccine efficacy in adults";
+  const pq = parseQuery(q, "title");
+  const r = bm25Rank([{ title: "COVID vaccine efficacy in adults" }], pq)[0];
+  return r?.matchKind === "title_exact";
+})());
+
 t("prefetch: 高置信 DOI 可预取", shouldPrefetchIdentifier("identifier", ["crossref"], { doi: "10.1/x" }, { prefetchOnIdentifier: true }, false) === true);
-t("prefetch: 默认关不预取", shouldPrefetchIdentifier("identifier", ["crossref"], { doi: "10.1/x" }, {}, false) === false);
+t("prefetch: 默认开可预取", shouldPrefetchIdentifier("identifier", ["crossref"], { doi: "10.1/x" }, {}, false) === true);
+t("prefetch: 显式关不预取", shouldPrefetchIdentifier("identifier", ["crossref"], { doi: "10.1/x" }, { prefetchOnIdentifier: false }, false) === false);
 t("prefetch: doi_stub 不预取", shouldPrefetchIdentifier("identifier", ["doi_stub"], { doi: "10.1/x" }, { prefetchOnIdentifier: true }, false) === false);
+t("prefetch: OA gold 默认可预取", shouldPrefetchOaResult({ doi: "10.1/x", oaStatus: "gold" }, {}, false) === true);
+t("prefetch: OA 显式关不预取", shouldPrefetchOaResult({ doi: "10.1/x", oaStatus: "green" }, { prefetchOaResults: false }, false) === false);
 t("selectAdapters 尊重 disabled", selectAdapters(undefined, {}, ["zenodo", "libgen"]).every((a) => a.id !== "zenodo" && a.id !== "libgen"));
 t("normalize journal 非字符串不抛", (() => { try { normalize({ source: "x", title: "T", authors: [], journal: 123 as any }); return true; } catch { return false; } })());
 
 t("限速表含 19 源默认", Object.keys(DEFAULT_INTERVALS).length >= 19);
+
+t("stageTextFromTrace: 下载步", (stageTextFromTrace([{ id: "download", label: "下载 PDF", status: "running", detail: "arxiv" }]) || "").includes("下载"));
+t("stageTextFromTrace: 备用库", (stageTextFromTrace([{ id: "libgen", label: "LibGen", status: "running" }]) || "").includes("备用库"));
+t("stageTextFromTrace: 解析 OA", (stageTextFromTrace([{ id: "unpaywall", label: "Unpaywall", status: "running" }]) || "").includes("查找"));
+t("fetchProgressUi: trace 优先于计时", fetchProgressUi({ startedAt: Date.now() - 60000, trace: [{ id: "download", label: "下载 PDF", status: "running" }] }).stageText.includes("下载"));
+t("fetchFailHint: no_pdf", fetchFailHint("no_pdf").includes("未找到"));
+t("fetchFailHint: timeout", fetchFailHint("download_timeout").includes("超时"));
 
 // P2 adapter parse（样本 JSON，无网络）
 t("parseCore doi", parseCore({ results: [{ doi: "10.1/X", title: "T", authors: [{ name: "A" }], downloadUrl: "U" }] })[0]?.doi === "10.1/x");

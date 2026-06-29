@@ -9,7 +9,7 @@ import { THEMES } from "../themes.js";
 import { CURATED_MODELS, PROVIDER_DEFAULT_MODEL, OLLAMA_MODEL_PRESETS } from "../../core/summarize/model-presets.ts";
 import SourceKeysPanel from "../components/SourceKeysPanel.jsx";
 import MirrorSettingsPanel from "../components/MirrorSettingsPanel.jsx";
-import SourceTogglesPanel, { PrefetchToggleRow } from "../components/SourceTogglesPanel.jsx";
+import SourceTogglesPanel, { PrefetchToggleRow, OaPrefetchToggleRow, PrimaryAutoOpenToggleRow } from "../components/SourceTogglesPanel.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 
 // provider 预设：id 即引擎 LlmConfig.provider；密钥名 = `${id}_key`；ollama 无需 key；自定义需 baseUrl。
@@ -173,7 +173,9 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
   const [userDataPath, setUserDataPath] = useState("");
   const [searchDepth, setSearchDepth] = useState("standard");
   const [altMirrors, setAltMirrors] = useState({});
-  const [prefetchOnIdentifier, setPrefetchOnIdentifier] = useState(false);
+  const [prefetchOnIdentifier, setPrefetchOnIdentifier] = useState(true);
+  const [prefetchOaResults, setPrefetchOaResults] = useState(true);
+  const [primaryAutoOpenReader, setPrimaryAutoOpenReader] = useState(true);
   const [keysConfigured, setKeysConfigured] = useState({});
   const [llmKeySaved, setLlmKeySaved] = useState(false);
   const backend = hasBackend();
@@ -355,6 +357,11 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
       if (s.searchDepth === "full" || s.searchDepth === "standard") setSearchDepth(s.searchDepth);
       if (s.altMirrors && typeof s.altMirrors === "object") setAltMirrors(s.altMirrors);
       if (typeof s.prefetchOnIdentifier === "boolean") setPrefetchOnIdentifier(s.prefetchOnIdentifier);
+      else setPrefetchOnIdentifier(true);
+      if (typeof s.prefetchOaResults === "boolean") setPrefetchOaResults(s.prefetchOaResults);
+      else setPrefetchOaResults(true);
+      if (typeof s.primaryAutoOpenReader === "boolean") setPrimaryAutoOpenReader(s.primaryAutoOpenReader);
+      else setPrimaryAutoOpenReader(true);
       if (typeof s.notifications === "boolean") setNotifications(s.notifications);
       if (s.digestNotifyTier === "calm" || s.digestNotifyTier === "regular" || s.digestNotifyTier === "power") setDigestNotifyTier(s.digestNotifyTier);
       if (s.app) {
@@ -605,7 +612,23 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                   onChange={async (v) => {
                     setPrefetchOnIdentifier(v);
                     await persistSettings((cur) => ({ ...cur, prefetchOnIdentifier: v }));
-                    pushToast && pushToast(v ? "已开启标识符预取" : "已关闭标识符预取");
+                    pushToast && pushToast(v ? "已开启定位预取" : "已关闭定位预取");
+                  }}
+                />
+                <OaPrefetchToggleRow
+                  value={prefetchOaResults}
+                  onChange={async (v) => {
+                    setPrefetchOaResults(v);
+                    await persistSettings((cur) => ({ ...cur, prefetchOaResults: v }));
+                    pushToast && pushToast(v ? "已开启 OA 检索预取" : "已关闭 OA 检索预取");
+                  }}
+                />
+                <PrimaryAutoOpenToggleRow
+                  value={primaryAutoOpenReader}
+                  onChange={async (v) => {
+                    setPrimaryAutoOpenReader(v);
+                    await persistSettings((cur) => ({ ...cur, primaryAutoOpenReader: v }));
+                    pushToast && pushToast(v ? "定位成功后自动打开阅读器" : "已关闭自动打开阅读器");
                   }}
                 />
                 <SourceTogglesPanel

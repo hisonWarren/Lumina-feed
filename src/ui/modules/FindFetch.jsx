@@ -4,6 +4,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Search, FileDown, BookOpen, Bookmark, ExternalLink, Check, AlertTriangle, X, Loader, Sparkles, Calendar, ArrowUpDown, ChevronDown, Info } from "lucide-react";
 import { bridge, hasBackend, toCardModel } from "../lumina-bridge.js";
+import { refreshCardMatchKinds } from "../lib/refresh-match-kind.js";
 import { persistSettings } from "../settings-persist.js";
 import { isDoi, normDoi, isIdentifierLike, identifierLabel, escapeRe } from "../lib-store.js";
 import SummaryDrawer from "./SummaryDrawer.jsx";
@@ -22,6 +23,10 @@ import GoogleScholarLink from "../components/GoogleScholarLink.jsx";
 import ResultsPager from "../components/ResultsPager.jsx";
 import { pageSlice, clampPage } from "../lib/paginate.js";
 import { stableMerge, adoptRanking, mergeStreamResults } from "../lib/stable-order.js";
+import {
+  saveFindFetchSession, loadFindFetchSession, clearFindFetchSession,
+  formatSessionAge, sessionSummary,
+} from "../find-fetch-session.js";
 
 // 预览用 mock（无引擎时）
 const MOCK = [
@@ -70,6 +75,11 @@ const FF_CSS = `
 .ff-card.ff-primary{border-color:color-mix(in srgb,var(--gold) 45%,var(--line));box-shadow:0 0 0 1px color-mix(in srgb,var(--gold) 18%,transparent)}
 .ff-enrich{font-size:12px;color:var(--ink3);margin-left:6px}
 .ff-track{max-width:958px;margin:0 auto;width:100%}
+.ff-session-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;max-width:958px;margin:0 auto 10px;padding:8px 12px;background:var(--surf2);border:1px solid var(--line);border-radius:10px;font-size:12px;color:var(--ink2);line-height:1.45}
+.ff-session-bar strong{font-weight:600;color:var(--ink)}
+.ff-session-h{flex:1;min-width:140px;font-size:11px;color:var(--ink4)}
+.ff-session-new{margin-left:auto;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:8px;padding:4px 10px;font-size:11.5px;cursor:pointer;font-family:inherit}
+.ff-session-new:hover{border-color:var(--gold);color:var(--gold)}
 .ff-sources{display:inline-flex;align-items:center;flex-wrap:wrap;gap:7px;margin:0 0 16px;padding:9px 13px;width:fit-content;max-width:100%;background:var(--surf2);border:1px solid var(--line);border-radius:11px}
 .ff-src-label{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--ink3);font-weight:600;margin-right:3px}
 .ff-src-label svg{color:var(--ink3)}
@@ -110,7 +120,10 @@ function engineSortMode(by) {
 }
 
 let _searchSeq = 0;
-export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetch, onReadPaper, onSave, inLibFn, pushToast, onOpenSettings }) {
+export default function FindFetch({
+  fetchedMeta, fetchingMeta, fetchTick, onFetch, onReadPaper, onSave, inLibFn, pushToast, onOpenSettings,
+  onSessionChange, active = true,
+}) {
   const [q, setQ] = useState("");
   const [submitted, setSubmitted] = useState("");
   const [results, setResults] = useState([]);
@@ -148,6 +161,56 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
   const idAutoRef = useRef("");
   const lastFiltersRef = useRef(null);
   const ref = useRef(null);
+  const resultsScrollRef = useRef(null);
+  const sessionBootRef = useRef(false);
+  const [sessionTs, setSessionTs] = useState(0);
+
+  const applySnapshot = useCallback((snap) => {
+    if (!snap) return;
+    if (snap.q != null) setQ(snap.q);
+    if (snap.submitted) setSubmitted(snap.submitted);
+    if (Array.isArray(snap.results)) {
+      const refreshed = refreshCardMatchKinds(snap.results, snap.submitted || snap.q, snap.field || "all");
+      setResults(refreshed);
+      latestRanked.current = refreshed;
+    }
+    if (snap.sortBy) setSortBy(snap.sortBy);
+    if (snap.field) setField(snap.field);
+    if (snap.yearFrom != null) setYearFrom(String(snap.yearFrom));
+    if (snap.yearTo != null) setYearTo(String(snap.yearTo));
+    if (snap.page) setPage(snap.page);
+    if (snap.pageSize) setPageSize(snap.pageSize);
+    if (snap.perSource) setPerSource(snap.perSource);
+    if (snap.mergedCount != null) setMergedCount(snap.mergedCount);
+    if (snap.resolvedFrom) setResolvedFrom(snap.resolvedFrom);
+    if (snap.locateMode) setLocateMode(snap.locateMode);
+    if (snap.primaryPaperId) setPrimaryPaperId(snap.primaryPaperId);
+    if (typeof snap.primaryAmbiguous === "boolean") setPrimaryAmbiguous(snap.primaryAmbiguous);
+    if (snap.identifierError) setIdentifierError(snap.identifierError);
+    if (typeof snap.expandedOnce === "boolean") setExpandedOnce(snap.expandedOnce);
+    if (typeof snap.showExpand === "boolean") setShowExpand(snap.showExpand);
+    if (Array.isArray(snap.recent)) setRecent(snap.recent);
+    if (snap.lastFilters) lastFiltersRef.current = snap.lastFilters;
+    if (snap.ts) setSessionTs(snap.ts);
+    setLoading(false);
+    setErr(null);
+    if (snap.scrollTop != null) {
+      requestAnimationFrame(() => {
+        const el = resultsScrollRef.current;
+        if (el) el.scrollTop = snap.scrollTop;
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (sessionBootRef.current) return;
+    sessionBootRef.current = true;
+    const snap = loadFindFetchSession();
+    if (snap?.submitted) {
+      applySnapshot(snap);
+      onSessionChange?.(sessionSummary(snap));
+    }
+  }, [applySnapshot, onSessionChange]);
 
   useEffect(() => {
     let alive = true;
@@ -218,6 +281,8 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
     const term = (val !== undefined ? val : q).trim();
     if (!term) return;
     if (val !== undefined) setQ(val);
+    setSubmitted(term);
+    setSessionTs(Date.now());
     setLoading(true); setErr(null); setResults([]); setPerSource(null); setMergedCount(null); setPendingSort(0); latestRanked.current = [];
     setResolvedFrom(null); setShowExpand(false); setLocateMode(null); setIdentifierError(null);
     setPrimaryPaperId(null); setPrimaryAmbiguous(false);
@@ -244,7 +309,7 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
           const stop = bridge.searchOnlineStream(searchTerm, filters, reqId, (ev) => {
             if (!ev || ev.reqId !== curReq.current) return;
             if (Array.isArray(ev.papers)) {
-              const cards = ev.papers.map((p) => (p && (p.matched || p._live) ? p : toCardModel(p, searchTerm)));
+              const cards = ev.papers.map((p) => toCardModel(p, searchTerm));
               latestRanked.current = cards;
               setResults((prev) => {
                 const { items, appended } = mergeStreamResults(prev, cards, ev.primaryPaperId);
@@ -311,7 +376,6 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
         if (filters.yearTo) list = list.filter((p) => !p.year || p.year <= filters.yearTo);
         if (curReq.current === reqId) setResults(list);
       }
-      if (curReq.current === reqId) setSubmitted(term);
     } catch (e) {
       if (curReq.current === reqId) { setErr("检索失败，请稍后重试。"); setResults([]); setShowExpand(false); }
     } finally {
@@ -342,7 +406,15 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
     } finally { setRetryingSource(null); }
   }, [submitted, q, field, sortBy]);
 
-  const clear = () => { setQ(""); setSubmitted(""); setResults([]); ref.current && ref.current.focus(); };
+  const clear = () => {
+    clearFindFetchSession();
+    onSessionChange?.(null);
+    setSessionTs(0);
+    setQ(""); setSubmitted(""); setResults([]); setPerSource(null); setMergedCount(null);
+    setLocateMode(null); setPrimaryPaperId(null); setResolvedFrom(null); setErr(null);
+    setPage(1); latestRanked.current = [];
+    ref.current && ref.current.focus();
+  };
   const openDoi = (doi) => { bridge.openExternal("https://doi.org/" + doi); };
   const handleFetch = async (p) => {
     const r = await onFetch(p);
@@ -354,6 +426,40 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
   const safePage = clampPage(page, total, pageSize);
   const pageItems = pageSlice(shown, safePage, pageSize);
   const fieldLabel = (FIELD_OPTS.find((o) => o.id === field) || FIELD_OPTS[0]).label;
+  const sessionAge = sessionTs ? formatSessionAge(sessionTs, Date.now() + (fetchTick * 0)) : "";
+
+  useEffect(() => {
+    if (!submitted) return;
+    const summary = sessionSummary({
+      submitted,
+      results,
+      loading,
+      ts: sessionTs || Date.now(),
+    });
+    onSessionChange?.(summary);
+    const t = setTimeout(() => {
+      const scrollTop = resultsScrollRef.current?.scrollTop ?? 0;
+      const ts = sessionTs || Date.now();
+      saveFindFetchSession({
+        q, submitted, results, sortBy, field, yearFrom, yearTo, page, pageSize,
+        perSource, mergedCount, resolvedFrom, locateMode, primaryPaperId, primaryAmbiguous,
+        identifierError, expandedOnce, showExpand, recent, lastFilters: lastFiltersRef.current,
+        loading, scrollTop, ts,
+      });
+    }, 350);
+    return () => clearTimeout(t);
+  }, [
+    q, submitted, results, loading, sortBy, field, yearFrom, yearTo, page, pageSize,
+    perSource, mergedCount, resolvedFrom, locateMode, primaryPaperId, primaryAmbiguous,
+    identifierError, expandedOnce, showExpand, recent, sessionTs, onSessionChange,
+  ]);
+
+  useEffect(() => {
+    if (!active || !submitted) return;
+    const el = resultsScrollRef.current;
+    if (!el) return;
+    requestAnimationFrame(() => { el.focus({ preventScroll: true }); });
+  }, [active, submitted]);
 
   useEffect(() => { setPage(1); }, [submitted, sortBy, field]);
 
@@ -367,6 +473,25 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [submitted, shown.length, pageSize]);
+
+  useEffect(() => {
+    if (!submitted) return;
+    if (!hasBackend() || !bridge.schedulePrefetch) return;
+    const root = document.querySelector(".ff-results");
+    if (!root) return;
+    const cards = root.querySelectorAll(".ff-card[data-paper-id]");
+    if (!cards.length) return;
+    const io = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const id = entry.target.getAttribute("data-paper-id");
+        if (!id || isFetched(fetchedMeta[id]) || fetchingMeta[id]) continue;
+        void bridge.schedulePrefetch(id, { priority: "normal" });
+      }
+    }, { root, rootMargin: "100px", threshold: 0.12 });
+    cards.forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, [submitted, pageItems, fetchedMeta, fetchingMeta]);
 
   return (
     <div className="ff">
@@ -394,7 +519,7 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
           {idTag && <span className="ff-idtag">{idTag}</span>}
           {q && <button className="ff-clr" onClick={clear} title="清除"><X size={14} /></button>}
         </div>
-        {recent.length > 0 && !submitted && (
+        {recent.length > 0 && !submitted && !loading && (
           <div className="ff-recent"><span className="ff-rl">最近</span>{recent.map((t) => <button key={t} className="ff-chip" onClick={() => run(t)}>{t.length > 30 ? t.slice(0, 30) + "…" : t}</button>)}</div>
         )}
         <div className="ff-tools">
@@ -445,7 +570,14 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
         )}
       </div>
 
-      <div className="ff-results">
+      <div className="ff-results" ref={resultsScrollRef} tabIndex={-1}>
+        {submitted && (
+          <div className="ff-session-bar" role="status">
+            <span><strong>本次检索</strong> · {total} 条{sessionAge ? ` · ${sessionAge}` : ""}{loading ? " · 仍在补充…" : ""}</span>
+            <span className="ff-session-h">切换模块不会清空；后台预取继续。要开始新的定位请点「新检索」。</span>
+            <button type="button" className="ff-session-new" onClick={clear}>新检索</button>
+          </div>
+        )}
         {submitted && perSource && Object.keys(perSource).length > 0 && (
           <div className="ff-track">
             {locateMode === "primary" && results.length > 0 && (
@@ -473,15 +605,7 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
             <EmailPrompt variant="search" onDismiss={dismissSearchEmail} />
           </div>
         )}
-        {loading && results.length === 0 ? (
-          <div className="ff-track">
-            <div className="lf-skel"><div className="ln" style={{ width: "72%" }} /><div className="ln" style={{ width: "48%" }} /><div className="ln" style={{ width: "88%" }} /></div>
-            <div className="lf-skel"><div className="ln" style={{ width: "65%" }} /><div className="ln" style={{ width: "40%" }} /></div>
-            <p className="ff-more"><Loader size={14} className="ff-spin" /> 正在定位…首包通常来自 Crossref / OpenAlex 标题检索</p>
-          </div>
-        ) : err ? (
-          <div className="ff-empty"><AlertTriangle size={24} /><h2>{err}</h2></div>
-        ) : !submitted ? (
+        {!submitted && !loading ? (
           <div className="ff-empty">
             <Search size={28} strokeWidth={1.6} />
             <h2>找到那篇，然后拿来用</h2>
@@ -491,6 +615,14 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
               <span className="ff-chip ff-hint-only">或输入标题 / 作者 / 关键词</span>
             </div>
           </div>
+        ) : loading && results.length === 0 ? (
+          <div className="ff-track">
+            <div className="lf-skel"><div className="ln" style={{ width: "72%" }} /><div className="ln" style={{ width: "48%" }} /><div className="ln" style={{ width: "88%" }} /></div>
+            <div className="lf-skel"><div className="ln" style={{ width: "65%" }} /><div className="ln" style={{ width: "40%" }} /></div>
+            <p className="ff-more"><Loader size={14} className="ff-spin" /> 正在检索「{submitted}」…首包通常来自 Crossref / OpenAlex</p>
+          </div>
+        ) : err ? (
+          <div className="ff-empty"><AlertTriangle size={24} /><h2>{err}</h2></div>
         ) : results.length === 0 ? (
           <div className="ff-empty">
             <Search size={24} /><h2>未找到匹配</h2>
@@ -505,7 +637,7 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
         ) : (
           <>
           {pageItems.map((p) => {
-            const isPrimary = p.id === primaryPaperId || (locateMode === "primary" && p.matchKind === "title_exact" && pageItems[0]?.id === p.id);
+            const isPrimary = p.id === primaryPaperId;
             const meta = fetchedMeta[p.id];
             const got = isFetched(meta);
             const fmeta = fetchingMeta[p.id];
@@ -513,7 +645,7 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
             const prog = isFetching ? fetchProgressUi(fmeta, Date.now()) : null;
             const saved = inLibFn(p.id);
             return (
-              <div className={"ff-card" + (isPrimary ? " ff-primary" : "")} key={p.id}>
+              <div className={"ff-card" + (isPrimary ? " ff-primary" : "")} key={p.id} data-paper-id={p.id}>
                 <MatchBadge kind={p.matchKind} primary={isPrimary && locateMode === "primary"} />
                 <div className="ff-title" onClick={() => openDoi(p.doi)}>{hi(p.title, p.matched)}</div>
                 <div className="ff-meta">{(p.authors || []).slice(0, 4).join(", ")}{(p.authors || []).length > 4 ? " et al." : ""} · {p.journal || p.abbr}{p.year ? ` · ${p.year}` : ""}</div>
@@ -521,17 +653,16 @@ export default function FindFetch({ fetchedMeta, fetchingMeta, fetchTick, onFetc
                 <BadgeRow paper={p} />
                 <SourceChips paper={p} sources={p.hitSources} />
                 <AbstractSnippet text={p.abstract} />
-                <FetchBadges p={p} fetchedMeta={meta} />
+                <FetchBadges p={p} fetchedMeta={meta} fetchingMeta={fmeta} />
                 {fetchEmailPaper && fetchEmailPaper.id === p.id && (
                   <EmailPrompt variant="fetch" onSave={saveEmail} onDismiss={(a) => { if (a === "settings" && onOpenSettings) onOpenSettings("sources"); else setFetchEmailPaper(null); }} />
                 )}
                 {isFetching && fmeta && fmeta.trace && <FetchTrace steps={fmeta.trace} compact />}
                 <div className="ff-actions lf-actions">
-                  <button className={"ff-act ff-ft" + (got ? " on" : "") + (isFetching ? " loading" : "")} disabled={isFetching}
-                    onClick={() => handleFetch(p)}>
-                    {isFetching ? <><Loader size={13} className="ff-spin" /> {prog.stageText}{prog.elapsed >= 5 ? <span className="ff-soon"> · {prog.elapsed}s</span> : null}</> : got ? <><Check size={13} /> 已取全文</> : <><FileDown size={13} /> 获取全文</>}
+                  <button className={"ff-act ff-ft" + (got ? " on" : "") + (isFetching ? " loading" : "")} disabled={isFetching && !got}
+                    onClick={() => (got ? onReadPaper(p) : handleFetch(p))}>
+                    {isFetching && !got ? <><Loader size={13} className="ff-spin" /> {prog?.stageText || "取来中"}{prog && prog.elapsed >= 5 ? <span className="ff-soon"> · {prog.elapsed}s</span> : null}</> : got ? <><BookOpen size={13} /> 阅读</> : <><FileDown size={13} /> 获取全文</>}
                   </button>
-                  {got && <button className="ff-act" onClick={() => onReadPaper(p)}><BookOpen size={13} /> 阅读</button>}
                   <button className="ff-act" onClick={() => setSel(p)}><Sparkles size={13} /> AI 总结</button>
                   <button className={"ff-act" + (saved ? " on" : "")} onClick={() => onSave(p)}><Bookmark size={13} fill={saved ? "currentColor" : "none"} /> {saved ? "已收藏" : "收藏"}</button>
                   <CitationActions paper={p} onToast={pushToast} />

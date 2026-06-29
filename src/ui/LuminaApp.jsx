@@ -9,7 +9,7 @@ import ReaderModule from "./modules/ReadHub.jsx";
 import Settings from "./modules/Settings.jsx";
 import Library from "./modules/Library.jsx";
 import Subscriptions from "./modules/Subscriptions.jsx";
-import { buildFetchedMeta, isFetched, fetchProgressUi, metaFromAsset } from "./fetch-meta.js";
+import { buildFetchedMeta, isFetched, fetchProgressUi, metaFromAsset, fetchFailHint } from "./fetch-meta.js";
 import EmailPrompt from "./components/EmailPrompt.jsx";
 import ConfirmDialog from "./components/ConfirmDialog.jsx";
 import AppContextMenu from "./components/AppContextMenu.jsx";
@@ -28,6 +28,14 @@ body{background:#F4F4F1;font-family:Inter,system-ui,sans-serif}
 .lf-wm .nm{font-family:'Source Serif 4',Georgia,serif;font-weight:600;font-size:17px;letter-spacing:-.01em;color:var(--ink)}
 .lf-wm .tg{font-family:'Space Mono',monospace;font-size:8.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--ink3);margin-top:3px}
 .lf-stage{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}
+.lf-pane{flex:1;min-height:0;display:flex;flex-direction:column;width:100%}
+.lf-pane.is-hidden{display:none!important}
+.lf-tab-label{white-space:nowrap}
+.lf-tab-hint{font-size:11px;font-weight:400;opacity:.82;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'Space Mono',monospace}
+.lf-tab.on .lf-tab-hint{opacity:.92}
+.lf-tab-pulse{width:6px;height:6px;border-radius:50%;background:var(--amber);flex-shrink:0;animation:ff-pulse 1.2s ease-in-out infinite}
+.lf-badge-soft{min-width:14px;height:14px;padding:0 4px;font-size:9px;background:color-mix(in srgb,var(--gold) 22%,var(--surf2));color:var(--gold);border:1px solid var(--gold-line)}
+.lf-tab.on .lf-badge-soft{background:rgba(255,255,255,.22);color:#fff;border-color:rgba(255,255,255,.35)}
 .lf-nav{display:flex;gap:3px;margin:0 auto;background:var(--surf2);padding:4px;border-radius:12px;border:1px solid var(--line)}
 .lf-tab{display:inline-flex;align-items:center;gap:7px;border:none;background:transparent;color:var(--ink2);border-radius:9px;padding:7px 14px;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;transition:background .16s,color .16s,box-shadow .16s}
 .lf-tab:hover{color:var(--ink)}
@@ -80,6 +88,8 @@ body{background:#F4F4F1;font-family:Inter,system-ui,sans-serif}
 .ff-b-oa{color:var(--gold)}
 .ff-b-ft,.sd-b-ft,.dg-b-ft,.lib-b-ft{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 35%,transparent)}
 .ff-b-ready,.sd-b-ready,.dg-b-ready,.lib-b-ready{color:var(--gold);border-color:color-mix(in srgb,var(--gold) 35%,transparent);font-weight:600}
+.ff-b-fetching,.sd-b-fetching,.dg-b-fetching,.lib-b-fetching{color:var(--gold);border-color:color-mix(in srgb,var(--gold) 28%,transparent);animation:ff-pulse 1.4s ease-in-out infinite}
+@keyframes ff-pulse{0%,100%{opacity:1}50%{opacity:.65}}
 .ff-b-alt,.sd-b-alt,.dg-b-alt,.lib-b-alt{color:var(--ink2);border-color:var(--line2)}
 .ff-b-nooa,.sd-b-nooa,.dg-b-nooa,.lib-b-nooa{color:var(--ink3)}
 .ff-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
@@ -245,6 +255,9 @@ export default function LuminaApp() {
     });
   }, []);
 
+  const [primaryAutoOpen, setPrimaryAutoOpen] = useState(true);
+  const primaryAutoOpenRef = useRef(true);
+
   const pushToast = useCallback((msg) => {
     const id = Date.now();
     setToasts((t) => [...t, { id, msg }]);
@@ -252,31 +265,13 @@ export default function LuminaApp() {
   }, []);
 
   useEffect(() => {
-    if (!hasBackend() || !bridge.onPrefetchStart || !bridge.onPrefetchDone) return;
-    const offStart = bridge.onPrefetchStart(({ paperId }) => {
-      setFetchingMeta((m) => ({
-        ...m,
-        [paperId]: { startedAt: Date.now(), trace: null, prefetching: true },
-      }));
-    });
-    const offDone = bridge.onPrefetchDone(({ paperId, result }) => {
-      setFetchingMeta((m) => { const n = { ...m }; delete n[paperId]; return n; });
-      const meta = buildFetchedMeta(result, { prefetched: !result?.cached });
-      if (meta) {
-        setFetchedMeta((m) => ({ ...m, [paperId]: meta }));
-        refreshLib();
-        pushToast(result?.cached ? "全文已在本地" : "全文已就绪（后台预取）· 已加入我的文献");
-      }
-    });
-    const offFail = bridge.onPrefetchFail?.(({ paperId, result }) => {
-      setFetchingMeta((m) => { const n = { ...m }; delete n[paperId]; return n; });
-      const why = result?.reason || "no_pdf";
-      if (why !== "missing_email") {
-        pushToast("后台预取未成功，可手动点「获取全文」");
-      }
-    });
-    return () => { offStart && offStart(); offDone && offDone(); offFail && offFail(); };
-  }, [pushToast, refreshLib]);
+    if (!hasBackend()) return;
+    bridge.getSettings().then((s) => {
+      const on = s?.primaryAutoOpenReader !== false;
+      setPrimaryAutoOpen(on);
+      primaryAutoOpenRef.current = on;
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!Object.keys(fetchingMeta).length) return;
@@ -322,12 +317,11 @@ export default function LuminaApp() {
           pushToast("已获取全文 · " + meta.label + " · 已保存到本机，可在阅读或我的文献打开");
         } else {
           const why = r && r.reason;
-          if (why === "missing_email") {
-            pushToast("请填写联络邮箱以启用 Unpaywall 合法 OA 取文");
+          const hint = fetchFailHint(why);
+          if (hint) {
+            pushToast(hint);
           } else {
-            pushToast(why === "no_pdf" || why === "no_oa"
-              ? "未能自动获取全文——可经机构订阅或向作者索取"
-              : "取文未成功（" + (why || "未知原因") + "）。可稍后重试或经机构访问");
+            pushToast("取文未成功（" + (why || "未知原因") + "）。可稍后重试或经机构访问");
           }
         }
         return r;
@@ -410,6 +404,37 @@ export default function LuminaApp() {
     setMode("read");
   }, [paperHasFull, pushToast]);
 
+  useEffect(() => {
+    if (!hasBackend() || !bridge.onPrefetchStart || !bridge.onPrefetchDone) return;
+    const offStart = bridge.onPrefetchStart(({ paperId }) => {
+      setFetchingMeta((m) => ({
+        ...m,
+        [paperId]: { startedAt: Date.now(), trace: null, prefetching: true },
+      }));
+    });
+    const offDone = bridge.onPrefetchDone(({ paperId, result, autoOpen }) => {
+      setFetchingMeta((m) => { const n = { ...m }; delete n[paperId]; return n; });
+      const meta = buildFetchedMeta(result, { prefetched: !result?.cached });
+      if (meta) {
+        setFetchedMeta((m) => ({ ...m, [paperId]: meta }));
+        refreshLib();
+        if (autoOpen && primaryAutoOpenRef.current) {
+          void onReadPaper({ id: paperId, title: paperId });
+        } else {
+          pushToast(result?.cached ? "全文已在本地" : "全文已就绪（后台预取）· 已加入我的文献");
+        }
+      }
+    });
+    const offFail = bridge.onPrefetchFail?.(({ paperId, result }) => {
+      setFetchingMeta((m) => { const n = { ...m }; delete n[paperId]; return n; });
+      const why = result?.reason || "no_pdf";
+      if (why !== "missing_email") {
+        pushToast("后台预取未成功，可手动点「获取全文」");
+      }
+    });
+    return () => { offStart && offStart(); offDone && offDone(); offFail && offFail(); };
+  }, [pushToast, refreshLib, onReadPaper]);
+
   const onSave = useCallback((p) => {
     if (lib.some((x) => x.id === p.id)) {
       bridge.libraryRemove(p.id);
@@ -469,7 +494,13 @@ export default function LuminaApp() {
   }, [lists]);
   const deleteList = useCallback((lid) => { const next = lists.filter((L) => L.id !== lid); setLists(next); bridge.listsSave(next); }, [lists]);
 
+  const [findSession, setFindSession] = useState(null);
+
   const view = mode === "settings" ? prevMode : mode; // 设置弹窗时底层视图保持不变
+
+  const findTabHint = findSession?.submitted && view !== "find"
+    ? (findSession.submitted.length > 20 ? findSession.submitted.slice(0, 20) + "…" : findSession.submitted)
+    : null;
 
   return (
     <>
@@ -481,10 +512,18 @@ export default function LuminaApp() {
             <div className="lf-wm"><span className="nm">Lumina Feed</span><span className="tg">Locate · Fetch · Illuminate</span></div>
           </div>
           <nav className="lf-nav" role="tablist" aria-label="主模块">
-            <button role="tab" aria-selected={mode === "find"} className={"lf-tab" + (mode === "find" ? " on" : "")} onClick={() => setMode("find")}><Telescope size={15} /> 检索取文</button>
-            <button role="tab" aria-selected={mode === "subs"} className={"lf-tab" + (mode === "subs" ? " on" : "")} onClick={() => setMode("subs")}><Rss size={15} /> 订阅简报 {subsNew > 0 && <span className="lf-badge">{subsNew}</span>}</button>
-            <button role="tab" aria-selected={mode === "library"} className={"lf-tab" + (mode === "library" ? " on" : "")} onClick={() => setMode("library")}><BookMarked size={15} /> 我的文献 {lib.length > 0 && <span className="lf-badge">{lib.length}</span>}</button>
-            <button role="tab" aria-selected={mode === "read"} className={"lf-tab" + (mode === "read" ? " on" : "")} onClick={() => setMode("read")}><BookOpen size={15} /> 阅读</button>
+            <button role="tab" aria-selected={view === "find"} className={"lf-tab" + (view === "find" ? " on" : "")} onClick={() => setMode("find")} title={findSession?.submitted ? ("检索会话：" + findSession.submitted) : undefined}>
+              <Telescope size={15} />
+              <span className="lf-tab-label">检索取文</span>
+              {findTabHint && <span className="lf-tab-hint">· {findTabHint}</span>}
+              {findSession?.loading && view !== "find" && <span className="lf-tab-pulse" aria-label="检索进行中" />}
+              {findSession && findSession.count > 0 && view !== "find" && !findSession.loading && (
+                <span className="lf-badge lf-badge-soft">{findSession.count > 99 ? "99+" : findSession.count}</span>
+              )}
+            </button>
+            <button role="tab" aria-selected={view === "subs"} className={"lf-tab" + (view === "subs" ? " on" : "")} onClick={() => setMode("subs")}><Rss size={15} /> 订阅简报 {subsNew > 0 && <span className="lf-badge">{subsNew}</span>}</button>
+            <button role="tab" aria-selected={view === "library"} className={"lf-tab" + (view === "library" ? " on" : "")} onClick={() => setMode("library")}><BookMarked size={15} /> 我的文献 {lib.length > 0 && <span className="lf-badge">{lib.length}</span>}</button>
+            <button role="tab" aria-selected={view === "read"} className={"lf-tab" + (view === "read" ? " on" : "")} onClick={() => setMode("read")}><BookOpen size={15} /> 阅读</button>
           </nav>
           <div className="lf-tools">
             <span className="lf-status" title="数据、PDF 与索引都在本机"><span className="lf-dot" /> 本机 · 已就绪</span>
@@ -507,8 +546,10 @@ export default function LuminaApp() {
           </div>
         </header>
         <main className="lf-stage">
-          {view === "find" ? (
+          <div className={"lf-pane" + (view === "find" ? "" : " is-hidden")} aria-hidden={view !== "find"}>
             <FindFetch
+              active={view === "find"}
+              onSessionChange={setFindSession}
               fetchedMeta={fetchedMeta}
               fetchingMeta={fetchingMeta}
               fetchTick={fetchTick}
@@ -519,32 +560,39 @@ export default function LuminaApp() {
               pushToast={pushToast}
               onOpenSettings={openSettings}
             />
-          ) : view === "subs" ? (
-            <Subscriptions
-              pushToast={pushToast}
-              fetchedMeta={fetchedMeta}
-              fetchingMeta={fetchingMeta}
-              fetchTick={fetchTick}
-              onFetch={onFetch}
-              onFetchBatch={onFetchBatch}
-              onReadPaper={onReadPaper}
-              onSubsChange={refreshSubsBadge}
-              inLibFn={inLibFn}
-            />
-          ) : view === "read" ? (
-            <ReaderModule
-              pushToast={pushToast}
-              incoming={incomingPdf}
-              onIncomingHandled={() => setIncomingPdf(null)}
-              readTarget={readTarget}
-              onReadTargetHandled={() => setReadTarget(null)}
-              inLibFn={inLibFn}
-              onAddToLibrary={(p) => onSave(p)}
-            />
-          ) : view === "library" ? (
-            <Library lib={lib} lists={lists} onCreateList={createList} onToggleInList={toggleInList} onDeleteList={deleteList} onRenameList={renameList} onAddManyToList={addManyToList} onRemove={onRemoveLib} onRead={onReadFromLib} onFetch={onFetch} fetchedMeta={fetchedMeta} fetchingMeta={fetchingMeta} fetchTick={fetchTick} pushToast={pushToast} />
-          ) : (
-            <FindFetch fetchedMeta={fetchedMeta} fetchingMeta={fetchingMeta} fetchTick={fetchTick} onFetch={onFetch} onReadPaper={onReadPaper} onSave={onSave} inLibFn={inLibFn} pushToast={pushToast} onOpenSettings={openSettings} />
+          </div>
+          {view === "subs" && (
+            <div className="lf-pane">
+              <Subscriptions
+                pushToast={pushToast}
+                fetchedMeta={fetchedMeta}
+                fetchingMeta={fetchingMeta}
+                fetchTick={fetchTick}
+                onFetch={onFetch}
+                onFetchBatch={onFetchBatch}
+                onReadPaper={onReadPaper}
+                onSubsChange={refreshSubsBadge}
+                inLibFn={inLibFn}
+              />
+            </div>
+          )}
+          {view === "read" && (
+            <div className="lf-pane">
+              <ReaderModule
+                pushToast={pushToast}
+                incoming={incomingPdf}
+                onIncomingHandled={() => setIncomingPdf(null)}
+                readTarget={readTarget}
+                onReadTargetHandled={() => setReadTarget(null)}
+                inLibFn={inLibFn}
+                onAddToLibrary={(p) => onSave(p)}
+              />
+            </div>
+          )}
+          {view === "library" && (
+            <div className="lf-pane">
+              <Library lib={lib} lists={lists} onCreateList={createList} onToggleInList={toggleInList} onDeleteList={deleteList} onRenameList={renameList} onAddManyToList={addManyToList} onRemove={onRemoveLib} onRead={onReadFromLib} onFetch={onFetch} fetchedMeta={fetchedMeta} fetchingMeta={fetchingMeta} fetchTick={fetchTick} pushToast={pushToast} />
+            </div>
           )}
         </main>
         {mode === "settings" && (

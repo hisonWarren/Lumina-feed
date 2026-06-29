@@ -25,10 +25,10 @@
 .lf-depth-hint{ font-family:var(--mono); font-size:10.5px; color:var(--ink3); margin-left:2px; }
 
 /* ---- Google Scholar fallback (end of results, quiet) ---- */
-.lf-gs{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:18px 0 6px; padding:12px 14px;
+.lf-gs{ width:100%; max-width:958px; margin:12px auto 6px; padding:11px 14px; box-sizing:border-box;
   background:var(--surf2); border:1px dashed var(--line2); border-radius:var(--radius,12px); }
-.lf-gs-t{ font-size:13px; color:var(--ink3); }
-.lf-gs-link{ font:inherit; font-size:13px; font-weight:600; color:var(--petrol); background:transparent; border:0; cursor:pointer; }
+.lf-gs-t{ font-size:12.5px; color:var(--ink3); line-height:1.55; margin:0; }
+.lf-gs-link{ font:inherit; font-size:12.5px; font-weight:600; color:var(--petrol); background:transparent; border:0; cursor:pointer; padding:0; margin:0; display:inline; }
 .lf-gs-link:hover{ color:var(--petrol-deep); text-decoration:underline; }
 
 /* ---- email prompts (T1 card / T2 bar / T3 inline) ---- */

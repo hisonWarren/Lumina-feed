@@ -7,10 +7,11 @@ export default function GoogleScholarLink({ query, onOpen, count }) {
   const url = `https://scholar.google.com/scholar?q=${encodeURIComponent(query)}`;
   return (
     <div className="lf-gs">
-      <span className="lf-gs-t">
-        {count ? "没找到想要的那篇？" : "开放源未命中。"}开放学术源不含 Google Scholar 索引与商业库内容——
-      </span>
-      <button className="lf-gs-link" onClick={() => onOpen && onOpen(url)}>在 Google Scholar 中打开 ↗</button>
+      <p className="lf-gs-t">
+        {count ? "没找到想要的那篇？" : "开放源未命中。"}
+        开放学术源不含 Google Scholar 索引与商业库内容——
+        <button type="button" className="lf-gs-link" onClick={() => onOpen && onOpen(url)}>在 Google Scholar 中打开 ↗</button>
+      </p>
     </div>
   );
 }

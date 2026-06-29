@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Store } from "../src/core/store/index.ts";
 import type { SecretStore } from "../src/core/secrets/keyvault.ts";
+import type { Paper } from "../src/core/model.ts";
 import { rawToSpec } from "../src/core/querySpec.ts";
 import { aggregateSearch, aggregateSearchStream, searchSingleSource } from "../src/core/aggregate.ts";
 import { runLocateKeywordStream } from "../src/core/locate/locate-stream.ts";
@@ -11,10 +12,10 @@ import { titleFastLane } from "../src/core/locate/title-fast-lane.ts";
 import { isTitleLikeQuery, titleQueryText } from "../src/core/locate/title-like.ts";
 import { pickPrimaryHit } from "../src/core/locate/primary-hit.ts";
 import { resolveIdentifierInput, classifyInput } from "../src/core/locate/resolve-identifier.ts";
-import { shouldPrefetchOnLocate } from "../src/core/locate/prefetch-eligibility.ts";
+import { shouldPrefetchOnLocate, shouldPrefetchOaResult } from "../src/core/locate/prefetch-eligibility.ts";
 import { listSourceRegistry } from "../src/core/sources/index.ts";
 import { llmFromConfig, listModels } from "../src/core/summarize/llm-client.ts";
-import { makeOaFullTextProvider, fetchPaperPdf } from "../src/core/oa/provider.ts";
+import { makeOaFullTextProvider, fetchPaperPdf, isOaMarkedPaper } from "../src/core/oa/provider.ts";
 import { attemptSignal } from "../src/core/oa/timeout.ts";
 import { probeAllMirrors } from "../src/core/oa/mirror-health.ts";
 import { resolvePdfCandidates } from "../src/core/oa/oa-resolver.ts";
@@ -42,7 +43,6 @@ import { DEFAULT_SUMMARIZE } from "../src/core/summarize/types.ts";
 import { setPoliteIdentity } from "../src/core/sources/adapter.ts";
 import type { SearchOpts } from "../src/core/sources/adapter.ts";
 import { shouldSignalMissingEmail } from "../src/core/oa/oa-extended.ts";
-import type { Paper } from "../src/core/model.ts";
 import {
   applyDigestSearchOpts, buildDigestSpec, normalizeSubscription, freshHits, type DigestRunMeta,
 } from "../src/core/subs/digest-search.ts";
@@ -128,6 +128,17 @@ export function registerIpc(deps: IpcDeps): void {
   const pdfDir = (): string => { const d = path.join(app.getPath("userData"), "pdfs"); fs.mkdirSync(d, { recursive: true }); return d; };
   const pdfPath = (id: string): string => path.join(pdfDir(), encodeURIComponent(id) + ".pdf");
   const prefetchInflight = new Set<string>();
+  const prefetchQueued = new Set<string>();
+  const PREFETCH_CONCURRENCY = 4;
+  type PrefetchPriority = 0 | 1 | 2;
+  interface PrefetchJob {
+    paperId: string;
+    priority: PrefetchPriority;
+    autoOpen?: boolean;
+    sender: WebContents;
+  }
+  const prefetchQueue: PrefetchJob[] = [];
+  let prefetchActive = 0;
   let paperAssetDepsRef: PaperAssetDeps | null = null;
   const getPaperAssetDeps = (): PaperAssetDeps | null => paperAssetDepsRef;
 
@@ -259,6 +270,9 @@ export function registerIpc(deps: IpcDeps): void {
     }
     const agg = await runLocateKeywordStream(raw, filters, opts, (payload) => {
       send({ reqId, ...payload });
+      if (Array.isArray(payload.papers) && payload.papers.length) {
+        scheduleOaResultsPrefetch(e.sender, payload.papers as Paper[]);
+      }
       if (payload.done && payload.primaryPaperId && payload.locateMode === "primary") {
         scheduleLocatePrefetch(e.sender, payload.primaryPaperId, payload.resolvedFrom ?? ["title_fast_lane"], "primary");
       }
@@ -337,7 +351,9 @@ export function registerIpc(deps: IpcDeps): void {
         mirrorSettings: settings.altMirrors,
         onTrace,
         signal: overall.signal,
+        oaAttemptTimeoutMs: 10_000,
         perAttemptTimeoutMs: 22_000,
+        deferAltSources: isOaMarkedPaper(paper),
       });
       if (!res.ok && shouldSignalMissingEmail(paper.doi, email)) {
         return { ok: false as const, reason: "missing_email", hint: "configure_contact_email" };
@@ -353,6 +369,106 @@ export function registerIpc(deps: IpcDeps): void {
     }
   }
 
+  function pumpPrefetchQueue(): void {
+    while (prefetchActive < PREFETCH_CONCURRENCY && prefetchQueue.length) {
+      const job = prefetchQueue.shift()!;
+      prefetchQueued.delete(job.paperId);
+      if (job.sender.isDestroyed()) continue;
+      if (prefetchInflight.has(job.paperId)) continue;
+      if (fs.existsSync(pdfPath(job.paperId))) {
+        try {
+          job.sender.send("prefetch:done", {
+            paperId: job.paperId,
+            result: { ok: true, source: "cached", cached: true },
+            autoOpen: job.autoOpen,
+          });
+        } catch { /* 渲染层已关 */ }
+        continue;
+      }
+      prefetchInflight.add(job.paperId);
+      prefetchActive++;
+      void (async () => {
+        try {
+          try { job.sender.send("prefetch:start", { paperId: job.paperId }); } catch { /* 渲染层已关 */ }
+          const res = await runFetchPaper(job.paperId, undefined, { channel: "prefetch", provenance: "find_fetch" });
+          try {
+            if (res.ok) job.sender.send("prefetch:done", { paperId: job.paperId, result: res, autoOpen: job.autoOpen });
+            else job.sender.send("prefetch:fail", { paperId: job.paperId, result: res });
+          } catch { /* 渲染层已关 */ }
+        } catch (e) {
+          try {
+            job.sender.send("prefetch:fail", {
+              paperId: job.paperId,
+              result: { ok: false, reason: String((e as Error)?.message || e) },
+            });
+          } catch { /* 渲染层已关 */ }
+        } finally {
+          prefetchInflight.delete(job.paperId);
+          prefetchActive--;
+          pumpPrefetchQueue();
+        }
+      })();
+    }
+  }
+
+  function enqueuePrefetch(
+    sender: WebContents,
+    paperId: string,
+    opts: {
+      priority: PrefetchPriority;
+      autoOpen?: boolean;
+      locateMode?: "identifier" | "primary";
+      resolvedFrom?: string[];
+      oaOnly?: boolean;
+    },
+  ): void {
+    void (async () => {
+      if (sender.isDestroyed()) return;
+      const settings = await loadAppSettings(store);
+      const paper = store.papers.getById(paperId);
+      const hasPdf = fs.existsSync(pdfPath(paperId));
+      if (hasPdf) {
+        try {
+          sender.send("prefetch:done", {
+            paperId,
+            result: { ok: true, source: "cached", cached: true },
+            autoOpen: opts.autoOpen,
+          });
+        } catch { /* 渲染层已关 */ }
+        return;
+      }
+      if (opts.locateMode) {
+        if (!shouldPrefetchOnLocate(opts.locateMode, opts.resolvedFrom, paper, settings, false)) return;
+      } else if (opts.oaOnly !== false) {
+        if (!shouldPrefetchOaResult(paper, settings, false)) return;
+      }
+      const existingIdx = prefetchQueue.findIndex((j) => j.paperId === paperId);
+      if (existingIdx >= 0) {
+        const ex = prefetchQueue[existingIdx];
+        if (opts.priority < ex.priority) ex.priority = opts.priority;
+        if (opts.autoOpen) ex.autoOpen = true;
+        prefetchQueue.sort((a, b) => a.priority - b.priority);
+        return;
+      }
+      if (prefetchInflight.has(paperId) || prefetchQueued.has(paperId)) return;
+      prefetchQueued.add(paperId);
+      prefetchQueue.push({
+        paperId,
+        priority: opts.priority,
+        autoOpen: opts.autoOpen,
+        sender,
+      });
+      prefetchQueue.sort((a, b) => a.priority - b.priority);
+      pumpPrefetchQueue();
+    })();
+  }
+
+  function scheduleOaResultsPrefetch(sender: WebContents, papers: Paper[]): void {
+    for (const paper of papers) {
+      if (paper?.id) enqueuePrefetch(sender, paper.id, { priority: 2, oaOnly: true });
+    }
+  }
+
   function scheduleLocatePrefetch(
     sender: WebContents,
     paperId: string,
@@ -361,29 +477,14 @@ export function registerIpc(deps: IpcDeps): void {
   ): void {
     void (async () => {
       const settings = await loadAppSettings(store);
-      const paper = store.papers.getById(paperId);
-      const hasPdf = fs.existsSync(pdfPath(paperId));
-      if (hasPdf) {
-        try {
-          sender.send("prefetch:done", { paperId, result: { ok: true, source: "cached", cached: true } });
-        } catch { /* 渲染层已关 */ }
-        return;
-      }
-      if (!shouldPrefetchOnLocate(locateMode, resolvedFrom, paper, settings, false)) return;
-      if (prefetchInflight.has(paperId)) return;
-      prefetchInflight.add(paperId);
-      try {
-        try { sender.send("prefetch:start", { paperId }); } catch { /* 渲染层已关 */ }
-        const res = await runFetchPaper(paperId, undefined, { channel: "prefetch", provenance: "find_fetch" });
-        try {
-          if (res.ok) sender.send("prefetch:done", { paperId, result: res });
-          else sender.send("prefetch:fail", { paperId, result: res });
-        } catch { /* 渲染层已关 */ }
-      } catch (e) {
-        try {
-          sender.send("prefetch:fail", { paperId, result: { ok: false, reason: String((e as Error)?.message || e) } });
-        } catch { /* 渲染层已关 */ }
-      } finally { prefetchInflight.delete(paperId); }
+      const autoOpen = locateMode === "primary" && settings.primaryAutoOpenReader !== false;
+      enqueuePrefetch(sender, paperId, {
+        priority: locateMode === "primary" ? 0 : 1,
+        locateMode,
+        resolvedFrom,
+        autoOpen,
+        oaOnly: false,
+      });
     })();
   }
 
@@ -394,6 +495,12 @@ export function registerIpc(deps: IpcDeps): void {
   ): void {
     scheduleLocatePrefetch(sender, paperId, resolvedFrom, "identifier");
   }
+
+  ipcMain.handle("oa:schedulePrefetch", async (e, paperId: string, opts?: { priority?: string }) => {
+    const pri: PrefetchPriority = opts?.priority === "high" ? 1 : 2;
+    enqueuePrefetch(e.sender, String(paperId), { priority: pri, oaOnly: true });
+    return { ok: true };
+  });
 
   ipcMain.handle("oa:fetchPaper", async (_e, paperId: string, ctx?: FetchContext) => {
     try {

@@ -1,7 +1,7 @@
 // Lumina Feed · 共享 UI 工具（patch: find_fetch 前置）
 export function isDoi(s) {
-  const t = String(s || "").trim();
-  return /^10\.\d{4,9}\/[-._;()/:a-zA-Z0-9]+$/i.test(t) || /^https?:\/\/(dx\.)?doi\.org\/10\./i.test(t);
+  const t = normDoi(s);
+  return /^10\.\d{4,9}\/[-._;()/:a-zA-Z0-9]+$/i.test(t);
 }
 
 /** 标识符输入（DOI / PMID / PMCID / arXiv）— 不走字段标签后缀 */
@@ -28,7 +28,10 @@ export function identifierLabel(s) {
 }
 
 export function normDoi(s) {
-  return String(s || "").trim().replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").replace(/\s+$/, "");
+  return String(s || "").trim()
+    .replace(/^doi:?\s*/i, "")
+    .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "")
+    .replace(/\s+$/, "");
 }
 
 export function escapeRe(s) {

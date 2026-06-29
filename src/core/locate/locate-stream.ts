@@ -34,7 +34,7 @@ function payloadFromSnapshot(
     papers,
     perSource,
     ...partial,
-    locateMode: primary ? "primary" : partial.locateMode ?? "keyword",
+    locateMode: primary ? "primary" : "keyword",
     primaryPaperId: primary?.paperId,
     primaryAmbiguous: primary?.ambiguous,
     resolvedFrom: resolvedFrom.length ? resolvedFrom : partial.resolvedFrom,
@@ -63,7 +63,6 @@ export async function runLocateKeywordStream(
       send(payloadFromSnapshot(fast.papers, mergedPerSource, titleQ, field, {
         source: "title_fast_lane",
         done: false,
-        locateMode: "primary",
       }));
     }
   }
@@ -73,14 +72,10 @@ export async function runLocateKeywordStream(
     send(payloadFromSnapshot(snapshot, mergedPerSource, titleQ, field, {
       source,
       done: false,
-      locateMode: titleLike ? "primary" : "keyword",
     }));
   });
 
   mergedPerSource = { ...mergedPerSource, ...agg.perSource };
-  send(payloadFromSnapshot(agg.papers, mergedPerSource, titleQ, field, {
-    done: true,
-    locateMode: titleLike && pickPrimaryHit(agg.papers, titleQ, field as "all") ? "primary" : "keyword",
-  }));
+  send(payloadFromSnapshot(agg.papers, mergedPerSource, titleQ, field, { done: true }));
   return { ...agg, perSource: mergedPerSource };
 }

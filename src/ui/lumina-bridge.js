@@ -206,6 +206,10 @@ export const bridge = {
     const oa = O(); if (!oa || !oa.onPrefetchFail) return () => {};
     return oa.onPrefetchFail(cb);
   },
+  schedulePrefetch(paperId, opts) {
+    const oa = O(); if (!oa || !oa.schedulePrefetch) return Promise.resolve({ ok: false });
+    return oa.schedulePrefetch(paperId, opts);
+  },
   async readerSummarize(pages) {
     const r = R(); if (!r || !r.summarize) return mockReaderSummary();
     return r.summarize({ pages });

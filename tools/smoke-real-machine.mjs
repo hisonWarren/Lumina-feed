@@ -68,10 +68,18 @@ async function clickText(cdp, text) {
 }
 
 async function screenshot(cdp, name) {
-  const { data } = await cdp.send("Page.captureScreenshot", { format: "png" });
-  const fp = path.join(OUT, `${name}.png`);
-  writeFileSync(fp, Buffer.from(data, "base64"));
-  return fp;
+  try {
+    const { data } = await Promise.race([
+      cdp.send("Page.captureScreenshot", { format: "png" }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("screenshot timeout")), 8000)),
+    ]);
+    const fp = path.join(OUT, `${name}.png`);
+    writeFileSync(fp, Buffer.from(data, "base64"));
+    return fp;
+  } catch {
+    console.log(`  · 截图跳过 ${name}（CDP 超时）`);
+    return null;
+  }
 }
 
 console.log("\n── Lumina Feed 真机烟测 (CDP) ──\n");
@@ -138,9 +146,15 @@ try {
 
   await screenshot(cdp, "01-settings");
 
-  // 阅读 · ReadHub 文案
+  // 阅读 · ReadHub 文案（先回到阅读落地页，避免 PDF 标签挡住 Hub 文案）
   await clickText(cdp, "阅读");
   await new Promise((r) => setTimeout(r, 400));
+  await evalJs(cdp, `
+    const home = document.querySelector(".rhx-home");
+    if (home) home.click();
+    await new Promise(r => setTimeout(r, 300));
+    return true;
+  `);
   const readHub = await evalJs(cdp, `return document.body.innerText.slice(0, 800);`);
   readHub.includes("后续补丁") || readHub.includes("P2b") || readHub.includes("P3")
     ? fail("ReadHub 仍含 dev 术语")

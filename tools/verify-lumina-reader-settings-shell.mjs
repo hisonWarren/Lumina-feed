@@ -53,7 +53,8 @@ ok(has(app, "const [prevMode, setPrevMode]"), "prevMode 状态");
 ok(has(app, 'const view = mode === "settings" ? prevMode : mode'), "底层视图＝settings 时取 prevMode");
 ok(has(app, '{mode === "settings" && (') && /onClose=\{\(\) => setMode\(prevMode\)\}/.test(app), "Settings 作为叠加层渲染 + onClose 回前视图");
 ok(/onClick=\{\(\) => \{ if \(mode !== "settings"\) setPrevMode\(mode\); setMode\("settings"\); \}\}/.test(app), "齿轮记忆当前视图再开设置");
-ok(has(app, 'view === "find"') && has(app, 'view === "read"'), "主舞台按 view 渲染各模块");
+ok(has(app, "lf-pane") && has(app, "is-hidden") && has(app, "onSessionChange={setFindSession}"), "检索 keep-alive：切换 Tab 不卸载 FindFetch");
+ok(has(app, 'view === "read"') && has(app, 'view === "library"'), "其它模块仍按 view 切换");
 
 console.log("\n[4] 阅读首页 · 上下布局 + 列表面板");
 ok(/\.rh-inner\{[^}]*flex-direction:column/.test(hub), "rh-inner 上下布局（column）");

@@ -92,21 +92,46 @@ try {
     return await window.luminaReader.getNavmarks(${JSON.stringify(mk)});
   `).then((arr) => (Array.isArray(arr) && arr.length === 3 ? pass("navmarks:save/get 持久化", arr.join(",")) : fail("navmarks", JSON.stringify(arr)))).catch((e) => fail("navmarks", e.message));
 
-  // ── finish + nav_find UI（检索取文）──
+  // ── finish + nav_find UI（检索取文 · 需先有结果才出现排序/引用）──
   await clickTab(cdp, "检索取文");
+  const ffReady = await evalJs(cdp, `
+    for (let i = 0; i < 20 && !document.querySelector(".ff-bar input"); i++) {
+      await new Promise(r => setTimeout(r, 200));
+    }
+    return !!document.querySelector(".ff-bar input");
+  `);
+  if (!ffReady) fail("FindFetch 未挂载");
+  await evalJs(cdp, `
+    const inp = document.querySelector(".ff-bar input");
+    if (!inp) throw new Error("no search input");
+    const q = "covid vaccine";
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    if (setter) setter.call(inp, q);
+    else inp.value = q;
+    inp.dispatchEvent(new Event("input", { bubbles: true }));
+    inp.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, bubbles: true }));
+    return true;
+  `);
+  for (let i = 0; i < 40; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    const n = await evalJs(cdp, `return document.querySelectorAll(".ff-card").length;`);
+    if (Number(n) > 0) break;
+  }
   const ffUi = await evalJs(cdp, `
+    const cards = document.querySelectorAll(".ff-card").length;
     return {
-      citeBtn: [...document.querySelectorAll("button")].some(b => (b.textContent||"").includes("引用")),
-      sxHelp: [...document.querySelectorAll("button")].some(b => (b.textContent||"").includes("检索语法")),
+      cards,
+      citeBtn: cards > 0 && [...document.querySelectorAll("button")].some(b => (b.textContent||"").includes("引用")),
+      sxHelp: !!document.querySelector(".ff-tools") && [...document.querySelectorAll("button")].some(b => (b.textContent||"").includes("检索语法")),
       yearToggle: [...document.querySelectorAll("button")].some(b => (b.textContent||"").includes("年份")),
       sortSel: !!document.querySelector(".ff-sort select, select.ff-sort, .ff-tools select"),
       lfWidth: getComputedStyle(document.querySelector(".lf")||document.body).width,
     };
   `);
-  ffUi.citeBtn ? pass("finish：结果页「引用」按钮存在") : fail("finish 引用按钮");
-  ffUi.sxHelp ? pass("nav_find：「检索语法」入口") : fail("nav_find 检索语法");
+  ffUi.sxHelp ? pass("nav_find：「检索语法」入口") : fail("nav_find 检索语法", "ff-tools 未就绪");
   ffUi.yearToggle ? pass("nav_find：「年份」约束入口") : fail("nav_find 年份");
-  ffUi.sortSel ? pass("nav_find：结果排序 select") : fail("nav_find 排序");
+  ffUi.cards > 0 && ffUi.citeBtn ? pass("finish：结果页「引用」按钮存在") : ffUi.cards > 0 ? fail("finish 引用按钮") : skip("finish 引用按钮", "无结果卡");
+  ffUi.cards > 0 && ffUi.sortSel ? pass("nav_find：结果排序 select") : ffUi.cards > 0 ? fail("nav_find 排序") : skip("nav_find 排序", "无结果卡");
 
   // 触发 demo 检索看引用展开
   await evalJs(cdp, `

@@ -28,6 +28,13 @@ export function parseIdentifier(raw: string): ParsedIdentifier | null {
     const d = normDoi(doiUrl[1]);
     return d ? { kind: "doi", value: t, normalized: d } : null;
   }
+
+  const doiTag = t.match(/^doi:?\s*(10\.\S+)$/i);
+  if (doiTag) {
+    const d = normDoi(doiTag[1]);
+    return d ? { kind: "doi", value: t, normalized: d } : null;
+  }
+
   if (DOI_RE.test(t)) {
     const d = normDoi(t);
     return d ? { kind: "doi", value: t, normalized: d } : null;

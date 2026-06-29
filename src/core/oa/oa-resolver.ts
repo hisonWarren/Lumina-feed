@@ -326,6 +326,63 @@ export async function resolvePdfCandidates(paper: Paper, deps: ResolveDeps = {})
   return merged;
 }
 
+/** 同步直链候选（paper.oaUrl / PMC / arXiv / 出版商规则）——不等待元数据 API */
+export function immediatePdfCandidates(paper: Paper): PdfCandidate[] {
+  const doi = normDoi(paper.doi);
+  const all: PdfCandidate[] = [...fromIdentifiers(paper)];
+  if (doi) {
+    all.push(...fromPublisherRules(doi, paper));
+    all.push(...fromArxivDoi(doi));
+    all.push(...fromElife(doi));
+    all.push(...fromFrontiers(doi));
+    all.push(...fromPlos(doi));
+  }
+  return dedupeCandidates(all);
+}
+
+/** 仅备用库候选（LibGen / Anna / Sci-Hub） */
+export async function resolveAltPdfCandidates(paper: Paper, deps: ResolveDeps = {}): Promise<PdfCandidate[]> {
+  const doi = normDoi(paper.doi);
+  const trace = deps.onTrace;
+  const all: PdfCandidate[] = [];
+  if (!doi || deps.includeAltSources === false || deps.use?.altSources === false) return all;
+
+  let title = paper.title;
+  const hasDirectArxiv = !!paper.arxivId || !!(doi && /arxiv\.\d+\.\d+/i.test(doi));
+  if (!hasDirectArxiv) {
+    trace?.("libgen", "running");
+    const tL = Date.now();
+    let libgenPart: PdfCandidate[] = [];
+    let annasPart: PdfCandidate[] = [];
+    try {
+      [libgenPart, annasPart] = await Promise.all([
+        resolveLibgenUrls(doi, { fetchImpl: deps.fetchImpl, signal: deps.signal, title, mirrorSettings: deps.mirrorSettings }).then((r) => {
+          trace?.("libgen", r.length ? "ok" : "fail", r.length ? `${r.length} 候选` : "无匹配", Date.now() - tL);
+          return r;
+        }),
+        resolveAnnasUrls(doi, { fetchImpl: deps.fetchImpl, signal: deps.signal, title, mirrorSettings: deps.mirrorSettings }).then((r) => {
+          trace?.("annas", r.length ? "ok" : "fail", r.length ? `${r.length} 候选` : "无匹配");
+          return r;
+        }),
+      ]);
+    } catch {
+      trace?.("libgen", "fail");
+      trace?.("annas", "fail");
+    }
+    all.push(...libgenPart, ...annasPart);
+  } else {
+    trace?.("libgen", "skip", "arxiv 直达");
+    trace?.("annas", "skip", "arxiv 直达");
+  }
+  if (doi && deps.use?.scihub !== false) {
+    trace?.("scihub", "ok", "已加入候选");
+    all.push({ kind: "scihub", doi, source: "scihub", priority: 70 });
+  } else {
+    trace?.("scihub", "skip");
+  }
+  return dedupeCandidates(all);
+}
+
 /** 兼容旧接口：仅 URL 字符串列表 */
 export async function resolveOa(paper: Paper, deps: ResolveDeps = {}): Promise<string[]> {
   const cands = await resolvePdfCandidates(paper, deps);

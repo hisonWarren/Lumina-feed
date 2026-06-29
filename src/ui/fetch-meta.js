@@ -9,6 +9,41 @@ export const FETCH_STAGES = [
 
 export const STAGE_INTERVAL_MS = 8000;
 
+const ALT_TRACE_IDS = new Set(["libgen", "annas", "scihub"]);
+
+function shortTraceDetail(detail) {
+  if (!detail) return "";
+  const { short } = sourceLabel(detail);
+  return short !== "全文" ? short : String(detail).slice(0, 28);
+}
+
+/** 由 Fetch Trace 当前 running 步骤生成按钮/徽章阶段文案；无 running 时返回 null */
+export function stageTextFromTrace(steps) {
+  if (!Array.isArray(steps) || !steps.length) return null;
+  const running = steps.filter((s) => s.status === "running");
+  const download = running.find((s) => s.id === "download");
+  if (download) {
+    const d = shortTraceDetail(download.detail);
+    return d ? `正在下载 PDF（${d}）…` : "正在下载 PDF…";
+  }
+  const alt = running.find((s) => ALT_TRACE_IDS.has(s.id));
+  if (alt) return `正在尝试备用库（${alt.label}）…`;
+  const resolve = running[0];
+  if (resolve) {
+    if (resolve.id === "identifiers") return "正在解析文献直链…";
+    return `正在查找 PDF 链接（${resolve.label}）…`;
+  }
+  return null;
+}
+
+export function fetchFailHint(reason) {
+  const r = String(reason || "").toLowerCase();
+  if (r === "no_pdf" || r === "no_oa") return "未找到可下载的 PDF 链接";
+  if (/timeout|timed out|超时/.test(r)) return "链接可能可用但下载超时，请稍后重试";
+  if (r === "missing_email") return "请填写联络邮箱以启用 Unpaywall";
+  return "";
+}
+
 const SOURCE_NAMES = {
   pubmed: "PubMed", europepmc: "Europe PMC", crossref: "Crossref", openalex: "OpenAlex",
   arxiv: "arXiv", biorxiv: "bioRxiv", medrxiv: "medRxiv", semanticscholar: "Semantic Scholar",
@@ -55,10 +90,17 @@ export function metaFromAsset(asset) {
   return buildFetchedMeta({ ok: true, source: asset.fetchSource || "cached", cached: true });
 }
 
-/** @param {{ stageIndex?: number; startedAt?: number }|null|undefined} meta */
+/** @param {{ startedAt?: number; trace?: Array<{ id: string; label: string; status: string; detail?: string }> }|null|undefined} meta */
 export function fetchProgressUi(meta, now = Date.now()) {
   if (!meta || !meta.startedAt) return { stageText: FETCH_STAGES[0], elapsed: 0, stageIndex: 0 };
   const elapsed = Math.max(0, Math.floor((now - meta.startedAt) / 1000));
+  const fromTrace = stageTextFromTrace(meta.trace);
+  if (fromTrace) {
+    let stageIndex = 0;
+    if (fromTrace.includes("下载")) stageIndex = 2;
+    else if (fromTrace.includes("备用库")) stageIndex = 1;
+    return { stageText: fromTrace, elapsed, stageIndex };
+  }
   const stageIndex = Math.min(FETCH_STAGES.length - 1, Math.floor((now - meta.startedAt) / STAGE_INTERVAL_MS));
   return { stageText: FETCH_STAGES[stageIndex], elapsed, stageIndex };
 }
@@ -67,21 +109,34 @@ export function isFetched(meta) {
   return !!(meta && meta.ok);
 }
 
-/** 共享 OA / 全文徽章（FindFetch · Library · Subscriptions） */
-export function oaStatusBadge(oa, fetchedMeta, prefix = "ff-b") {
+/** 共享 OA / 全文徽章（FindFetch · Library · Subscriptions）— 三态：编目 / 取来中 / 全文就绪 */
+export function oaStatusBadge(oa, fetchedMeta, prefix = "ff-b", fetchingMeta = null) {
   if (isFetched(fetchedMeta)) {
     const tier = fetchedMeta.badgeClass || prefix + "-ft";
     const cls = tier.startsWith(prefix) ? tier : tier.replace(/^ff-b-/, prefix + "-");
-    const text = fetchedMeta.prefetched
-      ? "全文就绪"
-      : ("全文 · " + (fetchedMeta.label || "已下载"));
+    const text = fetchedMeta.prefetched ? "全文就绪" : ("全文 · " + (fetchedMeta.label || "已下载"));
     return {
       cls: fetchedMeta.prefetched ? prefix + "-ready" : cls,
       text,
       title: fetchedMeta.tip || (fetchedMeta.prefetched ? "后台预取已完成，可直接阅读" : ""),
     };
   }
-  if (oa === "gold" || oa === "green") return { cls: prefix + "-oa", text: oa === "gold" ? "OA 金色" : "OA 绿色", title: "" };
+  if (fetchingMeta && fetchingMeta.startedAt) {
+    const { stageText } = fetchProgressUi(fetchingMeta, Date.now());
+    const tip = fetchingMeta.prefetching ? `后台预取 · ${stageText}` : stageText;
+    return {
+      cls: prefix + "-fetching",
+      text: "取来中",
+      title: tip,
+    };
+  }
+  if (oa === "gold" || oa === "green") {
+    return {
+      cls: prefix + "-oa",
+      text: oa === "gold" ? "OA 金色 · 编目" : "OA 绿色 · 编目",
+      title: "元数据标记开放获取；可一键获取或等待后台预取",
+    };
+  }
   if (oa === "closed") return { cls: prefix + "-nooa", text: "未标注 OA", title: "元数据未标记开放获取；仍会尝试多源取文" };
   return null;
 }

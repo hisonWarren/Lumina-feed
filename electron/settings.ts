@@ -12,8 +12,12 @@ export interface AppSettings {
   altMirrors?: { libgen?: string[]; annas?: string[]; scihub?: string[] };
   /** 取文后自动加入我的文献（工作集）；关则仅落盘，需手动收藏 */
   autoIngestOnFetch?: boolean;
-  /** P10 · 标识符直达成功后后台预取全文（默认关） */
+  /** P10 · 标识符/Primary 定位后后台预取（默认开） */
   prefetchOnIdentifier?: boolean;
+  /** OA 检索命中（gold/green）后台预取（默认开） */
+  prefetchOaResults?: boolean;
+  /** Primary 定位且全文就绪后自动打开阅读器（默认开） */
+  primaryAutoOpenReader?: boolean;
   /** P8 · 用户禁用的检索源 id 列表（如 ["zenodo","openaire"]） */
   disabledSources?: string[];
   /** 桌面通知总开关（Settings 通用页） */
@@ -38,7 +42,14 @@ export interface AppSettingsView extends AppSettings {
   emailFromEnv: boolean;
 }
 
-const DEFAULTS: AppSettings = { searchDepth: "standard", digestNotifyTier: "regular", autoIngestOnFetch: true };
+const DEFAULTS: AppSettings = {
+  searchDepth: "standard",
+  digestNotifyTier: "regular",
+  autoIngestOnFetch: true,
+  prefetchOnIdentifier: true,
+  prefetchOaResults: true,
+  primaryAutoOpenReader: true,
+};
 const KEY = "app_settings";
 /** settings:get 派生字段，禁止写入 DB */
 const VIEW_ONLY_KEYS = new Set(["emailConfigured", "emailFromEnv"]);

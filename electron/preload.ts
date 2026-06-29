@@ -89,6 +89,7 @@ contextBridge.exposeInMainWorld("luminaOa", {
     ipcRenderer.invoke("oa:fetchPaper-stream", paperId, reqId, ctx).catch(() => {});
     return () => ipcRenderer.removeListener("fetch:progress", handler);
   },
+  schedulePrefetch: (paperId: string, opts?: { priority?: string }) => invoke("oa:schedulePrefetch", paperId, opts),
   fetchPdf: (url: string, paperId?: string) => invoke("oa:fetchPdf", url, paperId),
   readPdf: (paperId: string) => invoke("oa:readPdf", paperId),
   listPdfs: () => invoke("oa:listPdfs"),

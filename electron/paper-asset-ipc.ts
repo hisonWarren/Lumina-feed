@@ -39,10 +39,10 @@ export function ensureStubPaper(deps: PaperAssetDeps, paperId: string, title?: s
   deps.store.papers.upsert(stub);
 }
 
-/** 防止 paperId 路径穿越（pdf:delete / readPdf） */
+/** 防止 paperId 路径穿越（pdf:delete / readPdf）。DOI 型 id 含 `/`，落盘时用 encodeURIComponent，此处勿拒斜杠。 */
 export function assertSafePaperId(paperId: string, pdfDirFn: () => string): void {
   if (!paperId || typeof paperId !== "string") throw new Error("invalid paperId");
-  if (/[\0\r\n]/.test(paperId) || paperId.includes("..") || /[/\\]/.test(paperId)) {
+  if (/[\0\r\n]/.test(paperId) || paperId.includes("..")) {
     throw new Error("invalid paperId");
   }
   const base = path.resolve(pdfDirFn());

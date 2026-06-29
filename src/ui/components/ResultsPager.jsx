@@ -46,9 +46,11 @@ export default function ResultsPager({ total, page, pageSize = 20, onPage, onPag
       </div>
 
       {deep && (
-        <div className="lf-pager-refine">
-          翻到后面没找到？这是"定位一篇"而非全库浏览——<button className="lf-refine-link" onClick={() => onRefine && onRefine()}>缩小关键词或换检索字段</button> 通常比翻更多页更快。
-        </div>
+        <p className="lf-pager-refine">
+          翻到后面没找到？这是「定位一篇」而非全库浏览——
+          <button type="button" className="lf-refine-link" onClick={() => onRefine && onRefine()}>缩小关键词或换检索字段</button>
+          ，通常比翻更多页更快。
+        </p>
       )}
     </nav>
   );

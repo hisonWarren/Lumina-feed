@@ -12,18 +12,19 @@ const STATUS_ICON = {
 
 /** @param {{ steps?: Array<{ id: string; label: string; status: string; detail?: string; ms?: number }>; compact?: boolean }} props */
 export default function FetchTrace({ steps, compact = false }) {
-  const [open, setOpen] = useState(!compact);
+  const running = steps && steps.some((s) => s.status === "running");
+  const okCount = steps ? steps.filter((s) => s.status === "ok").length : 0;
+  const failCount = steps ? steps.filter((s) => s.status === "fail").length : 0;
+  const successIdle = steps && steps.length && !running && okCount > 0;
+  const [open, setOpen] = useState(() => !(compact && successIdle));
   if (!steps || !steps.length) return null;
-  const running = steps.some((s) => s.status === "running");
-  const ok = steps.filter((s) => s.status === "ok").length;
-  const fail = steps.filter((s) => s.status === "fail").length;
 
   return (
     <div className="lf-fetch-trace">
       <button type="button" className="lf-ft-summary" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
         {running ? <Loader size={13} className="ff-spin" /> : null}
-        <span>{running ? "正在获取全文…" : fail && !ok ? "取文未成功" : ok ? "取文过程" : "准备取文"}</span>
-        <span className="lf-ft-meta">{ok ? `${ok} 步成功` : ""}{fail ? `${fail} 步失败` : ""}</span>
+        <span>{running ? "正在获取全文…" : failCount && !okCount ? "取文未成功" : okCount ? (successIdle && compact ? "全文已就绪" : "取文过程") : "准备取文"}</span>
+        <span className="lf-ft-meta">{okCount ? `${okCount} 步成功` : ""}{failCount ? `${failCount} 步失败` : ""}</span>
         <ChevronDown size={13} className={"lf-ft-caret" + (open ? " open" : "")} />
       </button>
       {open && (
