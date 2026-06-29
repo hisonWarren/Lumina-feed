@@ -2,7 +2,7 @@
 // 渲染内核 + 导航/书签 + 缩放(预设:实际大小/适配宽度/适配整页) + 旋转 + 单页/连续/双页 + 缩略图(IO 懒渲染) + 专注 + 下载。
 // 真实文本层(可选择) + 页内查找 + 大纲目录 + 划词解释/翻译/带页码问答/多色批注 + 截取读图 + 证据/推断分析。
 // 续读位置(按 docKey) · 键盘快捷键 · 夜读反色 · 抓手平移。真实 PDF 渲染/文本层/选择/查找/各交互仅真机可验。
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import { ArrowLeft, X, PanelLeft, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Minus, Plus, Maximize, RotateCw, RotateCcw, Expand, Download, Search, Sparkles, Send, Languages, Copy, RefreshCw, List, Images, Highlighter, StickyNote, Crop, Trash2, FileDown, Loader, AlertTriangle, Square, Rows3, Columns2, FileText, Shield, Info, Layers, Lightbulb, Eye, Ban, Target, Scale, FlaskConical, ListChecks, Link2, Check, Quote, Bookmark, Workflow, Map, Moon, Hand, ScanLine, Undo2, Redo2 } from "lucide-react";
 import { openPdf, getOutline, getPageStrings, extractPageTextForTranslate, renderTextLayer, destToPageNumber, fitWidthScale, getDocPages, splitCites, renderRegion } from "../pdf-engine.js";
 import { bridge } from "../lumina-bridge.js";
@@ -394,7 +394,21 @@ function applyHighlight(container, q, curIdx) {
   }
 }
 
-// 缩略图：仅 canvas（无需文本层）
+/** 在指定滚动容器内滚到子项（scrollIntoView 在 overflow:hidden 嵌套侧栏里不可靠） */
+function scrollItemInContainer(container, el, pad = 10) {
+  if (!container || !el) return;
+  const cRect = container.getBoundingClientRect();
+  const eRect = el.getBoundingClientRect();
+  const relTop = eRect.top - cRect.top + container.scrollTop;
+  const relBottom = relTop + el.offsetHeight;
+  const viewTop = container.scrollTop;
+  const viewBottom = viewTop + container.clientHeight;
+  if (relTop >= viewTop + pad && relBottom <= viewBottom - pad) return;
+  const target = relTop - Math.max(0, (container.clientHeight - el.offsetHeight) / 2);
+  container.scrollTop = Math.max(0, Math.min(target, container.scrollHeight - container.clientHeight));
+}
+
+// 缩略图：仅 canvas（无需文本层）；IO root=侧栏滚动区，随侧栏滚动能懒加载
 function ThumbCanvas({ doc, pageNum, rotation }) {
   const ref = useRef(null);
   const wrapRef = useRef(null);
@@ -402,10 +416,13 @@ function ThumbCanvas({ doc, pageNum, rotation }) {
   useEffect(() => {
     const el = wrapRef.current; if (!el) return;
     if (typeof IntersectionObserver === "undefined") { setShow(true); return; }
-    const io = new IntersectionObserver((ents) => { for (const e of ents) { if (e.isIntersecting) { setShow(true); io.disconnect(); break; } } }, { rootMargin: "320px 0px" });
+    const root = el.closest(".rd-sidebody");
+    const io = new IntersectionObserver((ents) => {
+      for (const e of ents) { if (e.isIntersecting) { setShow(true); io.disconnect(); break; } }
+    }, { root: root || null, rootMargin: "160px 0px" });
     io.observe(el);
     return () => io.disconnect();
-  }, []);
+  }, [pageNum]);
   useEffect(() => {
     if (!show || !doc || !ref.current) return;
     let task = null, cancelled = false;
@@ -1704,16 +1721,21 @@ export default function Reader({ source, onClose, pushToast }) {
     if (el && el.scrollIntoView) el.scrollIntoView({ block: "start", behavior: "smooth" });
   }, [page, view]);
 
-  // 侧栏缩略图/书签：当前页超出可视区时自动滚入视区
-  useEffect(() => {
-    if (!sidebar || !sidePanel) return;
-    const root = sideBodyRef.current;
-    if (!root) return;
-    const sel = sidePanel === "thumbs" ? `#rd-thumb-${page}` : sidePanel === "marks" ? `.rd-mark.active` : null;
-    if (!sel) return;
-    const el = root.querySelector(sel);
-    if (el && el.scrollIntoView) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  // 侧栏缩略图/书签：当前页超出可视区时在 .rd-sidebody 内滚入视区（不用 scrollIntoView）
+  const syncSidePanelScroll = useCallback(() => {
+    if (!sidebar || (sidePanel !== "thumbs" && sidePanel !== "marks")) return;
+    const container = sideBodyRef.current;
+    if (!container) return;
+    const sel = sidePanel === "thumbs" ? `#rd-thumb-${page}` : ".rd-mark.active";
+    const el = container.querySelector(sel);
+    scrollItemInContainer(container, el);
   }, [page, sidebar, sidePanel]);
+
+  useLayoutEffect(() => {
+    syncSidePanelScroll();
+    const id = requestAnimationFrame(syncSidePanelScroll);
+    return () => cancelAnimationFrame(id);
+  }, [syncSidePanelScroll]);
 
   // 连续模式滚动联动：滚动时把顶栏页码（及翻译/批注所依据的 page）同步为当前主视区页
   const onViewScroll = useCallback(() => {
