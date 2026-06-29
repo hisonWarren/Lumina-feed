@@ -40,7 +40,8 @@ const SUBS_CSS = `
 .dg-h1row{display:flex;align-items:flex-start;gap:14px}
 .dg-head h1{font-family:'Source Serif 4',Georgia,serif;font-size:24px;font-weight:600;margin:0;color:var(--ink)}
 .dg-date{font-family:'Space Mono',monospace;font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.1em;margin-top:6px}
-.dg-head p{font-size:13.5px;color:var(--ink2);margin:12px 0 0;line-height:1.6;max-width:640px}
+.dg-head p.brief-lead{font-size:13.5px;color:var(--ink2);margin:12px 0 0;line-height:1.6;text-wrap:pretty}
+.dg-head p.brief-lead b,.dg-head p.brief-lead .keep{white-space:nowrap}
 .dg-batch{display:inline-flex;align-items:center;gap:7px;border:none;background:var(--gold);color:#fff;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap}
 .dg-note{display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:1.55;color:#9a6b2e;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:10px;padding:10px 13px;margin:12px 0 0}
 .dg-note svg{flex-shrink:0;margin-top:1px}
@@ -380,7 +381,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
               }}><Download size={14} /> 取本批全部（{allPending.length}）</button>
             )}
           </div>
-          <p>你订阅的主题共有 <b>{total} 篇</b> 待读新发表。每条都标了证据来源，可直接取全文或让 AI 总结——<b>是否纳入你的研究，由你判断</b>。</p>
+          <p className="brief-lead">你订阅的主题共有 <b>{total} 篇</b> 待读新发表。每条都标了证据来源，可直接取全文或让 AI 总结——<b>是否纳入你的研究，由你判断</b>。</p>
           {total > 0 && (
             <div className="dg-tldr">
               <span>待读 <b>{total}</b> 篇</span>
