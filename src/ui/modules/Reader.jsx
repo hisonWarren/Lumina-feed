@@ -1624,74 +1624,6 @@ export default function Reader({ source, onClose, pushToast }) {
   useEffect(() => { setPageInput(String(page)); }, [page]);
   const step = view === "two" ? 2 : 1;
 
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === "Escape") { if (snipMode) { setSnipMode(false); setSnipRect(null); } else if (transMenuOpen) { setTransMenuOpen(false); } else if (zoomMenuOpen) { setZoomMenuOpen(false); } else if (sel) { setSel(null); } else if (findOpen) { setFindOpen(false); setFind(null); } else if (aiOpen) { setAiOpen(false); } else if (transMode) { setTransMode(null); } else onClose(); return; }
-      const t = e.target;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return; // 输入框内不抢快捷键
-      const mod = e.metaKey || e.ctrlKey;
-      if (mod && (e.key === "f" || e.key === "F")) { e.preventDefault(); setFindOpen(true); }
-      else if (e.key === "Home") { e.preventDefault(); setPage(1); }
-      else if (e.key === "End") { e.preventDefault(); setPage(numPages); }
-      else if (mod && (e.key === "=" || e.key === "+")) { e.preventDefault(); if (view === "two") spreadManualZoomRef.current = true; setScale((s) => Math.min(4, +(s * 1.1).toFixed(3))); }
-      else if (mod && e.key === "-") { e.preventDefault(); if (view === "two") spreadManualZoomRef.current = true; setScale((s) => Math.max(0.3, +(s * 0.9).toFixed(3))); }
-      else if (mod && e.key === "0") {
-        e.preventDefault();
-        if (view === "two" && doc) { spreadManualZoomRef.current = false; fitSpread(); }
-        else if (doc && viewRef.current) fitWidthScale(doc, page, viewRef.current.clientWidth, rotation).then(setScale).catch(() => {});
-      }
-      else if (!mod && (e.key === "r" || e.key === "R") && e.shiftKey) { e.preventDefault(); setRotation((r) => (r + 270) % 360); }
-      else if (!mod && (e.key === "r" || e.key === "R")) { e.preventDefault(); setRotation((r) => (r + 90) % 360); }
-      else if (mod && (e.key === "p" || e.key === "P")) { e.preventDefault(); const api = window.luminaApi; if (api && api.contextAction) api.contextAction("print"); }
-      else if (mod && (e.key === "z" || e.key === "Z") && !e.shiftKey) { e.preventDefault(); undoAnnoRef.current(); }
-      else if (mod && ((e.key === "y" || e.key === "Y") || (e.shiftKey && (e.key === "z" || e.key === "Z")))) { e.preventDefault(); redoAnnoRef.current(); }
-      else if (e.key === "ArrowRight" || e.key === "PageDown") setPage((p) => Math.min(numPages, p + step));
-      else if (e.key === "ArrowLeft" || e.key === "PageUp") setPage((p) => Math.max(1, p - step));
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, numPages, step, findOpen, sel, transMenuOpen, transMode, snipMode, aiOpen, zoomMenuOpen, doc, page, rotation, view, fitSpread]); // undoAnno/redoAnno stable via refs
-
-  useEffect(() => {
-    if (view !== "continuous") return;
-    if (suppressPageScroll.current) { suppressPageScroll.current = false; return; } // 本次 page 变化由滚动联动触发 → 不再回滚
-    const el = document.getElementById("rd-pg-" + page);
-    if (el && el.scrollIntoView) el.scrollIntoView({ block: "start", behavior: "smooth" });
-  }, [page, view]);
-
-  // 连续模式滚动联动：滚动时把顶栏页码（及翻译/批注所依据的 page）同步为当前主视区页
-  const onViewScroll = useCallback(() => {
-    if (sel) setSel(null);
-    if (view !== "continuous") return;
-    const root = viewRef.current;
-    if (!root || scrollSpyRaf.current) return;
-    scrollSpyRaf.current = requestAnimationFrame(() => {
-      scrollSpyRaf.current = 0;
-      const r0 = root.getBoundingClientRect();
-      const line = r0.top + root.clientHeight * 0.3; // 视区上三分之一处为「当前页」判定线
-      let best = 1;
-      for (let nn = 1; nn <= (numPages || 1); nn++) {
-        const el = document.getElementById("rd-pg-" + nn);
-        if (!el) continue;
-        if (el.getBoundingClientRect().top <= line) best = nn; else break; // 页按序排列：越过判定线的最后一页即当前页
-      }
-      setPage((p) => { if (p !== best) { suppressPageScroll.current = true; return best; } return p; });
-    });
-  }, [sel, view, numPages]);
-
-  const zoomOut = () => {
-    if (view === "two") spreadManualZoomRef.current = true;
-    setScale((s) => Math.max(0.3, +(s * 0.9).toFixed(3)));
-  };
-  const zoomIn = () => {
-    if (view === "two") spreadManualZoomRef.current = true;
-    setScale((s) => Math.min(4, +(s * 1.1).toFixed(3)));
-  };
-  const actualSize = () => {
-    if (view === "two") spreadManualZoomRef.current = true;
-    setScale(1);
-    setZoomMenuOpen(false);
-  };
   const fitPage = useCallback(async () => {
     setZoomMenuOpen(false);
     if (!doc || !viewRef.current) return;
@@ -1736,6 +1668,74 @@ export default function Reader({ source, onClose, pushToast }) {
     return () => clearTimeout(t);
   }, [view, sidebar, sidePanel, sideWidth, aiOpen, transMode, rightWidth, focus]);
 
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") { if (snipMode) { setSnipMode(false); setSnipRect(null); } else if (transMenuOpen) { setTransMenuOpen(false); } else if (zoomMenuOpen) { setZoomMenuOpen(false); } else if (sel) { setSel(null); } else if (findOpen) { setFindOpen(false); setFind(null); } else if (aiOpen) { setAiOpen(false); } else if (transMode) { setTransMode(null); } else onClose(); return; }
+      const t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return; // 输入框内不抢快捷键
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && (e.key === "f" || e.key === "F")) { e.preventDefault(); setFindOpen(true); }
+      else if (e.key === "Home") { e.preventDefault(); setPage(1); }
+      else if (e.key === "End") { e.preventDefault(); setPage(numPages); }
+      else if (mod && (e.key === "=" || e.key === "+")) { e.preventDefault(); if (view === "two") spreadManualZoomRef.current = true; setScale((s) => Math.min(4, +(s * 1.1).toFixed(3))); }
+      else if (mod && e.key === "-") { e.preventDefault(); if (view === "two") spreadManualZoomRef.current = true; setScale((s) => Math.max(0.3, +(s * 0.9).toFixed(3))); }
+      else if (mod && e.key === "0") {
+        e.preventDefault();
+        if (view === "two" && doc) { spreadManualZoomRef.current = false; fitSpreadRef.current(); }
+        else if (doc && viewRef.current) fitWidthScale(doc, page, viewRef.current.clientWidth, rotation).then(setScale).catch(() => {});
+      }
+      else if (!mod && (e.key === "r" || e.key === "R") && e.shiftKey) { e.preventDefault(); setRotation((r) => (r + 270) % 360); }
+      else if (!mod && (e.key === "r" || e.key === "R")) { e.preventDefault(); setRotation((r) => (r + 90) % 360); }
+      else if (mod && (e.key === "p" || e.key === "P")) { e.preventDefault(); const api = window.luminaApi; if (api && api.contextAction) api.contextAction("print"); }
+      else if (mod && (e.key === "z" || e.key === "Z") && !e.shiftKey) { e.preventDefault(); undoAnnoRef.current(); }
+      else if (mod && ((e.key === "y" || e.key === "Y") || (e.shiftKey && (e.key === "z" || e.key === "Z")))) { e.preventDefault(); redoAnnoRef.current(); }
+      else if (e.key === "ArrowRight" || e.key === "PageDown") setPage((p) => Math.min(numPages, p + step));
+      else if (e.key === "ArrowLeft" || e.key === "PageUp") setPage((p) => Math.max(1, p - step));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, numPages, step, findOpen, sel, transMenuOpen, transMode, snipMode, aiOpen, zoomMenuOpen, doc, page, rotation, view]); // undoAnno/redoAnno/fitSpread stable via refs
+
+  useEffect(() => {
+    if (view !== "continuous") return;
+    if (suppressPageScroll.current) { suppressPageScroll.current = false; return; } // 本次 page 变化由滚动联动触发 → 不再回滚
+    const el = document.getElementById("rd-pg-" + page);
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [page, view]);
+
+  // 连续模式滚动联动：滚动时把顶栏页码（及翻译/批注所依据的 page）同步为当前主视区页
+  const onViewScroll = useCallback(() => {
+    if (sel) setSel(null);
+    if (view !== "continuous") return;
+    const root = viewRef.current;
+    if (!root || scrollSpyRaf.current) return;
+    scrollSpyRaf.current = requestAnimationFrame(() => {
+      scrollSpyRaf.current = 0;
+      const r0 = root.getBoundingClientRect();
+      const line = r0.top + root.clientHeight * 0.3; // 视区上三分之一处为「当前页」判定线
+      let best = 1;
+      for (let nn = 1; nn <= (numPages || 1); nn++) {
+        const el = document.getElementById("rd-pg-" + nn);
+        if (!el) continue;
+        if (el.getBoundingClientRect().top <= line) best = nn; else break; // 页按序排列：越过判定线的最后一页即当前页
+      }
+      setPage((p) => { if (p !== best) { suppressPageScroll.current = true; return best; } return p; });
+    });
+  }, [sel, view, numPages]);
+
+  const zoomOut = () => {
+    if (view === "two") spreadManualZoomRef.current = true;
+    setScale((s) => Math.max(0.3, +(s * 0.9).toFixed(3)));
+  };
+  const zoomIn = () => {
+    if (view === "two") spreadManualZoomRef.current = true;
+    setScale((s) => Math.min(4, +(s * 1.1).toFixed(3)));
+  };
+  const actualSize = () => {
+    if (view === "two") spreadManualZoomRef.current = true;
+    setScale(1);
+    setZoomMenuOpen(false);
+  };
   const rotateCw = () => setRotation((r) => (r + 90) % 360);
   const rotateCcw = () => setRotation((r) => (r + 270) % 360);
   const download = () => {
