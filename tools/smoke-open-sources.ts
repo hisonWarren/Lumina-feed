@@ -84,7 +84,8 @@ t("stageTextFromTrace: 下载步", (stageTextFromTrace([{ id: "download", label:
 t("stageTextFromTrace: 备用库", (stageTextFromTrace([{ id: "libgen", label: "LibGen", status: "running" }]) || "").includes("备用库"));
 t("stageTextFromTrace: 解析 OA", (stageTextFromTrace([{ id: "unpaywall", label: "Unpaywall", status: "running" }]) || "").includes("查找"));
 t("fetchProgressUi: trace 优先于计时", fetchProgressUi({ startedAt: Date.now() - 60000, trace: [{ id: "download", label: "下载 PDF", status: "running" }] }).stageText.includes("下载"));
-t("fetchFailHint: no_pdf", fetchFailHint("no_pdf").includes("未找到"));
+t("fetchFailHint: no_pdf", fetchFailHint("no_pdf").includes("均未成功"));
+t("fetchFailHint: publisher_blocked", fetchFailHint("publisher_blocked").includes("浏览器"));
 t("fetchFailHint: timeout", fetchFailHint("download_timeout").includes("超时"));
 
 // P2 adapter parse（样本 JSON，无网络）

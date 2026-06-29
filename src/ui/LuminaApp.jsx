@@ -316,7 +316,9 @@ export default function LuminaApp() {
       if (ch && !manualChannels.has(ch)) return;
       const hint = fetchFailHint(r && r.reason);
       const msg = hint || ("取文未成功（" + (r?.reason || "未知原因") + "）。可稍后重试或经机构访问");
-      setFetchFail({ paperTitle: meta?.title, message: msg });
+      const doi = meta?.doi;
+      const openUrl = doi ? ("https://doi.org/" + String(doi).replace(/^https?:\/\/(dx\.)?doi\.org\//i, "")) : null;
+      setFetchFail({ paperTitle: meta?.title, message: msg, openUrl });
       pushToast(msg);
     };
     const stop = bridge.onFetchQueue((ev) => {
@@ -371,7 +373,7 @@ export default function LuminaApp() {
     const priority = channel === "manual" || channel === "library" || channel === "digest" ? 0 : channel === "batch" ? 1 : 2;
     setFetchingMeta((m) => ({
       ...m,
-      [p.id]: { startedAt: Date.now(), trace: null, queued: searchBusy, title: p.title || p.id, channel },
+      [p.id]: { startedAt: Date.now(), trace: null, queued: searchBusy, title: p.title || p.id, channel, doi: p.doi },
     }));
     try {
       if (hasBackend()) {
@@ -678,6 +680,8 @@ export default function LuminaApp() {
           open={!!fetchFail}
           paperTitle={fetchFail?.paperTitle}
           message={fetchFail?.message || ""}
+          openUrl={fetchFail?.openUrl}
+          onOpenExternal={(u) => bridge.openExternal(u)}
           onClose={() => setFetchFail(null)}
         />
         {ctxMenu && (

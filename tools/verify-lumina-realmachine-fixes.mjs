@@ -46,7 +46,7 @@ ok(/fetchPdf\(url, \{ allowAltSources: true \}\)/.test(ipc), "oa:fetchPdf 启用
 ok(/oa:fetchPaper/.test(ipc) && /fetchPaperPdf/.test(ipc), "oa:fetchPaper + fetchPaperPdf 统一链");
 ok(/oa\.fetchPaper/.test(br), "bridge.fetchFullText 优先走 fetchPaper");
 ok(/fetchFailHint\(r\.reason\)/.test(app) || /fetchFailHint\(r && r\.reason\)/.test(app), "onFetch 队列失败走 fetchFailHint");
-ok(/export function fetchFailHint/.test(R("src/ui/fetch-meta.js")) && /no_pdf/.test(R("src/ui/fetch-meta.js")) && /未找到可下载的 PDF/.test(R("src/ui/fetch-meta.js")), "fetchFailHint 映射 no_pdf/no_oa 具体文案");
+ok(/export function fetchFailHint/.test(R("src/ui/fetch-meta.js")) && /publisher_blocked/.test(R("src/ui/fetch-meta.js")) && /no_pdf/.test(R("src/ui/fetch-meta.js")), "fetchFailHint 映射 publisher_blocked / no_pdf");
 
 console.log("· ISSUE-003 阅读器专用接地（groundedRatio 不再恒 0）");
 ok(/function groundReaderAnswer\(answer: string, pages: ReaderPage\[\]/.test(rai), "新增 groundReaderAnswer（页锚 + token 覆盖）");

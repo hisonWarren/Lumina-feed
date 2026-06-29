@@ -42,6 +42,8 @@ export function isLegitimateOaUrl(url?: string): boolean {
   if (OA_DENY_PATTERNS.some((re) => re.test(url) || re.test(full))) return false; // 硬拒影子库
   const host = u.host.toLowerCase();
   if (OA_ALLOW_HOSTS.some((re) => re.test(host))) return true;
+  // 出版商 OA 直链常见形态（Unpaywall/OpenAlex 的 url_for_pdf）
+  if (/\/doi\/pdf\//i.test(u.pathname)) return true;
   // 非白名单：仅当看起来是直接 PDF 资源（保守放行）
   if (/\.pdf($|\?)/i.test(u.pathname)) return true;
   return false;

@@ -105,16 +105,20 @@ async function tryCandidateList(
   trace: ReturnType<typeof makeTraceEmitter> | null,
   attemptMs: number,
   tried: Set<string>,
-): Promise<FetchPaperResult | null> {
+): Promise<{ hit: FetchPaperResult | null; publisherBlocked: boolean }> {
   const scihubMirrorsRef: { current?: string[] } = {};
+  let publisherBlocked = false;
   for (const cand of candidates) {
     const key = candidateKey(cand);
     if (!key || tried.has(key)) continue;
     tried.add(key);
     const hit = await tryOneCandidate(cand, deps, trace, attemptMs, scihubMirrorsRef);
-    if (hit) return hit;
+    if (hit) return { hit, publisherBlocked };
+    if (cand.kind === "url" && /sagepub|wiley|tandfonline|springer|elsevier|oup\.com/i.test(cand.url)) {
+      publisherBlocked = true;
+    }
   }
-  return null;
+  return { hit: null, publisherBlocked };
 }
 
 /** 按统一候选链抓取 PDF 字节（OA 快路径 → 元数据 enrich → 备用库）。 */
@@ -129,13 +133,15 @@ export async function fetchPaperPdf(paper: Paper, deps: OaFullTextDeps = {}): Pr
   const altMs = deps.perAttemptTimeoutMs ?? 22_000;
   const deferAlt = deps.deferAltSources !== false && isOaMarkedPaper(paper);
   const tried = new Set<string>();
+  let publisherBlocked = false;
 
   trace?.patch("identifiers", "running");
   const immediate = immediatePdfCandidates(paper);
   trace?.patch("identifiers", immediate.length ? "ok" : "skip", immediate.length ? `${immediate.length} 个` : undefined);
 
   if (immediate.length) {
-    const hit = await tryCandidateList(immediate, deps, trace, dlMs, tried);
+    const { hit, publisherBlocked: pb } = await tryCandidateList(immediate, deps, trace, dlMs, tried);
+    if (pb) publisherBlocked = true;
     if (hit) {
       trace?.done("done", { ok: true, source: hit.source });
       return hit;
@@ -150,7 +156,8 @@ export async function fetchPaperPdf(paper: Paper, deps: OaFullTextDeps = {}): Pr
   });
   const oaNew = oaEnriched.filter((c) => !tried.has(candidateKey(c)));
   if (oaNew.length) {
-    const hit = await tryCandidateList(oaNew, deps, trace, dlMs, tried);
+    const { hit, publisherBlocked: pb } = await tryCandidateList(oaNew, deps, trace, dlMs, tried);
+    if (pb) publisherBlocked = true;
     if (hit) {
       trace?.done("done", { ok: true, source: hit.source });
       return hit;
@@ -174,16 +181,18 @@ export async function fetchPaperPdf(paper: Paper, deps: OaFullTextDeps = {}): Pr
       .filter((c) => !tried.has(candidateKey(c)));
 
   if (altCands.length) {
-    const hit = await tryCandidateList(altCands, deps, trace, altMs, tried);
+    const { hit, publisherBlocked: pb } = await tryCandidateList(altCands, deps, trace, altMs, tried);
+    if (pb) publisherBlocked = true;
     if (hit) {
       trace?.done("done", { ok: true, source: hit.source });
       return hit;
     }
   }
 
-  trace?.patch("download", "fail", "全部候选失败");
-  trace?.done("done", { ok: false, reason: "no_pdf" });
-  return { ok: false, reason: "no_pdf" };
+  const reason = publisherBlocked && tried.size > 0 ? "publisher_blocked" : "no_pdf";
+  trace?.patch("download", "fail", reason === "publisher_blocked" ? "出版商拦截自动下载" : "全部候选失败");
+  trace?.done("done", { ok: false, reason });
+  return { ok: false, reason };
 }
 
 /** 组装全文提供者（统一候选链 + 超时重试），注入 M4 summarizePaper(deps.fullText)。 */

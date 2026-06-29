@@ -12,15 +12,17 @@ const CSS = `
 .lf-fetchfail-title{margin:0 0 10px;font-size:15px;font-weight:600;color:var(--ink);line-height:1.45}
 .lf-fetchfail-detail{margin:0;font-size:13px;line-height:1.65;color:var(--ink2);white-space:pre-wrap}
 .lf-fetchfail-hint{margin:12px 0 0;padding:10px 12px;background:var(--surf2);border-radius:10px;font-size:12.5px;line-height:1.55;color:var(--ink3)}
-.lf-fetchfail-foot{display:flex;justify-content:flex-end;padding:0 18px 16px}
+.lf-fetchfail-foot{display:flex;justify-content:flex-end;gap:8px;padding:0 18px 16px}
 .lf-fetchfail-btn{background:var(--gold);color:#fff;border:1px solid var(--gold);border-radius:10px;padding:8px 18px;font-size:13px;font-family:inherit;cursor:pointer}
 .lf-fetchfail-btn:hover{background:var(--goldDim,#0B5F55);border-color:var(--goldDim,#0B5F55)}
+.lf-fetchfail-btn.ghost{background:var(--surf);color:var(--ink2);border-color:var(--line2)}
+.lf-fetchfail-btn.ghost:hover{background:var(--surf2);color:var(--ink)}
 `;
 
-const FETCH_FAIL_HINT = "可尝试：核对 DOI · 在设置中配置联络邮箱（Unpaywall）· 经机构订阅访问 · 向作者索取 · 稍后重试。";
+const FETCH_FAIL_HINT = "也可尝试：配置联络邮箱（Unpaywall）· 机构 VPN · 向作者索取。";
 
-/** @param {{ open: boolean; paperTitle?: string; message: string; onClose: () => void }} props */
-export default function FetchFailDialog({ open, paperTitle, message, onClose }) {
+/** @param {{ open: boolean; paperTitle?: string; message: string; openUrl?: string; onOpenExternal?: (url: string) => void; onClose: () => void }} props */
+export default function FetchFailDialog({ open, paperTitle, message, openUrl, onOpenExternal, onClose }) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e) => { if (e.key === "Escape" || e.key === "Enter") onClose(); };
@@ -45,6 +47,9 @@ export default function FetchFailDialog({ open, paperTitle, message, onClose }) 
             <p className="lf-fetchfail-hint">{FETCH_FAIL_HINT}</p>
           </div>
           <div className="lf-fetchfail-foot">
+            {openUrl && onOpenExternal ? (
+              <button type="button" className="lf-fetchfail-btn ghost" onClick={() => onOpenExternal(openUrl)}>浏览器打开</button>
+            ) : null}
             <button type="button" className="lf-fetchfail-btn" onClick={onClose}>知道了</button>
           </div>
         </div>
