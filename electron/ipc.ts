@@ -762,11 +762,17 @@ export function registerIpc(deps: IpcDeps): void {
   });
 
   // ── 继续阅读（持久化 LRU · 元数据 only）──
-  const enrichContinueRow = (row: ReadingHistoryRow): { title?: string; missing?: boolean; hasPdf?: boolean } => {
+  const enrichContinueRow = (row: ReadingHistoryRow): { title?: string; missing?: boolean; hasPdf?: boolean; provenance?: string } => {
     if (row.kind === "paper" && row.paper_id) {
       const paper = store.papers.getById(row.paper_id);
       const hasPdf = fs.existsSync(pdfPath(row.paper_id));
-      return { title: paper?.title || row.title, missing: !hasPdf, hasPdf };
+      let provenance: string | undefined;
+      try {
+        ensureLib();
+        const lib = store.db.prepare("SELECT provenance FROM library WHERE paper_id=?").get(row.paper_id) as { provenance?: string } | undefined;
+        provenance = lib?.provenance || getFetchLog(store.db, row.paper_id)?.provenance || undefined;
+      } catch { /* ignore */ }
+      return { title: paper?.title || row.title, missing: !hasPdf, hasPdf, provenance };
     }
     if (row.kind === "local" && row.local_path) {
       const ok = isSafeLocalPdfPath(row.local_path);

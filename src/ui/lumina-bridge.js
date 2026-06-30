@@ -387,7 +387,7 @@ export const bridge = {
       if (meta.paperId) {
         const appBytes = await bridge.readPdf(meta.paperId);
         const data = appBytes && appBytes.byteLength ? appBytes : meta.bytes;
-        await bridge.recordReadingOpen({ paperId: meta.paperId, title: entry.title, page: entry.page });
+        await bridge.recordReadingOpen({ paperId: meta.paperId, localPath: entry.localPath, title: entry.title, page: entry.page });
         return {
           ok: true, data, paperId: meta.paperId, name: entry.title, entryKey: "paper:" + meta.paperId, page: entry.page || 1,
           contentHash: meta.contentHash || null, inLibrary: meta.inLibrary,

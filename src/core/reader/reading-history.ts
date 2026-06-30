@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { SqliteDb } from "../store/db.ts";
+import { importMapPathKey } from "../store/local-import.ts";
 
 export type ReadingHistoryKind = "paper" | "local";
 
@@ -28,6 +29,8 @@ export type ContinueReadingEntry = {
   missing?: boolean;
   /** paper 类：本机是否仍有 PDF */
   hasPdf?: boolean;
+  /** paper 类：工作集来源（local_import / find_fetch 等） */
+  provenance?: string;
 };
 
 export const CONTINUE_READING_LIMIT = 15;
@@ -78,7 +81,7 @@ export function recordReadingOpen(
 ): ContinueReadingEntry | null {
   ensureReadingHistoryTable(db);
   const title = String(opts.title || "").trim() || "未命名 PDF";
-  const page = Math.max(1, Math.floor(opts.page ?? 1));
+  let page = Math.max(1, Math.floor(opts.page ?? 1));
   const now = new Date().toISOString();
   let kind: ReadingHistoryKind;
   let entryKey: string | null;
@@ -89,6 +92,14 @@ export function recordReadingOpen(
     kind = "paper";
     paperId = String(opts.paperId);
     entryKey = entryKeyFor({ paperId });
+    if (opts.localPath) {
+      const lk = entryKeyFor({ localPath: opts.localPath });
+      if (lk) {
+        const prev = db.prepare("SELECT page FROM reading_history WHERE entry_key=?").get(lk) as { page?: number } | undefined;
+        if (prev?.page && prev.page > page) page = prev.page;
+        db.prepare("DELETE FROM reading_history WHERE entry_key=?").run(lk);
+      }
+    }
   } else if (opts.localPath) {
     kind = "local";
     localPath = normalizeLocalPath(opts.localPath);
@@ -138,10 +149,11 @@ export function touchReadingPage(db: SqliteDb, entryKey: string, page: number): 
 
 export function listContinueReading(
   db: SqliteDb,
-  enrich?: (row: ReadingHistoryRow) => { title?: string; missing?: boolean; hasPdf?: boolean },
+  enrich?: (row: ReadingHistoryRow) => { title?: string; missing?: boolean; hasPdf?: boolean; provenance?: string },
   limit = CONTINUE_READING_LIMIT,
 ): ContinueReadingEntry[] {
   ensureReadingHistoryTable(db);
+  purgeStaleLocalContinueEntries(db);
   const rows = db.prepare(
     "SELECT * FROM reading_history ORDER BY opened_at DESC LIMIT ?",
   ).all(limit) as ReadingHistoryRow[];
@@ -157,8 +169,28 @@ export function listContinueReading(
       openedAt: r.opened_at,
       missing: extra.missing,
       hasPdf: extra.hasPdf,
+      provenance: extra.provenance,
     };
   });
+}
+
+/** 本地 PDF 已导入工作集后，移除残留的 local: 继续阅读行（与 paper: 重复） */
+export function purgeStaleLocalContinueEntries(db: SqliteDb): void {
+  ensureReadingHistoryTable(db);
+  const locals = db.prepare(
+    "SELECT entry_key, local_path FROM reading_history WHERE kind='local' AND local_path IS NOT NULL",
+  ).all() as { entry_key: string; local_path: string }[];
+  for (const r of locals) {
+    if (!r.local_path) continue;
+    try {
+      const row = db.prepare("SELECT payload FROM sources_cache WHERE key=?").get(importMapPathKey(r.local_path)) as { payload?: string } | undefined;
+      if (!row?.payload) continue;
+      const { paperId } = JSON.parse(row.payload) as { paperId?: string };
+      if (!paperId) continue;
+      const hasPaper = db.prepare("SELECT 1 FROM reading_history WHERE entry_key=?").get(`paper:${paperId}`);
+      if (hasPaper) removeReadingHistory(db, r.entry_key);
+    } catch { /* ignore */ }
+  }
 }
 
 export function removeReadingHistory(db: SqliteDb, entryKey: string): boolean {

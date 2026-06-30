@@ -384,7 +384,7 @@ export async function importLocalPdfToLibrary(
     }
     void indexPdfFulltext(deps, paperId, bytes);
     if (opts.localPath) {
-      recordReadingOpen(deps.store.db, { paperId, title, page: 1 });
+      recordReadingOpen(deps.store.db, { paperId, title, page: 1, localPath: opts.localPath });
     }
     broadcastPapersChanged({ paperId, action: existed ? "import_existing" : "imported", source: "import" });
     return { ok: true, paperId, contentHash: hash, title, existed, inLibrary };

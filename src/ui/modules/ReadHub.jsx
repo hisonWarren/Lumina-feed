@@ -6,6 +6,12 @@ import { bridge } from "../lumina-bridge.js";
 import { loadJsonPref, saveJsonPref } from "../ui-prefs.js";
 import Reader from "./Reader.jsx";
 
+function continueSourceTag(it) {
+  if (it.kind === "local") return "本地文件";
+  if (it.provenance === "local_import" || it.provenance === "recovered") return "本机";
+  return "已下载";
+}
+
 const HUB_CSS = `
 .rh{flex:1;min-height:0;overflow-y:auto;padding:36px 30px 48px;display:flex;flex-direction:column;gap:26px;align-items:center}
 .rh-inner{width:100%;max-width:760px;display:flex;flex-direction:column;gap:28px;align-items:stretch;justify-content:center;margin-block:auto;box-sizing:border-box}
@@ -147,7 +153,7 @@ function ReadHub({
                     <span className="rh-row-meta">
                       <span>{formatRelativeTime(it.openedAt)}</span>
                       {it.page > 1 && <span>· 第 {it.page} 页</span>}
-                      <span className={"rh-tag" + (it.kind === "paper" ? " gold" : "")}>{it.kind === "paper" ? "已下载" : "本地文件"}</span>
+                      <span className={"rh-tag" + (it.kind === "paper" && it.provenance !== "local_import" && it.provenance !== "recovered" ? " gold" : "")}>{continueSourceTag(it)}</span>
                       {it.missing && <span className="rh-tag">文件不可用</span>}
                     </span>
                   </div>
@@ -392,7 +398,7 @@ export default function ReaderModule({ pushToast, incoming, onIncomingHandled, r
       if (paperId) {
         const appBytes = await bridge.readPdf(paperId);
         if (appBytes && appBytes.byteLength) data = appBytes;
-        const rec = await bridge.recordReadingOpen({ paperId, title: name, page: 1 });
+        const rec = await bridge.recordReadingOpen({ paperId, title: name, page: 1, localPath: pathUsed || undefined });
         entryKey = rec?.entry?.entryKey || ("paper:" + paperId);
         startPage = rec?.entry?.page || 1;
       } else if (pathUsed) {
