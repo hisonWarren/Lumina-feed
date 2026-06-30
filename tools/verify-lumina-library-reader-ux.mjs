@@ -28,6 +28,10 @@ const bridge = read("src/ui/lumina-bridge.js");
 const reader = read("src/ui/modules/Reader.jsx");
 /source\.paperId[\s\S]{0,120}onLibraryImport\(\{ paperId: source\.paperId/.test(reader)
   ? ok("Reader 已有 paperId 时快速重新入库") : bad("Reader 重加仍走全量导入");
+/res\.paperId !== source\.paperId/.test(reader)
+  ? ok("Reader 重加不重复 onSourceUpgrade") : bad("Reader 重加仍会触发 onSourceUpgrade");
+/resolveReaderPdfData/.test(reader) && /readPdf/.test(reader)
+  ? ok("Reader PDF 失效缓冲时从盘读回") : bad("Reader 缺 PDF 读盘回退");
 /onLibraryRemove/.test(reader) && /scrollItemInContainer\(container, el\)/.test(reader) && /点击移出文献/.test(reader)
   ? ok("Reader 收藏切换 + 连续模式容器内滚动") : bad("Reader UX 修复不完整");
 

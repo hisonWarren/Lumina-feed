@@ -13,6 +13,35 @@ import { setReaderContextHost, shouldReaderHandleContextTarget } from "../reader
 import ReaderContextMenu from "../components/ReaderContextMenu.jsx";
 import { readerDocKey, readerDocKeyCandidates } from "../reader-doc-key.js";
 
+function pdfBytesClone(bytes) {
+  if (!bytes) return null;
+  try {
+    if (bytes instanceof ArrayBuffer) return bytes.byteLength ? bytes.slice(0) : null;
+    if (ArrayBuffer.isView(bytes)) {
+      return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    }
+  } catch { /* detached */ }
+  return null;
+}
+
+/** 阅读器打开 PDF：优先内存副本，失效时从 paperId/localPath 读盘（pdf.js 会转移 ArrayBuffer 所有权） */
+async function resolveReaderPdfData(source) {
+  if (!source) return null;
+  const mem = pdfBytesClone(source.data);
+  if (mem && mem.byteLength) return mem;
+  if (source.paperId && bridge.readPdf) {
+    const fromApp = await bridge.readPdf(source.paperId);
+    const clone = pdfBytesClone(fromApp);
+    if (clone && clone.byteLength) return clone;
+  }
+  if (source.localPath && bridge.readLocalPdf) {
+    const meta = await bridge.readLocalPdf(source.localPath);
+    const clone = pdfBytesClone(meta && meta.bytes);
+    if (clone && clone.byteLength) return clone;
+  }
+  return null;
+}
+
 const READER_CSS = `
 /* ── reader_plus 双车道（证据=gold/已四主题派生；推断=amber 此处派生明/暗） ── */
 .rd{--amber:#BE7A18;--amberDim:#9A5F12;--amberTint:rgba(190,122,24,.10);--amberLine:rgba(190,122,24,.34)}
@@ -1664,17 +1693,20 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
           fromDocKeys: readerDocKeyCandidates(source),
           entryKey: source.entryKey,
         });
-      if (res && res.ok && res.paperId) {
-        onSourceUpgrade && onSourceUpgrade({
-          paperId: res.paperId,
-          name: res.title || source.name,
-          contentHash: res.contentHash || source.contentHash,
-          localPath: undefined,
-          entryKey: "paper:" + res.paperId,
-        });
-        pushToast && pushToast(res.existed ? "已在工作集 · 阅读缓存已对齐" : "已加入「我的文献」");
-      } else if (res && res.ok && source.paperId) {
-        pushToast && pushToast("已加入「我的文献」");
+      if (res && res.ok) {
+        if (res.paperId && res.paperId !== source.paperId) {
+          onSourceUpgrade && onSourceUpgrade({
+            paperId: res.paperId,
+            name: res.title || source.name,
+            contentHash: res.contentHash || source.contentHash,
+            localPath: undefined,
+            entryKey: "paper:" + res.paperId,
+          });
+        }
+        const msg = res.existed
+          ? "已在工作集 · 阅读缓存已对齐"
+          : (source.paperId && source.paperId === res.paperId ? "已重新加入「我的文献」" : "已加入「我的文献」");
+        pushToast && pushToast(msg);
       } else {
         pushToast && pushToast((res && res.error) || "加入工作集失败");
       }
@@ -1763,8 +1795,11 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
     let cancelled = false;
     setLoading(true); setErr(null); strCache.current = {}; setFind(null); setFindOpen(false);
     posLoadedRef.current = false;
-    openPdf({ data: source.data })
-      .then(async (d) => {
+    resolveReaderPdfData(source)
+      .then(async (data) => {
+        if (cancelled) return;
+        if (!data || !data.byteLength) throw new Error("no_pdf");
+        const d = await openPdf({ data });
         if (cancelled) return;
         setDoc(d); setNumPages(d.numPages || 0); setLoading(false);
         const ol = await getOutline(d); if (!cancelled) setOutline(ol);
