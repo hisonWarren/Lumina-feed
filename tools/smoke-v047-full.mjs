@@ -341,7 +341,7 @@ try {
       if (scan) scan.click();
       await new Promise(r => setTimeout(r, 400));
       const hero = document.querySelector(".dg-report-hero");
-      if (hero?.classList.contains("collapsed")) document.querySelector(".dg-report-collapse")?.click();
+      // 简报条默认展开，无需点击折叠
       return true;
     `);
     await new Promise((r) => setTimeout(r, 500));

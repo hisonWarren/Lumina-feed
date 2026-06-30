@@ -181,14 +181,8 @@ try {
   dom0.listOverflow === "auto" || dom0.listOverflow === "scroll"
     ? pass("SRJ1b", ".dg-list 可滚动", dom0.listOverflow)
     : fail("SRJ1b", ".dg-list overflow", dom0.listOverflow);
-  // 确保报告展开
-  await evalJs(cdp, `
-    const hero = document.querySelector(".dg-report-hero");
-    if (hero && hero.classList.contains("collapsed")) {
-      document.querySelector(".dg-report-collapse")?.click();
-    }
-    return true;
-  `);
+  // 简报条默认展开，无需点击折叠
+  await evalJs(cdp, `return true;`);
   await new Promise((r) => setTimeout(r, 300));
 
   if (hits.length > 0) {
@@ -260,11 +254,7 @@ try {
           return true;
         `);
         await new Promise((r) => setTimeout(r, 800));
-        await evalJs(cdp, `
-          const hero = document.querySelector(".dg-report-hero");
-          if (hero?.classList.contains("collapsed")) document.querySelector(".dg-report-collapse")?.click();
-          return true;
-        `);
+        await evalJs(cdp, `return true;`);
         for (let i = 0; i < 8; i++) {
           const n = await evalJs(cdp, `return document.querySelectorAll(".dg-report-hero .dg-rp-link, .dg-report-hero .dg-report-link").length;`);
           if (n > 0) break;
@@ -334,22 +324,14 @@ try {
     pass("SRJ-clean-key", "LLM 密钥已清除");
   }
 
-  // B2.6 折叠记忆
+  // B2.6 简报条始终展开（一段话简报，无折叠）
   await goSubs(cdp);
-  await evalJs(cdp, `
-    localStorage.setItem("lumina_digest_report_collapsed", "1");
-    return true;
+  const stripOpen = await evalJs(cdp, `
+    const hero = document.querySelector(".dg-brief-strip, .dg-report-hero");
+    const brief = hero?.querySelector(".dg-rp-brief");
+    return !!(hero && !hero.classList.contains("collapsed") && (brief || hero.querySelector(".dg-report-note")));
   `);
-  await evalJs(cdp, `
-    const t = [...document.querySelectorAll(".lf-tab")].find(b => (b.textContent||"").includes("检索取文"));
-    if (t) t.click();
-    return true;
-  `);
-  await new Promise((r) => setTimeout(r, 300));
-  await goSubs(cdp);
-  const collapsed = await evalJs(cdp, `return document.querySelector(".dg-report-hero")?.classList.contains("collapsed")`);
-  collapsed ? pass("SRJ7", "折叠态 localStorage 保持", "collapsed") : fail("SRJ7", "折叠记忆", String(collapsed));
-  await evalJs(cdp, `localStorage.removeItem("lumina_digest_report_collapsed");`);
+  stripOpen ? pass("SRJ7", "简报条始终展开", "strip") : fail("SRJ7", "简报条不可见", String(stripOpen));
 
   // B3 回归：试跑预览按钮仍在
   const reg = await evalJs(cdp, `

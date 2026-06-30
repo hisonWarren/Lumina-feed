@@ -42,11 +42,10 @@
 .dg-view-seg button:last-child{border-right:none}
 .dg-view-seg button.on{background:var(--gold);color:#fff}
 .dg-report-hero{margin:0;border:1px solid var(--line2);border-radius:12px;background:linear-gradient(180deg,rgba(14,124,111,.06),var(--surf))}
-.dg-report-hero.collapsed .dg-report-body{display:none}
+.dg-brief-strip .dg-report-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line2);border-radius:12px 12px 0 0}
+.dg-brief-strip .dg-report-head-main{display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px;min-width:0}
+.dg-brief-icon{color:var(--gold);flex-shrink:0}
 .dg-report-head{display:flex;align-items:flex-start;flex-wrap:wrap;gap:8px 10px;padding:12px 14px;border-bottom:1px solid var(--line2);min-height:0}
-.dg-report-hero.collapsed .dg-report-head{border-bottom:none;border-radius:12px}
-.dg-report-hero:not(.collapsed) .dg-report-head{border-radius:12px 12px 0 0}
-.dg-report-collapse{flex:1 1 12rem;min-width:0;display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px;border:none;background:transparent;cursor:pointer;font-family:inherit;text-align:left;color:var(--ink);padding:2px 0;line-height:1.45}
 .dg-report-title{font-family:'Source Serif 4',Georgia,serif;font-size:15px;font-weight:600;line-height:1.4}
 .dg-report-headline{flex:1 1 100%;font-size:12px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .dg-report-busy{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;line-height:1.4;color:var(--gold);flex-shrink:0}
@@ -54,10 +53,15 @@
 .dg-report-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
 .dg-report-btn{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:8px;padding:5px 10px;font-size:11.5px;cursor:pointer;font-family:inherit}
 .dg-report-btn:hover{border-color:var(--gold);color:var(--gold)}
+.dg-report-btn.primary{background:var(--gold);border-color:var(--gold);color:#fff}
+.dg-report-btn.primary:hover{filter:brightness(1.05);color:#fff}
 .dg-report-btn:disabled{opacity:.55;cursor:default}
 .dg-report-icon{border:none;background:transparent;color:var(--ink3);cursor:pointer;padding:4px;border-radius:6px;display:grid;place-items:center}
 .dg-report-icon:hover{color:var(--gold);background:var(--surf2)}
-.dg-report-body{padding:12px 14px 14px;font-size:13px;line-height:1.65;color:var(--ink2)}
+.dg-report-body{padding:10px 12px 12px;font-size:13px;line-height:1.65;color:var(--ink2)}
+.dg-rp-brief.strip{margin:4px 0 8px;font-size:14px;line-height:1.65;color:var(--ink)}
+.dg-rp-expand.inline{display:inline-flex;align-items:center;gap:4px;margin:0;padding:0;border:none;background:transparent;font-size:12px;color:var(--gold);cursor:pointer;font-family:inherit}
+.dg-rp-expand.inline:hover{text-decoration:underline}
 .dg-report-disclaimer{font-size:10.5px;font-family:'Space Mono',monospace;color:var(--gold);margin:0 0 10px}
 .dg-report-note{display:flex;align-items:flex-start;gap:8px;font-size:12px;color:var(--ink3);padding:8px 10px;background:var(--surf2);border-radius:8px;margin-bottom:10px}
 .dg-report-lead{font-family:'Source Serif 4',Georgia,serif;font-size:16px;font-weight:600;color:var(--ink);margin:0 0 12px;line-height:1.45}
@@ -145,6 +149,13 @@
 
 /* Hero（扫描列表内）正文：复用同一套件，更紧凑 */
 .dg-rp-lead{font-family:'Source Serif 4',Georgia,serif;font-size:17px;font-weight:600;line-height:1.42;color:var(--ink);margin:0 0 4px}
+.dg-rp-brief{font-size:14px;line-height:1.65;color:var(--ink2);margin:8px 0 12px}
+.dg-rp-brief.reader{font-size:15px;line-height:1.7;color:var(--ink);margin:0 0 20px;padding-bottom:16px;border-bottom:1px dashed var(--line2)}
+.dg-rp-spotlights{display:flex;flex-direction:column;gap:12px}
+.dg-rp-spot{padding:10px 12px;border:1px solid var(--line2);border-radius:10px;background:var(--surf)}
+.dg-rp-spot-label{font-size:12px;font-weight:700;color:var(--gold);margin:0 0 6px;font-family:'Space Mono',monospace;letter-spacing:.04em;text-transform:uppercase}
+.dg-rp-spot-s{font-size:13px;line-height:1.6;color:var(--ink2);margin:0 0 8px}
+.dg-rp-links.compact{gap:4px}
 .dg-report-body .dg-rp-sec{margin-top:18px}
 .dg-report-body .dg-rp-theme{padding:11px 13px}
 .dg-report-body .dg-rp-theme-t{font-size:15px}

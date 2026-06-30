@@ -12,7 +12,7 @@ import DigestReportHero, { DigestReportReader } from "../components/DigestReport
 import DigestRetro from "../components/DigestRetro.jsx";
 import DigestSourceLine from "../components/DigestSourceLine.jsx";
 import { dedupeDigestEntries, DIGEST_PAGE } from "../lib/digest-ui.js";
-import { unreadTodayCount } from "../lib/subs-unread.js";
+import { unreadTodayCount, countSubsUnread, digestReportNeedsRefresh } from "../lib/subs-unread.js";
 import { isFetched, fetchProgressUi } from "../fetch-meta.js";
 import { persistSettings } from "../settings-persist.js";
 
@@ -253,12 +253,6 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
   const [viewMode, setViewMode] = useState(() => {
     try { return localStorage.getItem("lumina_subs_view") || "scan"; } catch { return "scan"; }
   });
-  const [reportCollapsed, setReportCollapsed] = useState(() => {
-    try {
-      const v = localStorage.getItem("lumina_digest_report_collapsed");
-      return v === null ? true : v === "1";
-    } catch { return true; }
-  });
   const [subsBgHintDismissed, setSubsBgHintDismissed] = useState(true);
   const backend = hasBackend();
   const reportScope = activeSub === "all" ? "all" : activeSub;
@@ -341,6 +335,21 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
       pushToast && pushToast("需引擎后端才能生成报告");
       return;
     }
+    if (countSubsUnread(subs) <= 0) {
+      setReportGenerating(false);
+      setDigestReportsByScope((prev) => ({
+        ...prev,
+        [reportScope]: {
+          status: "skipped",
+          skippedReason: subs.length === 0 ? "no_subs" : "no_unread",
+          scope: reportScope,
+          highlights: [],
+          themes: [],
+          priorityPicks: [],
+        },
+      }));
+      return;
+    }
     setReportGenerating(true);
     try {
       const r = await bridge.digestReportGenerate({ scope: reportScope, force });
@@ -350,8 +359,6 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
         reportRetryRef.current[reportScope] = 0;
         if (force) {
           pushToast && pushToast("今日简报报告已就绪");
-          setReportCollapsed(false);
-          try { localStorage.setItem("lumina_digest_report_collapsed", "0"); } catch { /* ignore */ }
         }
       } else if (r?.report?.skippedReason === "llm_not_configured") {
         pushToast && pushToast("未配置 LLM · 请在设置中填写 API Key");
@@ -363,15 +370,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
     } finally {
       setReportGenerating(false);
     }
-  }, [backend, reportScope, pushToast]);
-
-  const toggleReportCollapsed = useCallback(() => {
-    setReportCollapsed((c) => {
-      const next = !c;
-      try { localStorage.setItem("lumina_digest_report_collapsed", next ? "1" : "0"); } catch { /* ignore */ }
-      return next;
-    });
-  }, []);
+  }, [backend, reportScope, pushToast, subs]);
 
   const jumpToPaper = useCallback((paperId) => {
     if (!paperId) return;
@@ -434,9 +433,13 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
     await bridge.subsRemove(id);
     setSubs((s) => s.filter((x) => x.id !== id));
     if (activeSub === id) setActiveSub("all");
+    setRunProgress(null);
+    setReportGenerating(false);
+    setDigestReportsByScope({});
     onSubsChange?.();
     pushToast && pushToast("订阅已删除");
-  }, [activeSub, pushToast, onSubsChange]);
+    void loadReport("all");
+  }, [activeSub, pushToast, onSubsChange, loadReport]);
   const onSaveSub = useCallback(async (sub) => {
     const saved = (await bridge.subsSave(sub)) || sub;
     setSubs((s) => { const i = s.findIndex((x) => x.id === saved.id); if (i >= 0) { const n = s.slice(); n[i] = saved; return n; } return [...s, saved]; });
@@ -454,12 +457,12 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
       },
       onUpdated: async ({ subId: sid, ai }) => {
         if (sid !== subId) return;
+        setRunProgress(null);
         const list = await bridge.subsList();
         const updated = list.find((x) => x.id === sid);
         if (updated) setSubs((s) => s.map((x) => (x.id === sid ? updated : x)));
-        setRunProgress(null);
         onSubsChange?.();
-        if (ai && ai.status !== "failed") pushToast && pushToast("简报 AI 内容已更新");
+        if (ai && ai.status !== "failed" && ai.status !== "cancelled") pushToast && pushToast("简报 AI 内容已更新");
       },
     });
     const aiQueued = r?.meta?.ai?.status === "queued";
@@ -580,7 +583,25 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
   const visibleLimit = (gid) => loadMore[gid] || DIGEST_PAGE;
   const bumpLoad = (gid, totalN) => setLoadMore((m) => ({ ...m, [gid]: Math.min(totalN, (m[gid] || DIGEST_PAGE) + DIGEST_PAGE) }));
 
+  useEffect(() => {
+    if (!backend || !bridge.onSubsUpdated) return;
+    return bridge.onSubsUpdated((payload) => {
+      if (payload?.removed) {
+        setRunProgress(null);
+        setReportGenerating(false);
+      }
+    });
+  }, [backend]);
+
+  useEffect(() => {
+    if (countSubsUnread(subs) > 0 && subs.length > 0) return;
+    setRunProgress(null);
+    setReportGenerating(false);
+    if (subs.length === 0) setDigestReportsByScope({});
+  }, [subs]);
+
   const globalActivity = (() => {
+    if (subs.length === 0 || countSubsUnread(subs) <= 0) return null;
     if (runProgress) {
       const lbl = runProgress.label || "";
       const kind = /检索|检查/.test(lbl) ? "search" : "ai";
@@ -595,10 +616,11 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
 
   useEffect(() => {
     if (!onActivityChange) return;
-    const busy = !!(reportGenerating || runProgress || digestReport?.status === "generating");
+    const hasUnread = subs.length > 0 && countSubsUnread(subs) > 0;
+    const busy = hasUnread && !!(reportGenerating || runProgress || digestReport?.status === "generating");
     onActivityChange(busy);
     return () => { onActivityChange(false); };
-  }, [reportGenerating, runProgress, digestReport?.status, onActivityChange]);
+  }, [reportGenerating, runProgress, digestReport?.status, onActivityChange, subs]);
 
   useEffect(() => {
     if (!backend || !bridge.onDigestReportUpdated) return;
@@ -619,10 +641,10 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
       return;
     }
     const stale = !digestReport || digestReport.status === "idle"
-      || (digestReport.status === "ready" && digestReport.unreadCount !== total);
+      || (digestReport.status === "ready" && digestReportNeedsRefresh(digestReport, subs, reportScope));
     if (!stale) return;
     void generateReport(false);
-  }, [backend, total, reportScope, digestReport?.status, digestReport?.unreadCount, digestReport?.skippedReason, reportGenerating, reportScopeLoading, generateReport]);
+  }, [backend, subs, reportScope, digestReport?.status, digestReport?.unreadCount, digestReport?.contributingSubIds, digestReport?.subCount, digestReport?.skippedReason, reportGenerating, reportScopeLoading, generateReport]);
 
   return (
     <div className="subs">
@@ -749,15 +771,10 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
                   report={digestReport}
                   scopeLoading={reportScopeLoading}
                   hideBusy={!!globalActivity && globalActivity.kind !== "load"}
-                  collapsed={reportCollapsed}
-                  onToggleCollapse={toggleReportCollapsed}
                   onGenerate={generateReport}
                   generating={reportGenerating}
                   onOpenSettings={() => onOpenSettings && onOpenSettings("general")}
-                  onJumpPaper={jumpToPaper}
                   onViewReport={() => setViewMode("report")}
-                  viewMode={viewMode}
-                  paperTitleById={paperTitleById}
                   scopeMode={scopeMode}
                   scopeLabel={scopeLabel}
                 />

@@ -84,7 +84,7 @@ import {
   pickAbstractTargets, pickBlurbTargets, pickTopNTargets, readCachedSummary,
 } from "../src/core/subs/digest-ai.ts";
 import {
-  dateKeyOf, loadDigestReport, runDigestReportGeneration, type DigestReport,
+  dateKeyOf, loadDigestReport, reconcileDigestReportForSubs, runDigestReportGeneration, type DigestReport,
 } from "../src/core/subs/digest-report.ts";
 import {
   recordDigestSnapshot, pruneDigestHistory, listSnapshotDates, loadSnapshot,
@@ -1242,6 +1242,10 @@ export function registerIpc(deps: IpcDeps): void {
       ensureSubs();
       store.db.prepare("DELETE FROM subscriptions WHERE id=?").run(id);
       broadcastSubsUpdated({ removed: id });
+      const dateKey = dateKeyOf();
+      const subs = listAllSubscriptions(store.db);
+      const report = reconcileDigestReportForSubs(store, subs, dateKey, "all");
+      broadcastDigestReportUpdated({ scope: "all", status: report.status, dateKey });
       return true;
     } catch { return false; }
   });
@@ -1301,7 +1305,8 @@ export function registerIpc(deps: IpcDeps): void {
     try {
       const dateKey = dateKeyOf();
       const sc = scope && scope !== "all" ? String(scope) : "all";
-      return loadDigestReport(store, dateKey, sc);
+      const subs = listAllSubscriptions(store.db);
+      return reconcileDigestReportForSubs(store, subs, dateKey, sc);
     } catch {
       return loadDigestReport(store, dateKeyOf(), "all");
     }
@@ -1611,6 +1616,12 @@ function listAllSubscriptions(db: Store["db"]): Record<string, unknown>[] {
   return out;
 }
 
+function subscriptionExists(store: Store, subId: string): boolean {
+  ensureSubsTable(store.db);
+  const row = store.db.prepare("SELECT 1 AS ok FROM subscriptions WHERE id=?").get(subId) as { ok?: number } | undefined;
+  return !!row?.ok;
+}
+
 async function generateDigestReportNow(
   store: Store,
   secrets: SecretStore,
@@ -1886,6 +1897,11 @@ async function runSubscriptionNow(
         void (async () => {
           try {
             const { patchById, aiMeta } = await runDigestAiPhase(mode, norm, todayMerged, fresh, false, store, secrets, subId, onProgress);
+            if (!subscriptionExists(store, subId)) {
+              emitSubsProgress(sender, subId, { phase: "ai", mode: mode as "blurb", current: 0, total: 0, label: "已取消" });
+              if (sender && !sender.isDestroyed()) sender.send("subs:updated", { subId, ai: { status: "cancelled", mode } });
+              return;
+            }
             todayMerged = mergeAiOntoToday(todayMerged, patchById);
             meta.ai = aiMeta;
             meta.durationMs = Date.now() - t0;

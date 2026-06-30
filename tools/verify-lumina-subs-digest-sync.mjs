@@ -70,6 +70,15 @@ for (const p of ["src/core/subs/digest-report.ts", "src/ui/components/DigestAbst
 has("electron/ipc.ts", /digestReport:get/, "digestReport:get IPC");
 has("electron/ipc.ts", /digestReport:generate/, "digestReport:generate IPC");
 has("electron/ipc.ts", /scheduleDigestReport/, "scheduleDigestReport 调度");
+has("src/core/subs/digest-report.ts", /fairCapDigestEntries/, "跨订阅公平采样");
+has("src/core/subs/digest-report.ts", /DIGEST_REPORT_MIN_PER_SUB/, "每订阅最低配额");
+has("src/core/subs/digest-report.ts", /\bbrief\b/, "brief 一段话简报");
+has("src/core/subs/digest-report.ts", /subSpotlights/, "各订阅 subSpotlights");
+has("src/ui/components/DigestReportHero.jsx", /dg-rp-brief/, "扫描列表仅展示 brief");
+has("src/core/subs/digest-report.ts", /contributingSubIds/, "contributingSubIds 陈旧检测");
+has("src/core/subs/digest-report.ts", /reconcileDigestReportForSubs/, "删除订阅后 reconcile 报告");
+has("electron/ipc.ts", /reconcileDigestReportForSubs/, "IPC 读报告时 reconcile");
+has("src/ui/lib/subs-unread.js", /digestReportNeedsRefresh/, "UI 陈旧检测");
 has("electron/preload.ts", /digestReportGet/, "preload digestReportGet");
 has("electron/settings.ts", /digestReportAuto/, "digestReportAuto 设置");
 has("src/ui/modules/Subscriptions.jsx", /DigestAbstract/, "列表摘要展示");
