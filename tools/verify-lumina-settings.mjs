@@ -16,7 +16,13 @@ if(exists("src/ui/themes.js")){ const s=read("src/ui/themes.js"); /THEMES/.test(
 console.log("\n— 2. 语法/平衡 —");
 ["src/ui/modules/Settings.jsx","src/ui/LuminaApp.jsx"].forEach((f)=>{ if(exists(f)&&balance(f)) ok(f+" 括号平衡"); });
 
-console.log("\n— 3. 大模型配置（provider/model/baseURL/key）—");
+console.log("\n— 3b. 升级后 LLM 配置自愈 —");
+if(exists("electron/settings.ts")){ const st=read("electron/settings.ts");
+  /hydrateLlmSettings/.test(st)&&/LLM_KEY_PROVIDERS/.test(st)?ok("钥匙串有 key 但 DB 缺 llm 时自动补写 provider/model"):bad("缺 hydrateLlmSettings（升级后需重保存大模型）");
+}
+if(exists("electron/ipc.ts")){ const ipc=read("electron/ipc.ts");
+  /hydrateLlmSettings/.test(ipc)&&/settings:get/.test(ipc)?ok("settings:get / llm:status 走 hydrate"):bad("ipc 未接线 hydrateLlmSettings");
+}
 if(exists("src/ui/modules/Settings.jsx")){ const s=read("src/ui/modules/Settings.jsx");
   /deepseek/.test(s)&&/anthropic/.test(s)&&/openai/.test(s)&&/moonshot/.test(s)&&/ollama/.test(s)&&/custom/.test(s)?ok("六提供方（DeepSeek 默认 + Claude/OpenAI/Kimi/Ollama/自定义）"):bad("提供方不全");
   (/saveSettings/.test(s) || /persistSettings/.test(s) || /persistLlmFields/.test(s))?ok("保存 llm 配置（persistSettings / persistLlmFields）"):bad("未保存 llm");

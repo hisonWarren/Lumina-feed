@@ -39,7 +39,7 @@ import {
   touchReadingPage,
   type ReadingHistoryRow,
 } from "../src/core/reader/reading-history.ts";
-import { loadAppSettings, saveAppSettings, loadAppSettingsView, type AppSettings } from "./settings.ts";
+import { loadAppSettings, saveAppSettings, loadAppSettingsView, hydrateLlmSettings, type AppSettings } from "./settings.ts";
 import type { SummarizeOptions } from "../src/core/summarize/types.ts";
 import { DEFAULT_SUMMARIZE } from "../src/core/summarize/types.ts";
 import { setPoliteIdentity } from "../src/core/sources/adapter.ts";
@@ -152,6 +152,9 @@ function broadcastSettingsChanged(): void {
 
 export function registerIpc(deps: IpcDeps): void {
   const { store, secrets } = deps;
+  const hasLlmSecret = async (k: string) => !!(await secrets.get(k));
+  /** 升级后钥匙串有 key、DB 缺 llm 时尽早补写，避免各 IPC 路径各自漏调 hydrate */
+  void hydrateLlmSettings(store, hasLlmSecret).catch(() => {});
   registerCiteExport();
 
   async function buildSearchOpts(): Promise<SearchOpts> {
@@ -399,7 +402,7 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle("summarize:paper", async (_e, paperId: string, opts: SummarizeOptions) => {
     const paper = store.papers.getById(paperId);
     if (!paper) throw new Error("文献不存在");
-    const settings = await loadAppSettings(store);
+    const settings = await hydrateLlmSettings(store, hasLlmSecret);
     if (!settings.llm) throw new Error("未配置 LLM");
     const llm = await llmFromConfig(settings.llm, () => secrets.get(`${settings.llm!.provider}_key`));
     const fullText = makeOaFullTextProvider({ email: settings.contactEmail, includeAltSources: true });
@@ -669,7 +672,7 @@ export function registerIpc(deps: IpcDeps): void {
     return probeAllMirrors(settings.altMirrors);
   });
 
-  ipcMain.handle("settings:get", () => loadAppSettingsView(store));
+  ipcMain.handle("settings:get", () => loadAppSettingsView(store, hasLlmSecret));
   ipcMain.handle("settings:save", async (_e, s) => {
     await saveAppSettings(store, s);
     const cur = await loadAppSettings(store);
@@ -911,9 +914,20 @@ export function registerIpc(deps: IpcDeps): void {
     return { provider, model, llm: { ...llm!, provider, model } };
   };
   const checkLlmReadyOnce = async () => {
-    const settings = await loadAppSettings(store);
+    const settings = await hydrateLlmSettings(store, hasLlmSecret);
     const resolved = resolveLlmConfig(settings);
     if (!resolved) {
+      const keyProviders: string[] = [];
+      for (const p of ["deepseek", "anthropic", "openai", "moonshot", "doubao"] as const) {
+        if (await secrets.get(`${p}_key`)) keyProviders.push(p);
+      }
+      if (keyProviders.length) {
+        return {
+          ok: false as const,
+          reason: "no_config" as const,
+          message: "大模型密钥已在钥匙串，但提供方/模型配置未写入本机设置。正在自动恢复；若仍失败请打开「设置 → 大模型」点一次保存。",
+        };
+      }
       return { ok: false as const, reason: "no_config", message: "请先在「设置 → 大模型」选择提供方并填写模型。" };
     }
     if (resolved.provider !== "ollama") {
@@ -939,7 +953,7 @@ export function registerIpc(deps: IpcDeps): void {
   const makeLlm = async () => {
     const status = await checkLlmReady();
     if (!status.ok) throw new Error(status.message || "未配置 LLM");
-    const settings = await loadAppSettings(store);
+    const settings = await hydrateLlmSettings(store, hasLlmSecret);
     const resolved = resolveLlmConfig(settings);
     if (!resolved) throw new Error("请先在「设置 → 大模型」选择提供方并填写模型。");
     return llmFromConfig(resolved.llm, () => secrets.get(`${resolved.provider}_key`));
@@ -1502,7 +1516,7 @@ async function generateDigestReportNow(
 ): Promise<DigestReport | null> {
   const scope = opts.scope || "all";
   const dateKey = dateKeyOf();
-  const settings = await loadAppSettings(store);
+  const settings = await hydrateLlmSettings(store, async (k) => !!(await secrets.get(k)));
   if (!opts.force && settings.digestReportAuto === false) {
     const skipped = loadDigestReport(store, dateKey, scope);
     if (skipped.status === "idle") {

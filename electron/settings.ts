@@ -4,6 +4,7 @@
 // 本文件因此**没有** sourceKeys 字段；面板用 secrets.get 在 main 侧判断"已配置"布尔（见 WIRING）。
 import type { Store } from "../src/core/store/index.ts";
 import type { LlmConfig } from "../src/core/summarize/llm-client.ts";
+import { PROVIDER_DEFAULT_MODEL } from "../src/core/summarize/model-presets.ts";
 
 export interface AppSettings {
   contactEmail?: string;
@@ -61,6 +62,8 @@ const DEFAULTS: AppSettings = {
   corpus: { depth: "structured", maxPapers: 24, useLedger: true },
 };
 const KEY = "app_settings";
+/** 钥匙串存在、但 settings 缺 llm.provider 时按此顺序探测（升级/重装后 DB 与钥匙串不同步的根因修复） */
+const LLM_KEY_PROVIDERS = ["deepseek", "anthropic", "openai", "moonshot", "doubao"] as const;
 /** settings:get 派生字段，禁止写入 DB */
 const VIEW_ONLY_KEYS = new Set(["emailConfigured", "emailFromEnv"]);
 /** 浅合并时保留子对象字段，避免 partial save 抹掉 sibling 键 */
@@ -88,9 +91,42 @@ export async function loadAppSettings(store: Store): Promise<AppSettings> {
   } catch { return DEFAULTS; }
 }
 
+/**
+ * 升级/重装后常见：钥匙串仍保留 `{provider}_key`，但 app_settings 里 llm 块丢失。
+ * 设置页用 React 默认值 + secretHas 会显得「已配置」，而 llm:status 读 DB 仍报未配置。
+ * 探测到密钥时自动补写 provider/model（不读密钥明文）。
+ */
+export async function hydrateLlmSettings(
+  store: Store,
+  hasSecret: (secretName: string) => Promise<boolean>,
+  settings?: AppSettings,
+): Promise<AppSettings> {
+  const s = settings ?? await loadAppSettings(store);
+  if (s.llm?.provider) return s;
+  const found: string[] = [];
+  for (const p of LLM_KEY_PROVIDERS) {
+    if (await hasSecret(`${p}_key`)) found.push(p);
+  }
+  if (!found.length) return s;
+  const provider = found.length === 1
+    ? found[0]
+    : (found.includes("deepseek") ? "deepseek" : found[0]);
+  const llm: LlmConfig = {
+    ...(s.llm || {}),
+    provider,
+    model: String(s.llm?.model || "").trim() || PROVIDER_DEFAULT_MODEL[provider] || "",
+  };
+  await saveAppSettings(store, { llm });
+  return { ...s, llm };
+}
+
 /** main 侧用：附加派生字段，邮箱来自 settings 或 env（env 优先级见 setPoliteIdentity）。 */
-export async function loadAppSettingsView(store: Store): Promise<AppSettingsView> {
-  const s = await loadAppSettings(store);
+export async function loadAppSettingsView(
+  store: Store,
+  hasSecret?: (secretName: string) => Promise<boolean>,
+): Promise<AppSettingsView> {
+  let s = await loadAppSettings(store);
+  if (hasSecret) s = await hydrateLlmSettings(store, hasSecret, s);
   const envEmail = process.env.LUMINA_CONTACT_EMAIL;
   return {
     ...s,
