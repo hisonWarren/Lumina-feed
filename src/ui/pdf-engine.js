@@ -74,12 +74,6 @@ export async function renderTextLayer(page, container, viewport) {
     await tl.render();
     return tl;
   }
-  // 旧版：renderTextLayer 函数
-  if (typeof pdfjsLib.renderTextLayer === "function") {
-    const task = pdfjsLib.renderTextLayer({ textContentSource: textContent, container, viewport });
-    await (task && task.promise ? task.promise : task);
-    return task;
-  }
   return null;
 }
 

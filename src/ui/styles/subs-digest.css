@@ -83,7 +83,7 @@
 /* ─────────────────────────────────────────────────────────────────────────
    今日报告 · 编辑式版式重做（dg-rp-*）—— 单订阅深度 / 全部订阅综合 两态
    仅用主题变量 + color-mix（六主题安全）；尊重 reduced-motion。
-   旧 .dg-report-lead/.dg-report-block/.dg-report-theme*/.dg-report-picks*/.dg-report-reader-*
+   旧版 dg-report-lead、dg-report-block、dg-report-theme-* 等类
    已被本组类取代（保留旧规则不影响渲染，可后续清理）。
    ───────────────────────────────────────────────────────────────────────── */
 .dg-rp-reader{max-width:760px;padding:6px 4px 44px}
