@@ -665,6 +665,7 @@ const PURPOSE_REC = { replicate: ["recipe", "repro"], cite: ["citerole", "cars"]
 const PURPOSE_HINT = { replicate: "已为「复现/设计」推荐：方法配方 + 可复现性清单。", cite: "已为「引为背景」推荐：引文角色 + 论证逻辑。", critique: "已为「批判性评估」推荐：claim 账本 + 可证伪边界；并建议看『推读』的硬核/保护带。", borrow: "已为「借方法/写法」推荐：方法配方；划词可提取写作观察。" };
 const DEEP_TOOLS = [["cars", "论证逻辑", "作者如何论证选题（CARS）", Target], ["ledger", "claim 账本", "每条论断给了什么证据", Scale], ["recipe", "方法配方", "可复用的研究设计骨架", FlaskConical], ["repro", "可复现性", "对照 TRIPOD 清单核查", ListChecks], ["falsify", "可证伪边界", "什么观察会推翻它", Target], ["citerole", "引文角色", "每条引用起什么作用", Link2]];
 const LEDGER_CACHE_CAP = 40;
+const CITEROLE_UI_CAP = 20;
 /** 旧版 ledger 缓存常为 300+ 条且 claims 形态不一；加载时归一化，避免深读挂载即白屏。 */
 function asClaimArray(claims) {
   if (Array.isArray(claims)) return claims;
@@ -708,7 +709,15 @@ function normalizeCachedEnv(env, kind) {
     };
   }
   out._normalized = rawLen !== claims.length || out.kind !== env.kind || !Array.isArray(env.claims);
-  return out;
+  const { _normalized, ...clean } = out;
+  return { ...clean, _normalized };
+}
+function cleanAnalysisEnv(env, kind) {
+  if (!env) return null;
+  const n = normalizeCachedEnv(env, kind);
+  if (!n) return null;
+  const { _normalized, ...clean } = n;
+  return clean;
 }
 // 分析缓存键与 docKey 对齐（paper:/hash:/local:/文件名:字节），跨重开/切模块/导入后自动恢复。
 const analysisDocKey = readerDocKey;
@@ -723,8 +732,13 @@ async function loadCachedAnalysis(source, kind) {
       if (!env) continue;
       const primary = analysisDocKey(source);
       const saveKey = primary || key;
-      if (primary && key !== primary) bridge.readerAnalysisSave(primary, env);
-      else if (env._normalized) bridge.readerAnalysisSave(saveKey, env);
+      if (primary && key !== primary) {
+        const { _normalized, ...clean } = env;
+        bridge.readerAnalysisSave(primary, clean);
+      } else if (env._normalized) {
+        const { _normalized, ...clean } = env;
+        bridge.readerAnalysisSave(saveKey, clean);
+      }
       const { _normalized, ...clean } = env;
       return clean;
     }
@@ -733,7 +747,7 @@ async function loadCachedAnalysis(source, kind) {
 }
 function saveCachedAnalysis(source, env) {
   const key = analysisDocKey(source);
-  if (key && env) bridge.readerAnalysisSave(key, env);
+  if (key && env) bridge.readerAnalysisSave(key, cleanAnalysisEnv(env, env.kind) || env);
 }
 function notifyAnalysisEnv(env, pushToast, fallback, opts) {
   if (!env) { pushToast && pushToast(fallback || "分析失败，请重试"); return false; }
@@ -767,7 +781,7 @@ class ZoneErrorBoundary extends React.Component {
         <div className="rd-zonebody">
           <div className="rd-scaffold" style={{ borderColor: "var(--amberLine)", color: "var(--ink2)" }}>
             <AlertTriangle size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />
-            {this.props.label || "本区"}加载失败，多为旧版分析缓存与当前版本不兼容。请点对应工具的「重新生成」；若仍白屏，可关闭阅读器后重开该文献。
+            {this.props.label || "本区"}加载失败。若刚完成分析后出错，可能是本机阅读缓存与新版不兼容（卸载应用通常不会清除 %AppData% 数据）。请点「重新生成」；仍失败可关闭阅读器后重开该文献。
             <div style={{ marginTop: 10 }}>
               <button type="button" className="rd-rerun" onClick={() => this.setState({ err: null })}>重试</button>
             </div>
@@ -828,7 +842,6 @@ function ConfChip({ lvl }) {
 }
 const EV_PAGE_LEDGER = 12;
 const EV_PAGE_CITER = 8;
-const CITEROLE_UI_CAP = 20;
 const LEDGER_FILTERS = [
   { id: "all", label: "全部" },
   { id: "internal_data", label: "内部数据" },
@@ -840,7 +853,7 @@ function LedgerClaimRow({ c, onGoto }) {
     <div className="ev-claim">
       <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
         {c.status && <StatusIcon s={c.status} />}
-        <span>{c.text}{c.flag === "needs_recheck" && <span className="evtype" style={{ marginLeft: 6, color: "var(--amberDim)", borderColor: "var(--amberLine)" }}>需核对</span>}</span>
+        <span>{String(c.text ?? "")}{c.flag === "needs_recheck" && <span className="evtype" style={{ marginLeft: 6, color: "var(--amberDim)", borderColor: "var(--amberLine)" }}>需核对</span>}</span>
       </div>
       <div className="ev-meta">{c.evidenceType && <span className="evtype">{EVTYPE[c.evidenceType] || c.evidenceType}</span>}<Cites refs={c.pageRefs} onGoto={onGoto} /></div>
     </div>
@@ -933,7 +946,7 @@ function CiteEvidenceCard({ env, onGoto }) {
         : <>
             {visible.map((c, i) => (
               <div key={i} className="ev-claim">
-                <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>{c.status && <StatusIcon s={c.status} />}<span>{c.text}{c.flag === "needs_recheck" && <span className="evtype" style={{ marginLeft: 6, color: "var(--amberDim)", borderColor: "var(--amberLine)" }}>需核对</span>}</span></div>
+                <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>{c.status && <StatusIcon s={c.status} />}<span>{String(c.text ?? "")}{c.flag === "needs_recheck" && <span className="evtype" style={{ marginLeft: 6, color: "var(--amberDim)", borderColor: "var(--amberLine)" }}>需核对</span>}</span></div>
                 <div className="ev-meta">{c.evidenceType && <span className="evtype">{EVTYPE[c.evidenceType] || c.evidenceType}</span>}<Cites refs={c.pageRefs} onGoto={onGoto} /></div>
               </div>
             ))}
@@ -959,7 +972,7 @@ function InfBody({ env, onGoto }) {
         ? <div className="refuse"><Ban size={15} /><div>{env.refused.reason}</div></div>
         : asClaimArray(env.claims).map((c, i) => (
           <div key={i} className="ev-claim" style={{ borderColor: "var(--amberLine)" }}>
-            <div>{c.text}</div>
+            <div>{String(c.text ?? "")}</div>
             <div className="ev-meta">{c.confidence && <ConfChip lvl={c.confidence} />}<Cites refs={c.pageRefs} onGoto={onGoto} /></div>
           </div>
         ))}
@@ -1202,9 +1215,9 @@ function GraphCard({ env, onGoto }) {
 }
 function EnvelopeCard({ env, onGoto, defaultOpen }) {
   if (!env) return null;
-  if (env.graph) return <GraphCard env={env} onGoto={onGoto} />;
-  if (env.lane === "inference" || env.refused) return <InfCard env={env} onGoto={onGoto} defaultOpen={defaultOpen} />;
   if (env.kind === "ledger") return <LedgerEvidenceCard env={env} onGoto={onGoto} />;
+  if (env.graph && Array.isArray(env.graph.nodes) && env.graph.nodes.length > 0) return <GraphCard env={env} onGoto={onGoto} />;
+  if (env.lane === "inference" || env.refused) return <InfCard env={env} onGoto={onGoto} defaultOpen={defaultOpen} />;
   return <CiteEvidenceCard env={env} onGoto={onGoto} />;
 }
 function EvidencePane({ ensurePages, source, onGoto, pushToast, purpose, moveReq }) {
@@ -1227,7 +1240,8 @@ function EvidencePane({ ensurePages, source, onGoto, pushToast, purpose, moveReq
       }
       if (!alive) return;
       if (!Object.keys(loaded).length) return;
-      setByKind(loaded);
+      // 异步读缓存不得覆盖用户已触发的 run() 结果（重装后 userData 仍可能有旧畸形缓存）
+      setByKind((prev) => ({ ...loaded, ...prev }));
       setViewKind((vk) => {
         if (vk && loaded[vk]) return vk;
         for (const t of DEEP_TOOLS) if (loaded[t[0]]) return t[0];
@@ -1242,9 +1256,10 @@ function EvidencePane({ ensurePages, source, onGoto, pushToast, purpose, moveReq
     try {
       const pages = await ensurePages();
       const e = await bridge.readerAnalyze(kind, pages, opts);
-      if (e) setByKind((m) => ({ ...m, [kind]: e }));
-      if (!notifyAnalysisEnv(e, pushToast, "分析失败，请重试")) return;
-      if (e && kind !== "move") saveCachedAnalysis(source, e);
+      const clean = cleanAnalysisEnv(e, kind);
+      if (clean) setByKind((m) => ({ ...m, [kind]: clean }));
+      if (!notifyAnalysisEnv(clean, pushToast, "分析失败，请重试")) return;
+      if (clean && kind !== "move") saveCachedAnalysis(source, clean);
     } catch (err) { pushToast && pushToast("分析失败"); }
     finally { setRunning(""); }
   }, [ensurePages, source, pushToast]);
