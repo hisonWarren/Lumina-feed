@@ -534,6 +534,30 @@ export default function LuminaApp() {
     }
   }, [lib, lists, pushToast]);
 
+  const onImportToLibrary = useCallback(async (payload) => {
+    if (!payload) return { ok: false, error: "invalid" };
+    if (payload.paperId && !payload.bytes && !payload.localPath) {
+      if (!lib.some((x) => x.id === payload.paperId)) {
+        await bridge.libraryAdd({ id: payload.paperId, title: payload.title || payload.paperId }, "find_fetch");
+        setLib((l) => [...l, { id: payload.paperId, title: payload.title || payload.paperId, provenance: "find_fetch" }]);
+      }
+      await refreshLib();
+      return { ok: true, paperId: payload.paperId, inLibrary: true, title: payload.title };
+    }
+    const res = await bridge.libraryImportLocal({
+      localPath: payload.localPath,
+      bytes: payload.bytes,
+      title: payload.title,
+      fromDocKeys: payload.fromDocKeys,
+    });
+    if (res?.ok) {
+      await refreshLib();
+      return res;
+    }
+    pushToast && pushToast("导入工作集失败");
+    return res || { ok: false };
+  }, [lib, pushToast, refreshLib]);
+
   const onRemoveLib = useCallback(async (id, opts = {}) => {
     if (opts.deletePdf) {
       setPdfDeleteConfirm({ id });
@@ -669,6 +693,7 @@ export default function LuminaApp() {
                 onReadTargetHandled={() => setReadTarget(null)}
                 inLibFn={inLibFn}
                 onAddToLibrary={(p) => onSave(p)}
+                onImportLocal={onImportToLibrary}
               />
           </div>
           <div className={"lf-pane" + (view === "library" ? "" : " is-hidden")} aria-hidden={view !== "library"}>

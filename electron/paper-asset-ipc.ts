@@ -20,6 +20,17 @@ import {
   type FetchContext,
   type PaperAssetSnapshot,
 } from "../src/core/store/paper-asset.ts";
+import {
+  sha256Hex,
+  paperIdFromContentHash,
+  titleFromFilename,
+  IMPORT_PROVENANCE,
+  importMapHashKey,
+  importMapPathKey,
+} from "../src/core/store/local-import.ts";
+import { migrateDocKeys } from "../src/core/store/doc-migrate.ts";
+import { normalizeLocalPath, recordReadingOpen } from "../src/core/reader/reading-history.ts";
+import { readerDocKeyCandidates } from "../src/core/reader/doc-key.ts";
 
 export interface PaperAssetDeps {
   store: Store;
@@ -32,12 +43,18 @@ export interface PaperAssetDeps {
 
 export function ensureStubPaper(deps: PaperAssetDeps, paperId: string, title?: string): void {
   if (deps.store.papers.getById(paperId)) return;
+  const now = new Date().toISOString();
   const stub: Paper = {
     id: paperId,
     title: title || paperId,
     authors: [],
-    studyTypes: [],
+    studyTypes: ["other"],
+    source: "local",
+    isPreprint: false,
+    peerReviewed: false,
+    retracted: false,
     versions: [],
+    ingestedAt: now,
   };
   deps.store.papers.upsert(stub);
 }
@@ -245,6 +262,143 @@ export function detachFromLibrary(deps: PaperAssetDeps, paperId: string): boolea
   } catch {
     return false;
   }
+}
+
+export interface ImportLocalPdfOpts {
+  bytes: Uint8Array;
+  title?: string;
+  localPath?: string;
+  /** 导入前阅读器使用的 docKey 列表，用于合并 AI/批注缓存 */
+  fromDocKeys?: string[];
+  /** 为 false 时仅落盘+建条目，不写入 library 表 */
+  addToLibrary?: boolean;
+}
+
+export interface ImportLocalPdfResult {
+  ok: boolean;
+  paperId?: string;
+  contentHash?: string;
+  title?: string;
+  existed?: boolean;
+  inLibrary?: boolean;
+  error?: string;
+}
+
+function ensureImportMapTable(deps: PaperAssetDeps): void {
+  deps.store.db.exec("CREATE TABLE IF NOT EXISTS sources_cache(key TEXT PRIMARY KEY, payload TEXT, fetched_at TEXT);");
+}
+
+function saveImportMap(deps: PaperAssetDeps, hash: string, paperId: string, localPath?: string): void {
+  ensureImportMapTable(deps);
+  const now = new Date().toISOString();
+  const ins = deps.store.db.prepare(
+    "INSERT INTO sources_cache(key,payload,fetched_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET payload=excluded.payload, fetched_at=excluded.fetched_at",
+  );
+  ins.run(importMapHashKey(hash), JSON.stringify({ paperId }), now);
+  if (localPath) {
+    ins.run(importMapPathKey(normalizeLocalPath(localPath)), JSON.stringify({ paperId, hash }), now);
+  }
+}
+
+export function lookupImportedPaperId(
+  deps: PaperAssetDeps,
+  opts: { contentHash?: string; localPath?: string },
+): string | null {
+  ensureImportMapTable(deps);
+  try {
+    if (opts.contentHash) {
+      const r = deps.store.db.prepare("SELECT payload FROM sources_cache WHERE key=?").get(importMapHashKey(opts.contentHash)) as { payload?: string } | undefined;
+      if (r?.payload) {
+        const p = JSON.parse(r.payload) as { paperId?: string };
+        if (p.paperId) return p.paperId;
+      }
+    }
+    if (opts.localPath) {
+      const r = deps.store.db.prepare("SELECT payload FROM sources_cache WHERE key=?").get(importMapPathKey(normalizeLocalPath(opts.localPath))) as { payload?: string } | undefined;
+      if (r?.payload) {
+        const p = JSON.parse(r.payload) as { paperId?: string };
+        if (p.paperId) return p.paperId;
+      }
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+async function guessTitleFromPdf(bytes: Uint8Array, fallback: string): Promise<string> {
+  try {
+    const text = await extractText(bytes);
+    const line = String(text || "").split(/\n/).map((s) => s.trim()).find((s) => s.length > 12);
+    if (line && line.length <= 240) return line;
+  } catch { /* ignore */ }
+  return fallback;
+}
+
+/** 本地 PDF 复制进应用目录、建 paper 条目、入库，并合并阅读缓存。 */
+export async function importLocalPdfToLibrary(
+  deps: PaperAssetDeps,
+  opts: ImportLocalPdfOpts,
+): Promise<ImportLocalPdfResult> {
+  try {
+    const bytes = opts.bytes;
+    if (!bytes?.byteLength) return { ok: false, error: "empty_pdf" };
+    const hash = sha256Hex(bytes);
+    let paperId = lookupImportedPaperId(deps, { contentHash: hash, localPath: opts.localPath });
+    let existed = false;
+    if (!paperId) {
+      paperId = paperIdFromContentHash(hash);
+    } else {
+      existed = true;
+    }
+    assertSafePaperId(paperId, deps.pdfDir);
+    const dest = deps.pdfPath(paperId);
+    if (!fs.existsSync(dest)) {
+      fs.writeFileSync(dest, Buffer.from(bytes));
+    } else {
+      existed = true;
+    }
+    const fallbackTitle = titleFromFilename(opts.title || opts.localPath || "document.pdf");
+    const title = await guessTitleFromPdf(bytes, fallbackTitle);
+    ensureStubPaper(deps, paperId, title);
+    const existing = deps.store.papers.getById(paperId);
+    if (existing && existing.title === paperId && title !== paperId) {
+      deps.store.papers.upsert({ ...existing, title });
+    }
+    if (!getFetchLog(deps.store.db, paperId)) {
+      recordFetchLog(deps.store.db, paperId, "import", { channel: "import", provenance: IMPORT_PROVENANCE });
+    }
+    saveImportMap(deps, hash, paperId, opts.localPath);
+    const toKey = `paper:${paperId}`;
+    const fromKeys = [
+      ...(opts.fromDocKeys || []),
+      ...readerDocKeyCandidates({
+        contentHash: hash,
+        localPath: opts.localPath,
+        name: opts.title,
+        data: bytes,
+      }),
+    ];
+    migrateDocKeys(deps.store.db, fromKeys, toKey);
+    const addToLibrary = opts.addToLibrary !== false;
+    let inLibrary = libraryHas(deps.store.db, paperId);
+    if (addToLibrary && !inLibrary) {
+      deps.ensureLib();
+      libraryAdd(deps.store.db, paperId, IMPORT_PROVENANCE, true);
+      inLibrary = true;
+    }
+    void indexPdfFulltext(deps, paperId, bytes);
+    if (opts.localPath) {
+      recordReadingOpen(deps.store.db, { paperId, title, page: 1 });
+    }
+    broadcastPapersChanged({ paperId, action: existed ? "import_existing" : "imported", source: "import" });
+    return { ok: true, paperId, contentHash: hash, title, existed, inLibrary };
+  } catch (e) {
+    return { ok: false, error: (e as Error)?.message || "import_failed" };
+  }
+}
+
+export function fingerprintPdfBytes(bytes: Uint8Array): { contentHash: string; paperId: string } {
+  const hash = sha256Hex(bytes);
+  return { contentHash: hash, paperId: paperIdFromContentHash(hash) };
 }
 
 // ── 取文队列（检索进行中降为 1 路并行，避免与多源检索抢主进程）──

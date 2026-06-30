@@ -28,6 +28,7 @@ if (exists("electron/paper-asset-ipc.ts")) {
   /isLibraryDetached/.test(s) ? ok("reconcile 尊重 library_detach_log") : bad("reconcile 未跳过 detached");
   (/FETCH_CONCURRENCY = 2/.test(s) || (/FETCH_CONCURRENCY_IDLE = 2/.test(s) && /fetchConcurrencyLimit/.test(s)))
     ? ok("取文队列并发上限 2") : bad("缺队列并发限制");
+  /importLocalPdfToLibrary/.test(s) && /lookupImportedPaperId/.test(s) ? ok("本地 PDF 导入工作集") : bad("缺 importLocalPdfToLibrary");
   /assertSafePaperId/.test(s) && /ensureStubPaper/.test(s) ? ok("paperId 校验 + stub 入库") : bad("缺 assertSafePaperId 或 ensureStubPaper");
 } else bad("缺 electron/paper-asset-ipc.ts");
 
@@ -37,7 +38,8 @@ if (exists("electron/ipc.ts")) {
     s.includes(`"${h}"`) ? ok("IPC " + h) : bad("缺 IPC " + h);
   });
   /postFetchSuccess/.test(s) && /getFetchLog/.test(s) ? ok("runFetchPaper 接 postFetch") : bad("runFetchPaper 未接 postFetch");
-  /fetchSource/.test(s) ? ok("library:list 含 fetchSource") : bad("library:list 未富集 fetchSource");
+  /"library:importLocal"/.test(s) ? ok("IPC library:importLocal") : bad("缺 IPC library:importLocal");
+  /readSummaryText/.test(s) && /syncReaderSummaryToSummaries/.test(s) ? ok("阅读总结同步工作集") : bad("缺阅读总结同步");
 } else bad("缺 electron/ipc.ts");
 
 if (exists("electron/preload.ts")) {

@@ -12,6 +12,17 @@ const _libMem = []; // 无后端时的会话内工作集
 const _listsMem = []; // 无后端时的会话内清单
 const _continueMem = []; // 无后端时的继续阅读元数据
 
+function normalizeLocalPdfPayload(r) {
+  if (!r) return null;
+  if (r.bytes && (r.bytes.byteLength || r.bytes.length)) {
+    const bytes = r.bytes instanceof Uint8Array ? r.bytes : new Uint8Array(r.bytes);
+    return { bytes, contentHash: r.contentHash || null, paperId: r.paperId || null, inLibrary: !!r.inLibrary };
+  }
+  const raw = r instanceof Uint8Array ? r : (r.byteLength ? new Uint8Array(r) : null);
+  if (raw && raw.byteLength) return { bytes: raw, contentHash: null, paperId: null, inLibrary: false };
+  return null;
+}
+
 export const hasBackend = () => !!A();
 
 /** 顶栏「订阅简报」徽标：各订阅 today 中用户未读条数之和 */
@@ -332,7 +343,7 @@ export const bridge = {
   async readLocalPdf(localPath) {
     const r = R();
     if (r && r.readLocalPdf) {
-      try { return await r.readLocalPdf(localPath); } catch { return null; }
+      try { return normalizeLocalPdfPayload(await r.readLocalPdf(localPath)); } catch { return null; }
     }
     return null;
   },
@@ -348,11 +359,21 @@ export const bridge = {
       };
     }
     if (entry.kind === "local" && entry.localPath) {
-      const data = await bridge.readLocalPdf(entry.localPath);
-      if (!data || !data.byteLength) return { ok: false, reason: "missing" };
+      const meta = await bridge.readLocalPdf(entry.localPath);
+      if (!meta || !meta.bytes || !meta.bytes.byteLength) return { ok: false, reason: "missing" };
+      if (meta.paperId) {
+        const appBytes = await bridge.readPdf(meta.paperId);
+        const data = appBytes && appBytes.byteLength ? appBytes : meta.bytes;
+        await bridge.recordReadingOpen({ paperId: meta.paperId, title: entry.title, page: entry.page });
+        return {
+          ok: true, data, paperId: meta.paperId, name: entry.title, entryKey: "paper:" + meta.paperId, page: entry.page || 1,
+          contentHash: meta.contentHash || null, inLibrary: meta.inLibrary,
+        };
+      }
       await bridge.recordReadingOpen({ localPath: entry.localPath, title: entry.title, page: entry.page });
       return {
-        ok: true, data, localPath: entry.localPath, name: entry.title, entryKey: entry.entryKey, page: entry.page || 1,
+        ok: true, data: meta.bytes, localPath: entry.localPath, name: entry.title, entryKey: entry.entryKey, page: entry.page || 1,
+        contentHash: meta.contentHash || null,
       };
     }
     return { ok: false, reason: "invalid" };
@@ -473,6 +494,11 @@ export const bridge = {
   async libraryAdd(paper, provenance) {
     const api = A(); if (!api || !api.libraryAdd) { if (!_libMem.some((x) => x.id === paper.id)) _libMem.push({ ...paper, provenance: provenance || "find_fetch" }); return true; }
     try { return await api.libraryAdd(paper.id, provenance || "find_fetch"); } catch (e) { return false; }
+  },
+  async libraryImportLocal(opts = {}) {
+    const api = A();
+    if (!api || !api.libraryImportLocal) return { ok: false, error: "no_engine" };
+    try { return await api.libraryImportLocal(opts); } catch (e) { return { ok: false, error: "import_failed" }; }
   },
   async libraryRemove(paperId) {
     const api = A(); if (!api || !api.libraryRemove) { const i = _libMem.findIndex((x) => x.id === paperId); if (i >= 0) _libMem.splice(i, 1); return true; }

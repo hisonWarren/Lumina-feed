@@ -52,7 +52,9 @@ import {
 import {
   type FetchContext,
   getFetchLog,
+  libraryHas,
 } from "../src/core/store/paper-asset.ts";
+import { paperIdFromDocKey } from "../src/core/reader/doc-key.ts";
 import {
   broadcastPapersChanged,
   buildAssetSnapshot,
@@ -66,6 +68,9 @@ import {
   postFetchSuccess,
   pruneDetachedPdfs,
   reconcileOrphans,
+  importLocalPdfToLibrary,
+  lookupImportedPaperId,
+  fingerprintPdfBytes,
   assertSafePaperId,
   bindFetchRunner,
   resumeFetchQueue,
@@ -798,8 +803,47 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle("reader:readLocalPdf", (_e, localPath: string) => {
     try {
       if (!isSafeLocalPdfPath(localPath)) return null;
-      return new Uint8Array(fs.readFileSync(normalizeLocalPath(localPath)));
+      const norm = normalizeLocalPath(localPath);
+      const bytes = new Uint8Array(fs.readFileSync(norm));
+      const { contentHash } = fingerprintPdfBytes(bytes);
+      const deps = getPaperAssetDeps();
+      const mapped = deps ? lookupImportedPaperId(deps, { contentHash, localPath: norm }) : null;
+      return {
+        bytes,
+        contentHash,
+        paperId: mapped || null,
+        inLibrary: mapped && deps ? libraryHas(deps.store.db, mapped) : false,
+      };
     } catch { return null; }
+  });
+
+  ipcMain.handle("library:importLocal", async (_e, payload: {
+    localPath?: string;
+    bytes?: Uint8Array | ArrayBuffer;
+    title?: string;
+    fromDocKeys?: string[];
+    addToLibrary?: boolean;
+  }) => {
+    try {
+      const deps = getPaperAssetDeps();
+      if (!deps) return { ok: false, error: "no_engine" };
+      let bytes: Uint8Array | null = null;
+      if (payload?.bytes) {
+        bytes = payload.bytes instanceof Uint8Array ? payload.bytes : new Uint8Array(payload.bytes);
+      } else if (payload?.localPath && isSafeLocalPdfPath(payload.localPath)) {
+        bytes = new Uint8Array(fs.readFileSync(normalizeLocalPath(payload.localPath)));
+      }
+      if (!bytes?.byteLength) return { ok: false, error: "empty_pdf" };
+      return await importLocalPdfToLibrary(deps, {
+        bytes,
+        title: payload?.title,
+        localPath: payload?.localPath,
+        fromDocKeys: payload?.fromDocKeys,
+        addToLibrary: payload?.addToLibrary,
+      });
+    } catch (e) {
+      return { ok: false, error: (e as Error)?.message || "import_failed" };
+    }
   });
 
   ipcMain.handle("reader:removeContinue", (_e, entryKey: string) => ({
@@ -958,8 +1002,7 @@ export function registerIpc(deps: IpcDeps): void {
       for (const id of ids) {
         const p: any = store.papers.getById(id);
         if (!p) continue;
-        let summary: string | null = null;
-        try { const r: any = store.db.prepare("SELECT text FROM summaries WHERE paper_id=? ORDER BY created_at DESC LIMIT 1").get(id); summary = r && r.text ? r.text : null; } catch { /* none */ }
+        let summary: string | null = readSummaryText(id);
         papers.push({ id, title: p.title || "", abstract: p.abstract, summary });
       }
       const llm = await makeLlm();
@@ -967,6 +1010,49 @@ export function registerIpc(deps: IpcDeps): void {
     } catch (e) { console.error("reader:corpus 失败", e); return analysisError(kind, e, { sourceBasis: "corpus" }); }
   });
   const ensureReaderAnalysis = () => store.db.exec("CREATE TABLE IF NOT EXISTS reader_analysis(paper_id TEXT, kind TEXT, lane TEXT, payload TEXT, model TEXT, created_at TEXT, PRIMARY KEY(paper_id,kind));");
+  const syncReaderSummaryToSummaries = (docKey: string, env: { text?: string; sourceBasis?: string; model?: string }) => {
+    const pid = paperIdFromDocKey(docKey);
+    if (!pid || !env?.text) return;
+    try {
+      const cache = sqliteSummaryCache(store.db);
+      const basis = env.sourceBasis === "fulltext" ? "fulltext" : "abstract";
+      cache.put(`${pid}|structured|zh`, {
+        text: String(env.text),
+        sourceBasis: basis as "fulltext" | "abstract",
+        model: env.model || "",
+        depth: "structured",
+        language: "zh",
+        caveats: [],
+      });
+      const deps = getPaperAssetDeps();
+      if (deps) {
+        const row = store.db.prepare("SELECT body FROM fulltext_fts WHERE paper_id=?").get(pid) as { body?: string } | undefined;
+        const body = [row?.body || "", env.text].filter(Boolean).join("\n\n");
+        if (body.trim()) {
+          deps.ensureFts();
+          deps.store.db.prepare("DELETE FROM fulltext_fts WHERE paper_id=?").run(pid);
+          deps.store.db.prepare("INSERT INTO fulltext_fts(paper_id, body) VALUES(?,?)").run(pid, deps.ftsPrep(body.slice(0, 2000000)));
+        }
+      }
+    } catch { /* 同步失败不阻断阅读缓存 */ }
+  };
+
+  const readSummaryText = (paperId: string): string | null => {
+    try {
+      const r = store.db.prepare("SELECT text FROM summaries WHERE paper_id=? ORDER BY created_at DESC LIMIT 1").get(paperId) as { text?: string } | undefined;
+      if (r?.text) return r.text;
+    } catch { /* ignore */ }
+    try {
+      ensureReaderAnalysis();
+      const docKey = `paper:${paperId}`;
+      const ra = store.db.prepare("SELECT payload FROM reader_analysis WHERE paper_id=? AND kind=?").get(docKey, "summary") as { payload?: string } | undefined;
+      if (ra?.payload) {
+        const env = JSON.parse(ra.payload) as { text?: string };
+        if (env?.text) return env.text;
+      }
+    } catch { /* ignore */ }
+    return null;
+  };
   ipcMain.handle("reader:analysisGet", (_e, paperId: string, kind: string) => {
     try { ensureReaderAnalysis(); const r: any = store.db.prepare("SELECT payload FROM reader_analysis WHERE paper_id=? AND kind=?").get(paperId, kind); return r && r.payload ? JSON.parse(r.payload) : null; } catch { return null; }
   });
@@ -976,6 +1062,9 @@ export function registerIpc(deps: IpcDeps): void {
       ensureReaderAnalysis();
       store.db.prepare("INSERT INTO reader_analysis(paper_id,kind,lane,payload,model,created_at) VALUES(?,?,?,?,?,?) ON CONFLICT(paper_id,kind) DO UPDATE SET payload=excluded.payload, lane=excluded.lane, model=excluded.model, created_at=excluded.created_at")
         .run(paperId, env.kind, env.lane, JSON.stringify(env), env.model, new Date().toISOString());
+      if (env.kind === "summary" && (env as { text?: string }).text) {
+        syncReaderSummaryToSummaries(paperId, env as { text?: string; sourceBasis?: string; model?: string });
+      }
       return true;
     } catch { return false; }
   });
@@ -1134,9 +1223,7 @@ export function registerIpc(deps: IpcDeps): void {
     store.db.exec("CREATE TABLE IF NOT EXISTS library(paper_id TEXT PRIMARY KEY, provenance TEXT, added_at TEXT);");
     store.db.exec("CREATE TABLE IF NOT EXISTS sources_cache(key TEXT PRIMARY KEY, payload TEXT, fetched_at TEXT);");
   };
-  const summaryOf = (id: string): string | null => {
-    try { const r = store.db.prepare("SELECT text FROM summaries WHERE paper_id=? ORDER BY created_at DESC LIMIT 1").get(id) as { text?: string } | undefined; return r && r.text ? r.text : null; } catch { return null; }
-  };
+  const summaryOf = (id: string): string | null => readSummaryText(id);
   ipcMain.handle("library:list", () => {
     try {
       ensureLib();

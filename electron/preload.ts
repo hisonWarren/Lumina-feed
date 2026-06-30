@@ -78,6 +78,7 @@ contextBridge.exposeInMainWorld("luminaApi", {
   getCachedSummary: (paperId: string, depth?: string, language?: string) => invoke("summaries:get", paperId, depth, language),
   libraryList: () => invoke("library:list"),
   libraryAdd: (paperId: string, provenance?: string) => invoke("library:add", paperId, provenance),
+  libraryImportLocal: (payload: unknown) => invoke("library:importLocal", payload),
   libraryRemove: (paperId: string) => invoke("library:remove", paperId),
   listsGet: () => invoke("lists:get"),
   listsSave: (lists: unknown) => invoke("lists:save", lists),

@@ -21,7 +21,7 @@ const LIB_SORT_OPTS = [
 const LIB_PREFS_KEY = "lumina_library_prefs";
 const _libPref0 = loadJsonPref("local", LIB_PREFS_KEY, {});
 
-const PROV_LABEL = { find_fetch: "检索结果", subscription: "订阅", recovered: "本机恢复", "": "未分组" };
+const PROV_LABEL = { find_fetch: "检索结果", subscription: "订阅", recovered: "本机恢复", local_import: "本地导入", "": "未分组" };
 const provName = (p) => {
   const raw = p || "";
   if (PROV_LABEL[raw]) return PROV_LABEL[raw];
@@ -299,10 +299,9 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
     setCorpusLastKind(kind);
     setCorpusRunning(kind);
     setCorpusEnv(null);
-    const ids = Array.from(sel);
-    const key = corpusCacheKey(kind, ids);
+    const key = corpusCacheKey(kind, Array.from(sel));
     try {
-      const env = await bridge.readerCorpus(kind, ids);
+      const env = await bridge.readerCorpus(kind, Array.from(sel));
       setCorpusEnv(env || null);
       if (env && !env.refused) bridge.readerAnalysisSave(key, env);
       if (env && env.refused && env.refused.reason) pushToast && pushToast(env.refused.reason);
@@ -504,7 +503,7 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
           <div className="lib-empty">
             <BookMarked size={30} strokeWidth={1.6} />
             <h2>还没有收藏的文献</h2>
-            <p>在「检索取文」或「阅读·已下载全文」里收藏论文，它们会进入这里。之后可用<strong>自定义分组</strong>按课题整理。</p>
+            <p>在「检索取文」收藏论文，或在阅读台打开本地 PDF 后点「加入文献」。AI 总结与批注会随工作集保留，可用<strong>自定义分组</strong>按课题整理。</p>
           </div>
         ) : view.length === 0 ? (
           <div className="lib-empty">

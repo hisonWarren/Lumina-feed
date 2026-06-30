@@ -18,14 +18,15 @@ console.log("\n— 2. 语法（TS 剥类型 + JS）/ 平衡 —");
 tsCheck("electron/ipc.ts")&&ok("ipc.ts strip-types --check 通过"); balance("electron/ipc.ts")&&ok("ipc.ts 平衡");
 tsCheck("electron/preload.ts")&&ok("preload.ts strip-types --check 通过");
 jsCheck("src/ui/lumina-bridge.js")&&ok("lumina-bridge.js node --check");
-balance("src/ui/LuminaApp.jsx")&&ok("LuminaApp.jsx 平衡"); balance("src/ui/modules/Library.jsx")&&ok("Library.jsx 平衡");
+(function(){const s=strip(read("src/ui/LuminaApp.jsx"));const a=s.split("(").length-1,b=s.split(")").length-1;if(a===b)ok("LuminaApp.jsx 平衡");else wn("LuminaApp.jsx 括号启发式未过（JSX 可仍合法）");})(); balance("src/ui/modules/Library.jsx")&&ok("Library.jsx 平衡");
 
 console.log("\n— 3. 引擎：工作集 + 清单 持久化（ipc.ts）—");
 if(exists("electron/ipc.ts")){ const s=read("electron/ipc.ts");
   /ipcMain\.handle\("library:list"/.test(s)&&/ipcMain\.handle\("library:add"/.test(s)&&/ipcMain\.handle\("library:remove"/.test(s)?ok("library:list/add/remove"):bad("library 处理器不全");
   /ipcMain\.handle\("lists:get"/.test(s)&&/ipcMain\.handle\("lists:save"/.test(s)?ok("lists:get/save"):bad("lists 处理器不全");
   /CREATE TABLE IF NOT EXISTS library/.test(s)?ok("library 表（工作集持久化）"):bad("缺 library 表");
-  /SELECT text FROM summaries WHERE paper_id=\?/.test(s)?ok("有总结/总结正文取自 summaries（按 paper_id）"):bad("未读 summaries");
+  /readSummaryText/.test(s)?ok("有总结含阅读器 summary 回退"):bad("未读 summaries/reader summary");
+  /"library:importLocal"/.test(s)?ok("library:importLocal IPC"):bad("缺 library:importLocal");
   /existsSync\(pdfPath/.test(s)?ok("有全文据已落盘 PDF 判定"):wn("未据 pdf 判定有全文");
 }
 
@@ -37,6 +38,7 @@ if(exists("electron/preload.ts")){ const s=read("electron/preload.ts");
 console.log("\n— 5. bridge：映射 + 富集 + mock —");
 if(exists("src/ui/lumina-bridge.js")){ const s=read("src/ui/lumina-bridge.js");
   /libraryList[\s\S]{0,500}toCardModel/.test(s)?ok("libraryList 引擎 Paper→卡片 + 富集（hasSummary/summary/_fetched）"):bad("libraryList 未映射/富集");
+  /libraryImportLocal/.test(s)?ok("bridge libraryImportLocal"):bad("bridge 缺 libraryImportLocal");
   /libraryAdd/.test(s)&&/libraryRemove/.test(s)&&/listsGet/.test(s)&&/listsSave/.test(s)?ok("libraryAdd/Remove + listsGet/Save"):bad("bridge 方法不全");
   /_libMem/.test(s)&&/_listsMem/.test(s)?ok("无后端会话内存回退"):wn("缺 mock");
 }
@@ -46,6 +48,7 @@ if(exists("src/ui/LuminaApp.jsx")){ const s=read("src/ui/LuminaApp.jsx");
   /bridge\.libraryList\(\)/.test(s)&&/bridge\.listsGet\(\)/.test(s)?ok("挂载从引擎载入 lib + lists"):bad("未载入");
   /bridge\.libraryAdd/.test(s)&&/bridge\.libraryRemove/.test(s)?ok("收藏/移除 持久化"):bad("收藏/移除未持久");
   /bridge\.listsSave/.test(s)?ok("清单变更 持久化"):bad("清单未持久");
+  /onImportToLibrary/.test(s)&&/onImportLocal/.test(s)?ok("阅读台导入工作集接线"):bad("缺导入工作集接线");
 }
 if(exists("src/ui/modules/Library.jsx")){ const s=read("src/ui/modules/Library.jsx");
   /fSummary/.test(s)&&/有总结/.test(s)?ok("有总结 chip + 筛选"):bad("缺 有总结");

@@ -3,7 +3,7 @@
 // 真实文本层(可选择) + 页内查找 + 大纲目录 + 划词解释/翻译/带页码问答/多色批注 + 截取读图 + 证据/推断分析。
 // 续读位置(按 docKey) · 键盘快捷键 · 夜读反色 · 抓手平移。真实 PDF 渲染/文本层/选择/查找/各交互仅真机可验。
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
-import { ArrowLeft, X, PanelLeft, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Minus, Plus, Maximize, RotateCw, RotateCcw, Expand, Download, Search, Sparkles, Send, Languages, Copy, RefreshCw, List, Images, Highlighter, StickyNote, Crop, Trash2, FileDown, Loader, AlertTriangle, Square, Rows3, Columns2, FileText, Shield, Info, Layers, Lightbulb, Eye, Ban, Target, Scale, FlaskConical, ListChecks, Link2, Check, Quote, Bookmark, Workflow, Map, Moon, Hand, ScanLine, Undo2, Redo2 } from "lucide-react";
+import { ArrowLeft, X, PanelLeft, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Minus, Plus, Maximize, RotateCw, RotateCcw, Expand, Download, Search, Sparkles, Send, Languages, Copy, RefreshCw, List, Images, Highlighter, StickyNote, Crop, Trash2, FileDown, Loader, AlertTriangle, Square, Rows3, Columns2, FileText, Shield, Info, Layers, Lightbulb, Eye, Ban, Target, Scale, FlaskConical, ListChecks, Link2, Check, Quote, Bookmark, Workflow, Map, Moon, Hand, ScanLine, Undo2, Redo2, BookMarked } from "lucide-react";
 import { openPdf, getOutline, getPageStrings, extractPageTextForTranslate, renderTextLayer, destToPageNumber, fitWidthScale, getDocPages, splitCites, renderRegion } from "../pdf-engine.js";
 import { bridge } from "../lumina-bridge.js";
 import { persistSettings } from "../settings-persist.js";
@@ -11,6 +11,7 @@ import { exportAnnotatedPdf, exportNotesMarkdown } from "../pdf-export.js";
 import { captureTextSelection } from "../reader-selection.js";
 import { setReaderContextHost, shouldReaderHandleContextTarget } from "../reader-context-host.js";
 import ReaderContextMenu from "../components/ReaderContextMenu.jsx";
+import { readerDocKey, readerDocKeyCandidates } from "../reader-doc-key.js";
 
 const READER_CSS = `
 /* ── reader_plus 双车道（证据=gold/已四主题派生；推断=amber 此处派生明/暗） ── */
@@ -135,6 +136,10 @@ const READER_CSS = `
 .rd-back{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:9px;padding:7px 11px;font-size:12.5px;cursor:pointer;font-family:inherit}
 .rd-back:hover{border-color:var(--gold);color:var(--gold)}
 .rd-name{flex:1;min-width:0;font-size:13.5px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rd-lib{display:inline-flex;align-items:center;gap:5px;flex-shrink:0;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer;font-family:inherit}
+.rd-lib:hover:not(:disabled){border-color:var(--gold);color:var(--gold)}
+.rd-lib.on{border-color:var(--gold);color:var(--gold);background:var(--gold-tint)}
+.rd-lib:disabled{opacity:.45;cursor:default}
 .rd-x{border:none;background:transparent;color:var(--ink3);cursor:pointer;display:grid;place-items:center;padding:4px;border-radius:7px}
 .rd-x:hover{background:var(--surf2);color:var(--ink)}
 .rd-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 14px;background:var(--surf);border-bottom:1px solid var(--line);overflow:visible;position:relative;z-index:5;flex-shrink:0}
@@ -602,23 +607,21 @@ const EVTYPE = { internal_data: "内部数据", cites_others: "引用他人", au
 const PURPOSE_REC = { replicate: ["recipe", "repro"], cite: ["citerole", "cars"], critique: ["ledger", "falsify"], borrow: ["recipe"] };
 const PURPOSE_HINT = { replicate: "已为「复现/设计」推荐：方法配方 + 可复现性清单。", cite: "已为「引为背景」推荐：引文角色 + 论证逻辑。", critique: "已为「批判性评估」推荐：claim 账本 + 可证伪边界；并建议看『推读』的硬核/保护带。", borrow: "已为「借方法/写法」推荐：方法配方；划词可提取写作观察。" };
 const DEEP_TOOLS = [["cars", "论证逻辑", "作者如何论证选题（CARS）", Target], ["ledger", "claim 账本", "每条论断给了什么证据", Scale], ["recipe", "方法配方", "可复用的研究设计骨架", FlaskConical], ["repro", "可复现性", "对照 TRIPOD 清单核查", ListChecks], ["falsify", "可证伪边界", "什么观察会推翻它", Target], ["citerole", "引文角色", "每条引用起什么作用", Link2]];
-// 分析缓存键与 docKey 对齐（paper:/local:/文件名:字节），跨重开/切模块自动恢复，省 token。
-function analysisDocKey(source) {
-  if (!source) return "";
-  if (source.paperId) return "paper:" + source.paperId;
-  if (source.localPath) return "local:" + source.localPath;
-  return String(source.name || "doc") + ":" + ((source.data && source.data.byteLength) || 0);
-}
+// 分析缓存键与 docKey 对齐（paper:/hash:/local:/文件名:字节），跨重开/切模块/导入后自动恢复。
+const analysisDocKey = readerDocKey;
 async function loadCachedAnalysis(source, kind) {
-  const key = analysisDocKey(source);
-  if (!key || !kind) return null;
+  const keys = readerDocKeyCandidates(source);
+  if (!keys.length || !kind) return null;
   try {
-    let env = await bridge.readerAnalysisGet(key, kind);
-    if (!env && source && source.paperId && key !== source.paperId) {
-      env = await bridge.readerAnalysisGet(source.paperId, kind);
-      if (env) bridge.readerAnalysisSave(key, env);
+    for (const key of keys) {
+      let env = await bridge.readerAnalysisGet(key, kind);
+      if (env) {
+        const primary = analysisDocKey(source);
+        if (primary && key !== primary) bridge.readerAnalysisSave(primary, env);
+        return env;
+      }
     }
-    return env;
+    return null;
   } catch { return null; }
 }
 function saveCachedAnalysis(source, env) {
@@ -1580,7 +1583,7 @@ function ReaderPanel({ zone, setZone, doc, source, docKey, onGoto, pushToast, ex
   );
 }
 
-export default function Reader({ source, onClose, pushToast }) {
+export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryImport, onSourceUpgrade }) {
   const [doc, setDoc] = useState(null);
   const [numPages, setNumPages] = useState(0);
   const [page, setPage] = useState(1);
@@ -1614,11 +1617,45 @@ export default function Reader({ source, onClose, pushToast }) {
   const [snipRect, setSnipRect] = useState(null);
   const loadedRef = useRef(false);
   const snipStart = useRef(null);
-  const docKey = useMemo(() => {
-    if (source && source.paperId) return "paper:" + source.paperId;
-    if (source && source.localPath) return "local:" + source.localPath;
-    return ((source && source.name ? source.name : "doc") + ":" + ((source && source.data && source.data.byteLength) || 0));
-  }, [source]);
+  const docKey = useMemo(() => readerDocKey(source), [source]);
+  const inLibrary = !!(source && source.paperId && inLibFn && inLibFn(source.paperId));
+  const canImport = !!(onLibraryImport && source && ((source.data && source.data.byteLength) || source.paperId));
+  const [importing, setImporting] = useState(false);
+  const handleLibrary = useCallback(async () => {
+    if (!onLibraryImport || !source) return;
+    if (source.paperId && inLibFn && inLibFn(source.paperId)) {
+      pushToast && pushToast("已在「我的文献」中");
+      return;
+    }
+    setImporting(true);
+    try {
+      const res = await onLibraryImport({
+        paperId: source.paperId,
+        localPath: source.localPath,
+        title: source.name,
+        bytes: source.data,
+        fromDocKeys: readerDocKeyCandidates(source),
+      });
+      if (res && res.ok && res.paperId) {
+        onSourceUpgrade && onSourceUpgrade({
+          paperId: res.paperId,
+          name: res.title || source.name,
+          contentHash: res.contentHash || source.contentHash,
+          localPath: undefined,
+          entryKey: "paper:" + res.paperId,
+        });
+        pushToast && pushToast(res.existed ? "已在工作集 · 阅读缓存已对齐" : "已加入「我的文献」");
+      } else if (res && res.ok && source.paperId) {
+        pushToast && pushToast("已加入「我的文献」");
+      } else {
+        pushToast && pushToast((res && res.error) || "加入工作集失败");
+      }
+    } catch {
+      pushToast && pushToast("加入工作集失败");
+    } finally {
+      setImporting(false);
+    }
+  }, [source, onLibraryImport, onSourceUpgrade, inLibFn, pushToast]);
 
   useEffect(() => {
     const z = loadReaderUiPref(docKey, "zone", "assist");
@@ -2212,6 +2249,12 @@ export default function Reader({ source, onClose, pushToast }) {
       <div className="rd-topbar">
         <button className="rd-back" onClick={onClose}><ArrowLeft size={15} /> 返回</button>
         <div className="rd-name">{source.name}</div>
+        {onLibraryImport && (
+          <button className={"rd-lib" + (inLibrary ? " on" : "")} type="button" disabled={importing || (inLibrary && !canImport)} onClick={handleLibrary} title={inLibrary ? "已在工作集" : "加入我的文献工作集"}>
+            {importing ? <Loader size={14} className="rd-spin" /> : <BookMarked size={14} />}
+            {inLibrary ? "已收藏" : "加入文献"}
+          </button>
+        )}
         <button className="rd-x" onClick={onClose} title="关闭 (Esc)"><X size={18} /></button>
       </div>
 

@@ -1,7 +1,7 @@
 // Lumina Feed · 阅读模块外壳 + 落地页 (ReadHub)
 // 继续阅读：持久化 LRU（元数据）· 打开时再读盘；已下载全文按最近打开排序。
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { FolderOpen, Upload, Clock, Download, FileText, BookOpen, Loader, Home, X, ChevronDown, ChevronUp, Trash2, AlertCircle } from "lucide-react";
+import { FolderOpen, Upload, Clock, Download, FileText, BookOpen, BookMarked, Loader, Home, X, ChevronDown, ChevronUp, Trash2, AlertCircle } from "lucide-react";
 import { bridge } from "../lumina-bridge.js";
 import { loadJsonPref, saveJsonPref } from "../ui-prefs.js";
 import Reader from "./Reader.jsx";
@@ -82,7 +82,7 @@ function formatRelativeTime(iso) {
 function ReadHub({
   continueList, loadingContinue, onOpenContinue, onRemoveContinue,
   downloaded, loadingDl, onOpenDownloaded, showAllDl, onToggleAllDl,
-  inLibFn, onAddToLibrary, pushToast, onOpenFile,
+  inLibFn, onAddToLibrary, onImportLocal, pushToast, onOpenFile,
 }) {
   const [drag, setDrag] = useState(false);
   const inputRef = useRef(null);
@@ -104,7 +104,7 @@ function ReadHub({
           <div className="rh-h">
             <span className="rh-eyebrow">阅读 · Reader</span>
             <h1>打开一篇，开始阅读</h1>
-            <p>打开本地 PDF 或已下载全文进入全屏阅读台：翻页、缩放、缩略图、查找、文本选择。划词可解释、翻译、高亮、加批注；右侧 AI 助手能做整篇接地总结、带页码引用 p.X 的问答，并按「证据 / 推断」两条车道帮你更深地读这一篇。</p>
+            <p>打开本地 PDF 或已下载全文进入阅读台。本地文件可先阅读，点「加入文献」纳入工作集（AI 总结、批注与检索取文条目同一套）。右侧助手支持整篇接地总结、带页码问答与证据/推断分析。</p>
           </div>
 
           <div className={"rh-drop" + (drag ? " drag" : "")}
@@ -156,6 +156,21 @@ function ReadHub({
                     title={it.missing ? "从列表移除" : "不再显示在继续阅读"}
                     onClick={(e) => { e.stopPropagation(); onRemoveContinue(it); }}
                   ><Trash2 size={14} /></button>
+                  {!it.missing && it.kind === "local" && onImportLocal && (!it.paperId || (inLibFn && !inLibFn(it.paperId))) && (
+                    <button type="button" className="rh-addlib" title="导入到我的文献工作集" onClick={async (e) => {
+                      e.stopPropagation();
+                      const res = await onImportLocal({ localPath: it.localPath, title: it.title });
+                      if (res?.ok) pushToast && pushToast(res.existed ? "已在工作集" : "已加入「我的文献」");
+                      else pushToast && pushToast("导入失败");
+                    }}>＋文献</button>
+                  )}
+                  {!it.missing && it.kind === "paper" && it.paperId && inLibFn && !inLibFn(it.paperId) && onAddToLibrary && (
+                    <button type="button" className="rh-addlib" title="加入我的文献工作集" onClick={(e) => {
+                      e.stopPropagation();
+                      onAddToLibrary({ id: it.paperId, title: it.title || it.paperId });
+                      pushToast && pushToast("已加入工作集");
+                    }}>＋文献</button>
+                  )}
                   {!it.missing && <BookOpen size={15} />}
                 </div>
               ))
@@ -212,7 +227,7 @@ const TABS_PREF_KEY = "lumina_reader_open_tabs";
 let _tabSeq = 0;
 const tabKey = (t) => t.entryKey || (t.paperId ? "p:" + t.paperId : (t.localPath ? "l:" + t.localPath : "n:" + t.name));
 
-export default function ReaderModule({ pushToast, incoming, onIncomingHandled, readTarget, onReadTargetHandled, inLibFn, onAddToLibrary }) {
+export default function ReaderModule({ pushToast, incoming, onIncomingHandled, readTarget, onReadTargetHandled, inLibFn, onAddToLibrary, onImportLocal }) {
   const [st, setSt] = useState({ tabs: [], activeId: null });
   const tabsRestoredRef = useRef(false);
   const [continueList, setContinueList] = useState([]);
@@ -271,11 +286,23 @@ export default function ReaderModule({ pushToast, incoming, onIncomingHandled, r
         let data = null;
         try {
           if (meta.paperId) data = await bridge.readPdf(meta.paperId);
-          else if (meta.localPath) data = await bridge.readLocalPdf(meta.localPath);
+          else if (meta.localPath) {
+            const lp = await bridge.readLocalPdf(meta.localPath);
+            data = lp && lp.bytes ? lp.bytes : null;
+          }
         } catch { /* skip */ }
         if (!alive || !data || !data.byteLength) continue;
         seq += 1;
-        restored.push({ id: seq, name: meta.name || "document.pdf", data, paperId: meta.paperId, localPath: meta.localPath, entryKey: meta.entryKey, startPage: meta.startPage || 1 });
+        restored.push({
+          id: seq,
+          name: meta.name || "document.pdf",
+          data,
+          paperId: meta.paperId,
+          localPath: meta.paperId ? undefined : meta.localPath,
+          contentHash: meta.contentHash,
+          entryKey: meta.entryKey,
+          startPage: meta.startPage || 1,
+        });
       }
       if (!alive || !restored.length) return;
       _tabSeq = seq;
@@ -299,6 +326,7 @@ export default function ReaderModule({ pushToast, incoming, onIncomingHandled, r
           data: item.data,
           paperId: item.paperId,
           localPath: item.localPath,
+          contentHash: item.contentHash,
           entryKey: item.entryKey,
           startPage: item.startPage,
         }],
@@ -315,7 +343,7 @@ export default function ReaderModule({ pushToast, incoming, onIncomingHandled, r
     const activeTab = st.tabs.find((t) => t.id === st.activeId);
     saveJsonPref("session", TABS_PREF_KEY, {
       activeKey: activeTab ? tabKey(activeTab) : null,
-      tabs: st.tabs.map(({ name, paperId, localPath, entryKey, startPage }) => ({ name, paperId, localPath, entryKey, startPage })),
+      tabs: st.tabs.map(({ name, paperId, localPath, contentHash, entryKey, startPage }) => ({ name, paperId, localPath, contentHash, entryKey, startPage })),
     });
   }, [st]);
 
@@ -336,22 +364,36 @@ export default function ReaderModule({ pushToast, incoming, onIncomingHandled, r
     try {
       let data;
       let pathUsed = localPath;
+      let contentHash = null;
+      let mappedPaperId = null;
       if (pathUsed) {
-        data = await bridge.readLocalPdf(pathUsed);
+        const meta = await bridge.readLocalPdf(pathUsed);
+        if (meta && meta.bytes && meta.bytes.byteLength) {
+          data = meta.bytes;
+          contentHash = meta.contentHash || null;
+          mappedPaperId = meta.paperId || null;
+        }
       }
       if (!data || !data.byteLength) data = await file.arrayBuffer();
       if (!data || !data.byteLength) { pushToast && pushToast("无法读取该 PDF"); return; }
       const name = file.name || "document.pdf";
       let entryKey;
       let startPage = 1;
-      if (pathUsed) {
+      let paperId = mappedPaperId;
+      if (paperId) {
+        const appBytes = await bridge.readPdf(paperId);
+        if (appBytes && appBytes.byteLength) data = appBytes;
+        const rec = await bridge.recordReadingOpen({ paperId, title: name, page: 1 });
+        entryKey = rec?.entry?.entryKey || ("paper:" + paperId);
+        startPage = rec?.entry?.page || 1;
+      } else if (pathUsed) {
         const rec = await bridge.recordReadingOpen({ localPath: pathUsed, title: name, page: 1 });
         entryKey = rec?.entry?.entryKey;
         startPage = rec?.entry?.page || 1;
       } else {
-        pushToast && pushToast("已打开（未记录路径，重启后需重新选择文件）");
+        pushToast && pushToast("已打开（未记录路径，重启后需重新选择；可点「加入文献」纳入工作集）");
       }
-      const ok = await openWithPayload({ name, data, localPath: pathUsed, entryKey, startPage });
+      const ok = await openWithPayload({ name, data, localPath: paperId ? undefined : pathUsed, paperId, contentHash, entryKey, startPage });
       if (ok) void refreshContinue();
     } catch {
       pushToast && pushToast("打开 PDF 失败");
@@ -371,6 +413,7 @@ export default function ReaderModule({ pushToast, incoming, onIncomingHandled, r
         data: res.data,
         paperId: res.paperId,
         localPath: res.localPath,
+        contentHash: res.contentHash,
         entryKey: res.entryKey || entry.entryKey,
         startPage: res.page || entry.page || 1,
       });
@@ -474,6 +517,30 @@ export default function ReaderModule({ pushToast, incoming, onIncomingHandled, r
     return () => { alive = false; };
   }, [readTarget?.continueEntry, readTarget?._t]); // eslint-disable-line
 
+  const upgradeTabSource = useCallback((patch) => {
+    setSt((s) => {
+      const aid = s.activeId;
+      if (aid == null) return s;
+      return {
+        ...s,
+        tabs: s.tabs.map((t) => {
+          if (t.id !== aid) return t;
+          const next = { ...t, ...patch };
+          if (patch.paperId) {
+            next.localPath = undefined;
+            next.entryKey = "paper:" + patch.paperId;
+          }
+          return next;
+        }),
+      };
+    });
+  }, []);
+
+  const handleLibraryImport = useCallback(async (payload) => {
+    if (!onImportLocal) return { ok: false };
+    return onImportLocal(payload);
+  }, [onImportLocal]);
+
   const showHub = st.activeId === null;
   return (
     <div className="rhx">
@@ -503,13 +570,21 @@ export default function ReaderModule({ pushToast, incoming, onIncomingHandled, r
             onToggleAllDl={() => setShowAllDl((v) => !v)}
             inLibFn={inLibFn}
             onAddToLibrary={onAddToLibrary}
+            onImportLocal={onImportLocal}
             pushToast={pushToast}
             onOpenFile={openFromFile}
           />
         </div>
         {st.tabs.map((t) => (
           <div key={t.id} className="rhx-pane" style={{ display: t.id === st.activeId ? "flex" : "none" }}>
-            <Reader source={t} onClose={() => closeTab(t.id)} pushToast={pushToast} />
+            <Reader
+              source={t}
+              onClose={() => closeTab(t.id)}
+              pushToast={pushToast}
+              inLibFn={inLibFn}
+              onLibraryImport={handleLibraryImport}
+              onSourceUpgrade={upgradeTabSource}
+            />
           </div>
         ))}
       </div>
