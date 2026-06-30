@@ -17,7 +17,20 @@ export interface AnalysisClaim {
   flag?: "needs_recheck" | "unstated";
   status?: "ok" | "warn" | "no"; // 可复现性清单：已报告/缺失/未做
   paperRefs?: string[]; // 跨篇分析：本条结论涉及/来源的文献（标题），非页码
+  paperRefIds?: string[]; // 跨篇分析：文献 id（与 paperRefs 同序，供 UI 跳转阅读器）
   groundedRatio?: number;
+}
+export type CorpusInputTier = "structured" | "summary" | "abstract" | "fulltext_excerpt" | "none";
+export type CorpusDepth = "structured" | "fulltext_excerpt";
+export interface CorpusCoverage {
+  total: number;
+  structured: number;
+  summary: number;
+  abstract: number;
+  fulltext: number;
+  none: number;
+  depth: CorpusDepth;
+  papers: { id: string; title: string; tier: CorpusInputTier }[];
 }
 export interface AnalysisEnvelope {
   kind: string;
@@ -33,6 +46,7 @@ export interface AnalysisEnvelope {
   claims: AnalysisClaim[];
   practice?: boolean;         // 是否走练判断 gate
   speculative?: boolean;      // genesis opt-in 推测
+  coverage?: CorpusCoverage;  // 跨篇：各篇输入来源覆盖度
 }
 
 export interface KindSpec { lane: Lane; groundability: Groundability; title: string; framing?: string; practice?: boolean }
@@ -54,6 +68,8 @@ export const KIND_REGISTRY: Record<string, KindSpec> = {
   corpus_framing:       { lane: "inference", groundability: "L2", title: "主流框定地图" },
   corpus_contradiction: { lane: "inference", groundability: "L2", title: "矛盾发现" },
   corpus_recipe:        { lane: "evidence",  groundability: "L1", title: "方法配方汇编" },
+  corpus_timeline:      { lane: "inference", groundability: "L2", title: "观点演进时间线" },
+  corpus_gaps:          { lane: "inference", groundability: "L2", title: "证据空白地图" },
   stats:       { lane: "inference", groundability: "L2", title: "统计一致性扫描", framing: "这是 AI 对可能的统计报告不一致的提示，不是判定出错；AI 无法可靠核验算术，每条都需你手动复核，或用 statcheck / GRIM 等工具做确定性重算。" },
   flowmap:     { lane: "inference", groundability: "L2", title: "方法 / 逻辑流程图", framing: "这是 AI 从正文方法/流程描述重建的流程图（推断车道）：每个节点标注页码、点击可回原文核对；箭头是 AI 解读的步骤依赖，非原文断言。无页码依据的节点已标灰，请谨慎采信。" },
 };
@@ -365,43 +381,189 @@ export async function analyzeFigure(dataUrl: string, caption: string, llm: LlmCl
   return { kind: "figure", lane: spec.lane, groundability: spec.groundability, sourceBasis: "fulltext+vision", model: llm.model, title: spec.title, framing: "以下基于图像的视觉特征；制作工具无法从静态图确证，仅供复刻风格时参考。", claims };
 }
 
-// 语料层（ADR-I6）：仅就用户选中的工作集文献做跨篇归纳——限工作集、非全库问答。
-// 基于各篇"标题 + 缓存总结/摘要"（非全文，控成本/上下文）；claim 用 paperRefs 指向来源文献，sourceBasis 标 corpus。
+// 语料层（ADR-I6）：用户选中工作集的跨篇归纳——map 每篇要点 → reduce 跨篇综合。
+// 输入优先：单篇结构化缓存（总结+ledger/recipe/outline）→ 全文摘录 → 摘要；诚实标注覆盖度。
+const CORPUS_ZH = "用简体中文写每条 text；关键术语可括号保留英文。";
+const CORPUS_PAPER_OUT = "每个元素含 text 与 papers（数组）；papers 每项为对象 { id: 文献 paperId, title: 标题 }。不要编造。";
 const SYS_CORPUS: Record<string, string> = {
-  corpus_framing: "你在比较多篇论文如何框定同一问题。基于给定各篇的标题与摘要/总结，归纳：主流把该问题框定成什么、有哪些不同的框定取向、各取向分别属于哪些论文。这是跨文本的归纳推断，不是任一篇的原文事实。仅输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text（一种框定取向的描述）与 papers（字符串数组，支持该取向的论文标题）。不要编造文献中没有的内容。只输出 JSON。",
-  corpus_contradiction: "你在多篇论文之间寻找结论上的冲突或张力。基于各篇标题与摘要/总结，指出哪些论文之间在结论/发现上不一致，并说明分歧点在哪。这是跨文本推断、需回各篇核对。仅输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text（一处矛盾及其分歧点的描述）与 papers（字符串数组，涉及的论文标题）。不要编造。只输出 JSON。",
-  corpus_recipe: "你在汇编多篇相似研究的方法配方。基于各篇标题与摘要/总结，归纳它们共同的方法骨架（设计/数据/结局/指标/统计）以及彼此的差异。仅输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text（一条方法要点，并注明它是多数共识还是个别差异）与 papers（字符串数组，采用该做法的论文标题）。不要编造。只输出 JSON。",
+  corpus_framing: "你在比较多篇论文如何框定同一问题。基于给定各篇材料，归纳：主流框定、不同取向、各取向对应哪些文献。" + CORPUS_ZH + "这是跨文本归纳推断。输出 JSON 对象，含字段 claims（数组）；" + CORPUS_PAPER_OUT + "只输出 JSON。",
+  corpus_contradiction: "你在多篇论文之间寻找结论上的冲突或张力。" + CORPUS_ZH + "指出哪些文献在结论/发现上不一致及分歧点；这是跨文本推断、需回各篇核对。输出 JSON 对象，含字段 claims（数组）；" + CORPUS_PAPER_OUT + "只输出 JSON。",
+  corpus_recipe: "你在汇编多篇相似研究的方法配方。" + CORPUS_ZH + "归纳共同的方法骨架（设计/数据/结局/指标/统计）及差异，注明多数共识或个别差异。输出 JSON 对象，含字段 claims（数组）；" + CORPUS_PAPER_OUT + "只输出 JSON。",
+  corpus_timeline: "你归纳多篇文献中同一主题的观点或发现如何随时间演进。" + CORPUS_ZH + "按时间或逻辑阶段排列，标注哪些文献支持各阶段。输出 JSON 对象，含字段 claims（数组）；" + CORPUS_PAPER_OUT + "只输出 JSON。",
+  corpus_gaps: "你找出多篇文献共同未覆盖、或仅一两篇触及的研究空白与开放问题。" + CORPUS_ZH + "不要编造空白；若材料不足则说明。输出 JSON 对象，含字段 claims（数组）；" + CORPUS_PAPER_OUT + "只输出 JSON。",
 };
+const CORPUS_MAP_SYS = "你是科研阅读助手。只依据单篇材料抽取与跨篇分析任务相关的要点（每条一行，简洁）。" + CORPUS_ZH + "不要编造。若本片无相关要点，只回复「（无）」。不要 JSON。";
+const CORPUS_REDUCE_PREFIX = "\n\n【跨篇综合】下面是各篇要点清单（已标注 paperId）。请据此完成跨篇任务；每条结论必须在 papers 中列出真实 paperId 与 title。只用清单中的信息，不杜撰。\n\n— 各篇要点 —\n";
 
-export interface CorpusPaper { id: string; title: string; abstract?: string; summary?: string }
+export interface CorpusPaper {
+  id: string;
+  title: string;
+  abstract?: string;
+  summary?: string;
+  ledgerExcerpt?: string;
+  recipeExcerpt?: string;
+  outlineExcerpt?: string;
+  fulltextExcerpt?: string;
+  inputTier: CorpusInputTier;
+}
 
-export async function analyzeCorpus(kind: string, papers: CorpusPaper[], llm: LlmClient, opts: { signal?: AbortSignal } = {}): Promise<AnalysisEnvelope> {
-  const spec = KIND_REGISTRY[kind] || KIND_REGISTRY["corpus_framing"];
-  const title = spec.title;
-  if (!papers || papers.length < 2) {
-    return { kind, lane: spec.lane, groundability: spec.groundability, sourceBasis: "corpus", model: "(none)", title, refused: { reason: "跨篇分析至少需要 2 篇文献。" }, claims: [] };
+export interface CorpusAnalyzeOptions {
+  depth?: CorpusDepth;
+  signal?: AbortSignal;
+}
+
+function corpusTierLabel(t: CorpusInputTier): string {
+  if (t === "structured") return "结构化（总结+深读缓存）";
+  if (t === "fulltext_excerpt") return "全文摘录";
+  if (t === "summary") return "仅有总结";
+  if (t === "abstract") return "仅有摘要";
+  return "无可用输入";
+}
+
+function buildCorpusCoverage(papers: CorpusPaper[], depth: CorpusDepth): CorpusCoverage {
+  const cov: CorpusCoverage = { total: papers.length, structured: 0, summary: 0, abstract: 0, fulltext: 0, none: 0, depth, papers: [] };
+  for (const p of papers) {
+    cov.papers.push({ id: p.id, title: p.title || "(无题)", tier: p.inputTier });
+    if (p.inputTier === "structured") cov.structured++;
+    else if (p.inputTier === "summary") cov.summary++;
+    else if (p.inputTier === "abstract") cov.abstract++;
+    else if (p.inputTier === "fulltext_excerpt") cov.fulltext++;
+    else cov.none++;
   }
-  const sys = (SYS_CORPUS[kind] || SYS_CORPUS["corpus_framing"]);
-  const body = papers.map((p, i) => "【文献 " + (i + 1) + "】" + (p.title || "(无题)") + "\n" + (p.summary || p.abstract || "(暂无摘要/总结——该篇尚未生成总结)")).join("\n\n");
-  const raw = await llm.complete([{ role: "system", content: sys }, { role: "user", content: body }], { maxTokens: 1100, temperature: 0.2, signal: opts.signal });
-  const parsed = extractJson(raw) || {};
-  const arr: any[] = Array.isArray(parsed && parsed.claims) ? parsed.claims : [];
+  return cov;
+}
+
+function corpusCoverageBanner(cov: CorpusCoverage): string {
+  const parts: string[] = [`共 ${cov.total} 篇`];
+  if (cov.structured) parts.push(`${cov.structured} 篇结构化`);
+  if (cov.fulltext) parts.push(`${cov.fulltext} 篇含全文摘录`);
+  if (cov.summary) parts.push(`${cov.summary} 篇仅总结`);
+  if (cov.abstract) parts.push(`${cov.abstract} 篇仅摘要`);
+  if (cov.none) parts.push(`${cov.none} 篇无输入（建议先阅读或生成总结）`);
+  parts.push(cov.depth === "fulltext_excerpt" ? "深度：全文摘录优先" : "深度：结构化缓存优先");
+  return parts.join(" · ");
+}
+
+function formatCorpusPaperBody(p: CorpusPaper): string {
+  const lines: string[] = [`【文献 id:${p.id} · ${p.title || "(无题)"}】`, `输入层级：${corpusTierLabel(p.inputTier)}`];
+  if (p.summary) lines.push("--- 接地总结 ---\n" + p.summary.slice(0, 12000));
+  if (p.ledgerExcerpt) lines.push("--- claim 账本要点 ---\n" + p.ledgerExcerpt.slice(0, 8000));
+  if (p.recipeExcerpt) lines.push("--- 方法配方要点 ---\n" + p.recipeExcerpt.slice(0, 6000));
+  if (p.outlineExcerpt) lines.push("--- 逻辑大纲 ---\n" + p.outlineExcerpt.slice(0, 4000));
+  if (p.fulltextExcerpt) lines.push("--- 全文摘录 ---\n" + p.fulltextExcerpt.slice(0, 16000));
+  if (p.abstract && !p.summary && !p.ledgerExcerpt) lines.push("--- 摘要 ---\n" + p.abstract.slice(0, 6000));
+  if (lines.length <= 2) lines.push("（本篇暂无可用于跨篇分析的正文材料）");
+  return lines.join("\n\n");
+}
+
+function resolveCorpusPaperRefs(raw: any, papers: CorpusPaper[]): { titles: string[]; ids: string[] } {
+  const byId = new Map(papers.map((p) => [p.id, p.title || "(无题)"]));
+  const byTitle = new Map(papers.map((p) => [(p.title || "").trim().toLowerCase(), p.id]));
+  const titles: string[] = [];
+  const ids: string[] = [];
+  const arr = Array.isArray(raw) ? raw : raw != null ? [raw] : [];
+  for (const item of arr) {
+    if (item && typeof item === "object") {
+      const id = String(item.id || item.paperId || "").trim();
+      const title = String(item.title || "").trim() || (id ? byId.get(id) : "") || "";
+      if (id && byId.has(id)) { ids.push(id); titles.push(byId.get(id) || title); continue; }
+      if (title) {
+        const tid = byTitle.get(title.toLowerCase());
+        if (tid) { ids.push(tid); titles.push(byId.get(tid) || title); continue; }
+        titles.push(title);
+      }
+      continue;
+    }
+    const s = String(item || "").trim();
+    if (!s) continue;
+    const tid = byTitle.get(s.toLowerCase());
+    if (tid) { ids.push(tid); titles.push(byId.get(tid) || s); }
+    else titles.push(s);
+  }
+  return { titles: [...new Set(titles)], ids: [...new Set(ids)] };
+}
+
+function mapCorpusClaims(arr: any[], spec: KindSpec, papers: CorpusPaper[]): AnalysisClaim[] {
   const claims: AnalysisClaim[] = [];
   for (const c of arr) {
     const text = String((c && c.text) || "").trim();
     if (!text) continue;
+    const refs = resolveCorpusPaperRefs(c?.papers ?? c?.paperRefs ?? c?.paperIds, papers);
     const claim: AnalysisClaim = { text, pageRefs: [] };
-    const ps = Array.isArray(c && c.papers) ? c.papers.map((x: any) => String(x)).filter(Boolean) : [];
-    if (ps.length) claim.paperRefs = ps;
+    if (refs.titles.length) claim.paperRefs = refs.titles;
+    if (refs.ids.length) claim.paperRefIds = refs.ids;
     if (spec.lane === "inference") claim.confidence = "c2";
     claims.push(claim);
   }
-  if (!claims.length) claims.push({ text: "（未能从所选文献归纳出结构化结果，请确认这些文献已生成总结，或更换选择）", pageRefs: [], confidence: "c3" });
-  return {
-    kind, lane: spec.lane, groundability: spec.groundability, sourceBasis: "corpus", model: llm.model, title,
-    framing: spec.lane === "inference" ? "这是基于多篇摘要/总结的跨文本归纳，非任一篇的原文事实；每条注明涉及文献，请回各篇核对。" : "这是对多篇方法的汇编，逐条注明出处文献；细节请回各篇原文核对。",
-    claims,
-  };
+  return claims;
+}
+
+async function mapCorpusPaperNotes(kind: string, paper: CorpusPaper, llm: LlmClient, signal?: AbortSignal): Promise<string> {
+  const task = (SYS_CORPUS[kind] || SYS_CORPUS.corpus_framing).split("输出 JSON")[0].trim();
+  const out = await llm.complete(
+    [{ role: "system", content: CORPUS_MAP_SYS }, { role: "user", content: task + "\n\n" + formatCorpusPaperBody(paper) }],
+    { maxTokens: 1000, temperature: 0.2, signal },
+  );
+  const t = (out || "").trim();
+  return t && t !== "（无）" ? `■ id:${paper.id} · ${paper.title || "(无题)"}\n${t}` : "";
+}
+
+async function reduceCorpusClaims(
+  kind: string,
+  papers: CorpusPaper[],
+  notes: string,
+  spec: KindSpec,
+  llm: LlmClient,
+  signal?: AbortSignal,
+): Promise<AnalysisClaim[]> {
+  const instruction = SYS_CORPUS[kind] || SYS_CORPUS.corpus_framing;
+  const body = notes.trim() || papers.map((p) => formatCorpusPaperBody(p)).join("\n\n══════\n\n");
+  const raw = await llm.complete(
+    [{ role: "system", content: "你是严谨的科研阅读助手。只依据用户提供的材料作答，不杜撰。仅输出 JSON 对象，不要解释、不要代码围栏。" }, { role: "user", content: instruction + CORPUS_REDUCE_PREFIX + body }],
+    { maxTokens: kind === "corpus_recipe" ? 2800 : 2400, temperature: 0.2, signal },
+  );
+  const parsed = extractJson(raw) || {};
+  const arr: any[] = Array.isArray(parsed?.claims) ? parsed.claims : [];
+  return mapCorpusClaims(arr, spec, papers);
+}
+
+export async function analyzeCorpus(
+  kind: string,
+  papers: CorpusPaper[],
+  llm: LlmClient,
+  opts: CorpusAnalyzeOptions = {},
+): Promise<AnalysisEnvelope> {
+  const spec = KIND_REGISTRY[kind] || KIND_REGISTRY.corpus_framing;
+  const title = spec.title;
+  const depth: CorpusDepth = opts.depth === "fulltext_excerpt" ? "fulltext_excerpt" : "structured";
+  if (!papers || papers.length < 2) {
+    return { kind, lane: spec.lane, groundability: spec.groundability, sourceBasis: "corpus", model: "(none)", title, refused: { reason: "跨篇分析至少需要 2 篇文献。" }, claims: [] };
+  }
+  const usable = papers.filter((p) => p.inputTier !== "none");
+  if (usable.length < 2) {
+    return {
+      kind, lane: spec.lane, groundability: spec.groundability, sourceBasis: "corpus", model: llm.model, title,
+      refused: { reason: `所选 ${papers.length} 篇中仅 ${usable.length} 篇有可用材料。请先在阅读器打开 PDF 并生成「整篇总结」或「claim 账本」，再重试跨篇分析。` },
+      coverage: buildCorpusCoverage(papers, depth), claims: [],
+    };
+  }
+  const coverage = buildCorpusCoverage(papers, depth);
+  const banner = corpusCoverageBanner(coverage);
+  let claims: AnalysisClaim[] = [];
+  if (usable.length <= 2 && papers.map((p) => formatCorpusPaperBody(p)).join("").length < 28000) {
+    claims = await reduceCorpusClaims(kind, papers, "", spec, llm, opts.signal);
+  } else {
+    const mapped = await Promise.all(papers.map((p) => mapCorpusPaperNotes(kind, p, llm, opts.signal).catch(() => "")));
+    const notes = mapped.filter(Boolean).join("\n\n");
+    claims = await reduceCorpusClaims(kind, papers, notes, spec, llm, opts.signal);
+  }
+  if (!claims.length) {
+    claims.push({ text: "（未能从所选文献归纳出结构化结果——请确认已生成阅读器总结或打开过 PDF 建立全文索引，或更换选择）", pageRefs: [], confidence: "c3" });
+  }
+  const framing = spec.lane === "inference"
+    ? "这是基于多篇结构化要点/总结的跨文本归纳，非任一篇的原文事实；点击出处文献可打开阅读器核对。"
+    : "这是对多篇方法的汇编，逐条注明出处文献；细节请回各篇原文核对。";
+  return { kind, lane: spec.lane, groundability: spec.groundability, sourceBasis: "corpus", model: llm.model, title, framing, banner, coverage, claims };
 }
 
 // 逻辑流程图（flowmap）：LLM 只产结构化 nodes+edges（JSON），前端确定性渲染——绝不让模型直接画 SVG（防幻觉黑箱，研究公认做法）。

@@ -177,6 +177,9 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
   const [rememberPos, setRememberPos] = useState(true);     // 续读位置（默认开）
   const [defaultZoom, setDefaultZoom] = useState(1.1);       // 阅读器默认缩放
   const [nightInvert, setNightInvert] = useState(false);     // 夜读反色默认
+  const [corpusDepth, setCorpusDepth] = useState("structured");
+  const [corpusMaxPapers, setCorpusMaxPapers] = useState(24);
+  const [corpusUseLedger, setCorpusUseLedger] = useState(true);
   const [resetting, setResetting] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [pruneDetachedOpen, setPruneDetachedOpen] = useState(false);
@@ -404,6 +407,11 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
         if (typeof s.reader.rememberPos === "boolean") setRememberPos(s.reader.rememberPos);
         if (typeof s.reader.defaultZoom === "number") setDefaultZoom(s.reader.defaultZoom);
         if (typeof s.reader.nightInvert === "boolean") setNightInvert(s.reader.nightInvert);
+      }
+      if (s.corpus) {
+        if (s.corpus.depth === "fulltext_excerpt" || s.corpus.depth === "structured") setCorpusDepth(s.corpus.depth);
+        if (typeof s.corpus.maxPapers === "number") setCorpusMaxPapers(Math.max(2, Math.min(48, s.corpus.maxPapers)));
+        if (typeof s.corpus.useLedger === "boolean") setCorpusUseLedger(s.corpus.useLedger);
       }
     }).catch(() => {});
     refreshKeysStatus();
@@ -734,6 +742,41 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                 <div className="set-kv">
                   <div className="set-kv-main"><span className="set-lbl">夜读反色（默认）</span><span className="set-kv-d">深色环境下反相页面，减轻白底刺眼；阅读器内也可随时切换。</span></div>
                   <button role="switch" aria-checked={nightInvert} className={"set-switch" + (nightInvert ? " on" : "")} onClick={() => void onToggleNightInvert()} aria-label="夜读反色默认开关"><i /></button>
+                </div>
+                <h3 className="set-sec-h" style={{ marginTop: 20 }}>跨篇分析</h3>
+                <p className="set-sec-d">控制「我的文献」多选跨篇归纳时使用的语料深度与篇数上限。深读缓存越完整，跨篇结论越扎实。</p>
+                <div className="set-kv">
+                  <div className="set-kv-main"><span className="set-lbl">语料深度</span><span className="set-kv-d">结构化：总结 + claim 账本 / 配方 / 大纲；全文摘录：在可用时并入 PDF 正文片段（需先打开过 PDF 建立索引）。</span></div>
+                  <div className="set-seg">
+                    {[["结构化", "structured"], ["全文摘录", "fulltext_excerpt"]].map(([lbl, val]) => (
+                      <button key={val} className={corpusDepth === val ? "on" : ""} onClick={async () => {
+                        setCorpusDepth(val);
+                        await persistSettings((cur) => ({ ...cur, corpus: { ...(cur.corpus || {}), depth: val } }));
+                        pushToast && pushToast("跨篇语料深度已更新");
+                      }}>{lbl}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="set-kv">
+                  <div className="set-kv-main"><span className="set-lbl">篇数上限</span><span className="set-kv-d">单次跨篇分析最多纳入的文献数（2–48）。</span></div>
+                  <div className="set-seg">
+                    {[8, 12, 16, 24, 32, 48].map((n) => (
+                      <button key={n} className={corpusMaxPapers === n ? "on" : ""} onClick={async () => {
+                        setCorpusMaxPapers(n);
+                        await persistSettings((cur) => ({ ...cur, corpus: { ...(cur.corpus || {}), maxPapers: n } }));
+                        pushToast && pushToast(`跨篇上限已设为 ${n} 篇`);
+                      }}>{n}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="set-kv">
+                  <div className="set-kv-main"><span className="set-lbl">并入深读缓存</span><span className="set-kv-d">将各篇 claim 账本、方法配方、逻辑大纲一并送入跨篇分析（推荐开启）。</span></div>
+                  <button role="switch" aria-checked={corpusUseLedger} className={"set-switch" + (corpusUseLedger ? " on" : "")} onClick={async () => {
+                    const next = !corpusUseLedger;
+                    setCorpusUseLedger(next);
+                    await persistSettings((cur) => ({ ...cur, corpus: { ...(cur.corpus || {}), useLedger: next } }));
+                    pushToast && pushToast(next ? "已并入深读缓存" : "已仅用总结/摘要");
+                  }} aria-label="并入深读缓存开关"><i /></button>
                 </div>
                 <div className="set-kv">
                   <div className="set-kv-main"><span className="set-lbl">清除继续阅读</span><span className="set-kv-d">移除阅读落地页的「继续阅读」列表；不影响已下载 PDF、批注与页码记忆。</span></div>

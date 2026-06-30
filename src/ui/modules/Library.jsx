@@ -132,15 +132,32 @@ const LIB_CSS = `
 .lib-corpus-text{font-size:13px;line-height:1.6;color:var(--ink)}
 .lib-corpus-refs{display:flex;flex-wrap:wrap;gap:5px}
 .lib-corpus-ref{font-size:10.5px;color:var(--ink2);background:var(--surf2);border:1px solid var(--line2);border-radius:6px;padding:2px 7px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lib-corpus-ref-btn{cursor:pointer;font-family:inherit}
+.lib-corpus-ref-btn:hover{border-color:var(--gold);color:var(--gold)}
 .lib-corpus-banner{font-size:11px;color:var(--ink4)}
 .lib-corpus-refuse{font-size:12.5px;color:var(--ink2);line-height:1.55}
 @media (prefers-reduced-motion: reduce){ .lib-chip,.lib-act,.lib-cb,.lib-corpus-tools button,.lib-lchip{transition:none !important} }
 `;
 
-function CorpusCard({ env }) {
+const CORPUS_KIND_LABELS = {
+  corpus_framing: "主流框定地图",
+  corpus_contradiction: "矛盾发现",
+  corpus_recipe: "方法配方汇编",
+  corpus_timeline: "观点演进时间线",
+  corpus_gaps: "证据空白地图",
+};
+
+function CorpusCard({ env, onRead }) {
   if (!env) return null;
   const inf = env.lane === "inference";
-  if (env.refused) return <div className="lib-corpus-card"><div className="lib-corpus-refuse">{env.refused.reason}</div></div>;
+  if (env.refused) {
+    return (
+      <div className="lib-corpus-card">
+        <div className="lib-corpus-refuse">{env.refused.reason}</div>
+        {env.banner && <div className="lib-corpus-banner">{env.banner}</div>}
+      </div>
+    );
+  }
   return (
     <div className={"lib-corpus-card" + (inf ? " inf" : "")}>
       <div className="lib-corpus-h">{inf ? <Lightbulb size={14} /> : <Layers size={14} />} {env.title}<span className="lib-corpus-lane">{inf ? "推断 · 跨文本归纳" : "证据 · 带出处汇编"}</span></div>
@@ -148,9 +165,15 @@ function CorpusCard({ env }) {
       {(env.claims || []).map((c, i) => (
         <div key={i} className="lib-corpus-claim">
           <div className="lib-corpus-text">{c.text}</div>
-          {Array.isArray(c.paperRefs) && c.paperRefs.length > 0 && (
+          {Array.isArray(c.paperRefIds) && c.paperRefIds.length > 0 && onRead ? (
+            <div className="lib-corpus-refs">{c.paperRefIds.map((id, j) => (
+              <button key={id + j} type="button" className="lib-corpus-ref lib-corpus-ref-btn" title={c.paperRefs?.[j] || id} onClick={() => onRead(id)}>
+                {c.paperRefs?.[j] || id}
+              </button>
+            ))}</div>
+          ) : Array.isArray(c.paperRefs) && c.paperRefs.length > 0 ? (
             <div className="lib-corpus-refs">{c.paperRefs.map((r, j) => <span key={j} className="lib-corpus-ref" title={r}>{r}</span>)}</div>
-          )}
+          ) : null}
         </div>
       ))}
       {env.banner && <div className="lib-corpus-banner">{env.banner}</div>}
@@ -188,6 +211,7 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
   const [corpusEnv, setCorpusEnv] = useState(null);
   const [corpusRunning, setCorpusRunning] = useState("");
   const [corpusLastKind, setCorpusLastKind] = useState(_libPref0.corpusLastKind || "corpus_framing");
+  const [corpusDepth, setCorpusDepth] = useState("structured");
   const [deleteGroupConfirm, setDeleteGroupConfirm] = useState(null);
   const LS = lists || [];
 
@@ -197,6 +221,16 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
       sel: Array.from(sel), corpusLastKind,
     });
   }, [query, fFulltext, fPreprint, fOa, fSummary, fAnno, sort, grouped, activeList, selMode, sel, corpusLastKind]);
+
+  useEffect(() => {
+    let alive = true;
+    bridge.getSettings().then((s) => {
+      if (!alive || !s) return;
+      const d = s.corpus?.depth === "fulltext_excerpt" ? "fulltext_excerpt" : "structured";
+      setCorpusDepth(d);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   useEffect(() => {
     if (creatingGroup && topNewRef.current) topNewRef.current.focus();
@@ -323,17 +357,17 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
     if (sel.size < 2) { setCorpusEnv(null); return; }
     let alive = true;
     const kind = corpusLastKind || "corpus_framing";
-    const key = corpusCacheKey(kind, sel);
+    const key = corpusCacheKey(kind, sel, corpusDepth);
     bridge.readerAnalysisGet(key, kind).then((env) => { if (alive && env) setCorpusEnv(env); }).catch(() => {});
     return () => { alive = false; };
-  }, [sel, corpusLastKind]);
+  }, [sel, corpusLastKind, corpusDepth]);
 
   const runCorpus = async (kind) => {
     if (sel.size < 2) return;
     setCorpusLastKind(kind);
     setCorpusRunning(kind);
     setCorpusEnv(null);
-    const key = corpusCacheKey(kind, Array.from(sel));
+    const key = corpusCacheKey(kind, Array.from(sel), corpusDepth);
     try {
       const env = await bridge.readerCorpus(kind, Array.from(sel));
       setCorpusEnv(env || null);
@@ -525,9 +559,14 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
         <div className="lib-corpus-bar">
           <div className="lib-corpus-barh"><Sparkles size={14} /> 跨篇分析 · 已选 {sel.size} 篇{sel.size < 2 ? "（至少选 2 篇）" : ""}</div>
           <div className="lib-corpus-tools">
-            <button disabled={sel.size < 2 || !!corpusRunning} onClick={() => runCorpus("corpus_framing")}>{corpusRunning === "corpus_framing" ? <><Loader size={13} className="lf-spin" /> 分析中…</> : "主流框定地图"}</button>
-            <button disabled={sel.size < 2 || !!corpusRunning} onClick={() => runCorpus("corpus_contradiction")}>{corpusRunning === "corpus_contradiction" ? <><Loader size={13} className="lf-spin" /> 分析中…</> : "矛盾发现"}</button>
-            <button disabled={sel.size < 2 || !!corpusRunning} onClick={() => runCorpus("corpus_recipe")}>{corpusRunning === "corpus_recipe" ? <><Loader size={13} className="lf-spin" /> 分析中…</> : "方法配方汇编"}</button>
+            {(["corpus_framing", "corpus_contradiction", "corpus_recipe", "corpus_timeline", "corpus_gaps"]).map((k) => (
+              <button key={k} disabled={sel.size < 2 || !!corpusRunning} onClick={() => runCorpus(k)}>
+                {corpusRunning === k ? <><Loader size={13} className="lf-spin" /> {CORPUS_KIND_LABELS[k]}…</> : CORPUS_KIND_LABELS[k]}
+              </button>
+            ))}
+            {activeList && view.length > 0 && (
+              <button disabled={!!corpusRunning} onClick={() => setSel(new Set(view.map((p) => p.id)))}>全选本分组（{view.length}）</button>
+            )}
             {sel.size > 0 && <button className="lib-corpus-clear" onClick={() => setSel(new Set())}>清空</button>}
             {sel.size > 0 && LS.length > 0 && onAddManyToList && (
               <label className="lib-batch-grp">
@@ -546,8 +585,8 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
               </label>
             )}
           </div>
-          <div className="lib-corpus-note">仅就你选中的文献做跨篇归纳（限工作集、非全库问答）；基于各篇摘要/缓存总结，结果带出处文献、需回原文核对。建议先给这些文献生成总结，归纳更准。</div>
-          {corpusEnv && <CorpusCard env={corpusEnv} />}
+          <div className="lib-corpus-note">仅就你选中的文献做跨篇归纳（限工作集、非全库问答）；优先使用各篇「整篇总结」与深读缓存（claim 账本 / 方法配方 / 逻辑大纲），可在设置中开启全文摘录模式。结果带出处文献，点击可打开阅读器核对。</div>
+          {corpusEnv && <CorpusCard env={corpusEnv} onRead={onRead} />}
         </div>
       )}
       <div className="lib-body">

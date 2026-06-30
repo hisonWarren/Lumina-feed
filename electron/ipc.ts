@@ -24,7 +24,7 @@ import { resolvePdfCandidates } from "../src/core/oa/oa-resolver.ts";
 import { fetchPdf } from "../src/core/oa/pdf-fetch.ts";
 import { sqliteSummaryCache } from "../src/core/summarize/summaries.repo.ts";
 import { summarizeGrounded } from "../src/core/trust/index.ts";
-import { analyzeReader, analyzeFigure, analyzeCorpus, KIND_REGISTRY, type AnalysisEnvelope } from "../src/core/reader/reader-plus.ts";
+import { analyzeReader, analyzeFigure, analyzeCorpus, KIND_REGISTRY, type AnalysisEnvelope, type CorpusPaper, type CorpusInputTier } from "../src/core/reader/reader-plus.ts";
 import { saveGrounding } from "../src/core/trust/audit.ts";
 import { summarizeReader, askReader, translateText, type ReaderPage } from "../src/core/reader/reader-ai.ts";
 import {
@@ -39,7 +39,7 @@ import {
   touchReadingPage,
   type ReadingHistoryRow,
 } from "../src/core/reader/reading-history.ts";
-import { loadAppSettings, saveAppSettings, loadAppSettingsView } from "./settings.ts";
+import { loadAppSettings, saveAppSettings, loadAppSettingsView, type AppSettings } from "./settings.ts";
 import type { SummarizeOptions } from "../src/core/summarize/types.ts";
 import { DEFAULT_SUMMARIZE } from "../src/core/summarize/types.ts";
 import { setPoliteIdentity } from "../src/core/sources/adapter.ts";
@@ -992,21 +992,19 @@ export function registerIpc(deps: IpcDeps): void {
       return await analyzeFigure(payload.dataUrl, payload.caption || "", llm);
     } catch (e) { console.error("reader:figure 失败", e); return analysisError("figure", e, { vision: true, sourceBasis: "fulltext+vision" }); }
   });
-  // ── reader_plus·语料层（ADR-I6）：仅就选中工作集文献跨篇归纳（限工作集、非整库级问答）。后端聚合各篇 标题+缓存总结+摘要，篇数上限 8（控成本/上下文）。
+  // ── reader_plus·语料层（ADR-I6）：选中工作集跨篇归纳；结构化缓存 + 可选全文摘录；篇数上限见设置。
   ipcMain.handle("reader:corpus", async (_e, payload: { kind?: string; paperIds?: string[] }) => {
     const kind = (payload && payload.kind) || "corpus_framing";
     try {
-      const ids = ((payload && payload.paperIds) || []).slice(0, 8);
+      const settings = await loadAppSettings(store);
+      const maxP = Math.max(2, Math.min(48, settings.corpus?.maxPapers ?? 24));
+      const ids = ((payload && payload.paperIds) || []).slice(0, maxP);
       if (ids.length < 2) return { kind, lane: "inference", groundability: "L2", sourceBasis: "corpus", model: "(none)", title: "跨篇分析", refused: { reason: "跨篇分析至少需要 2 篇文献。" }, claims: [] } as AnalysisEnvelope;
-      const papers: Array<{ id: string; title: string; abstract?: string; summary?: string | null }> = [];
-      for (const id of ids) {
-        const p: any = store.papers.getById(id);
-        if (!p) continue;
-        let summary: string | null = readSummaryText(id);
-        papers.push({ id, title: p.title || "", abstract: p.abstract, summary });
-      }
+      const papers = assembleCorpusPapers(ids, settings);
+      if (papers.length < 2) return { kind, lane: "inference", groundability: "L2", sourceBasis: "corpus", model: "(none)", title: "跨篇分析", refused: { reason: "未找到足够的有效文献条目。" }, claims: [] } as AnalysisEnvelope;
       const llm = await makeLlm();
-      return await analyzeCorpus(kind, papers as any, llm);
+      const depth = settings.corpus?.depth === "fulltext_excerpt" ? "fulltext_excerpt" : "structured";
+      return await analyzeCorpus(kind, papers, llm, { depth });
     } catch (e) { console.error("reader:corpus 失败", e); return analysisError(kind, e, { sourceBasis: "corpus" }); }
   });
   const ensureReaderAnalysis = () => store.db.exec("CREATE TABLE IF NOT EXISTS reader_analysis(paper_id TEXT, kind TEXT, lane TEXT, payload TEXT, model TEXT, created_at TEXT, PRIMARY KEY(paper_id,kind));");
@@ -1053,6 +1051,68 @@ export function registerIpc(deps: IpcDeps): void {
     } catch { /* ignore */ }
     return null;
   };
+
+  const ensureFulltextRaw = () => store.db.exec("CREATE TABLE IF NOT EXISTS fulltext_raw(paper_id TEXT PRIMARY KEY, text TEXT, updated_at TEXT);");
+
+  const readFulltextRaw = (paperId: string, cap = 20000): string | null => {
+    try {
+      ensureFulltextRaw();
+      const r = store.db.prepare("SELECT text FROM fulltext_raw WHERE paper_id=?").get(paperId) as { text?: string } | undefined;
+      if (r?.text) return String(r.text).slice(0, cap);
+    } catch { /* ignore */ }
+    return null;
+  };
+
+  const readReaderAnalysisExcerpt = (paperId: string, kind: string, cap = 8000): string => {
+    const docKey = `paper:${paperId}`;
+    for (const key of [docKey, paperId]) {
+      try {
+        ensureReaderAnalysis();
+        const ra = store.db.prepare("SELECT payload FROM reader_analysis WHERE paper_id=? AND kind=?").get(key, kind) as { payload?: string } | undefined;
+        if (!ra?.payload) continue;
+        const env = JSON.parse(ra.payload) as { text?: string; claims?: { text?: string }[] };
+        if (kind === "summary" && env.text) return String(env.text).slice(0, cap);
+        if (Array.isArray(env.claims)) {
+          return env.claims.map((c) => String(c?.text || "").trim()).filter(Boolean).join("\n").slice(0, cap);
+        }
+      } catch { /* ignore */ }
+    }
+    return "";
+  };
+
+  const assembleCorpusPapers = (ids: string[], settings: AppSettings): CorpusPaper[] => {
+    const useLedger = settings.corpus?.useLedger !== false;
+    const depth = settings.corpus?.depth === "fulltext_excerpt" ? "fulltext_excerpt" : "structured";
+    const out: CorpusPaper[] = [];
+    for (const id of ids) {
+      const p: any = store.papers.getById(id);
+      if (!p) continue;
+      const summary = readSummaryText(id) || undefined;
+      const ledgerExcerpt = useLedger ? readReaderAnalysisExcerpt(id, "ledger", 8000) : "";
+      const recipeExcerpt = useLedger ? readReaderAnalysisExcerpt(id, "recipe", 6000) : "";
+      const outlineExcerpt = useLedger ? readReaderAnalysisExcerpt(id, "outline", 4000) : "";
+      const fulltextExcerpt = readFulltextRaw(id, 20000) || undefined;
+      let inputTier: CorpusInputTier = "none";
+      if (depth === "fulltext_excerpt" && fulltextExcerpt) inputTier = "fulltext_excerpt";
+      else if (summary && (ledgerExcerpt || recipeExcerpt || outlineExcerpt)) inputTier = "structured";
+      else if (summary) inputTier = "summary";
+      else if (fulltextExcerpt) inputTier = "fulltext_excerpt";
+      else if (p.abstract) inputTier = "abstract";
+      out.push({
+        id,
+        title: p.title || "",
+        abstract: p.abstract,
+        summary: summary || undefined,
+        ledgerExcerpt: ledgerExcerpt || undefined,
+        recipeExcerpt: recipeExcerpt || undefined,
+        outlineExcerpt: outlineExcerpt || undefined,
+        fulltextExcerpt: fulltextExcerpt || undefined,
+        inputTier,
+      });
+    }
+    return out;
+  };
+
   ipcMain.handle("reader:analysisGet", (_e, paperId: string, kind: string) => {
     try { ensureReaderAnalysis(); const r: any = store.db.prepare("SELECT payload FROM reader_analysis WHERE paper_id=? AND kind=?").get(paperId, kind); return r && r.payload ? JSON.parse(r.payload) : null; } catch { return null; }
   });
@@ -1308,9 +1368,13 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle("fulltext:save", (_e, paperId: string, text: string) => {
     try {
       if (!paperId || !text) return false;
+      const raw = String(text).slice(0, 2000000);
       ensureFts();
       store.db.prepare("DELETE FROM fulltext_fts WHERE paper_id=?").run(paperId);
-      store.db.prepare("INSERT INTO fulltext_fts(paper_id, body) VALUES(?,?)").run(paperId, ftsPrep(String(text).slice(0, 2000000))); // CJK→bigram 后入库；上限 ~2MB 原文
+      store.db.prepare("INSERT INTO fulltext_fts(paper_id, body) VALUES(?,?)").run(paperId, ftsPrep(raw));
+      ensureFulltextRaw();
+      store.db.prepare("INSERT INTO fulltext_raw(paper_id, text, updated_at) VALUES(?,?,?) ON CONFLICT(paper_id) DO UPDATE SET text=excluded.text, updated_at=excluded.updated_at")
+        .run(paperId, raw, new Date().toISOString());
       return true;
     } catch { return false; }
   });

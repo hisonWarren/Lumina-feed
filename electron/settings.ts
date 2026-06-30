@@ -40,6 +40,8 @@ export interface AppSettings {
   llm?: LlmConfig;
   theme?: string;
   reader?: { rememberPos?: boolean; defaultZoom?: number; nightInvert?: boolean; positions?: Record<string, number> };
+  /** 跨篇分析：语料深度、篇数上限、是否并入单篇结构化缓存 */
+  corpus?: { depth?: "structured" | "fulltext_excerpt"; maxPapers?: number; useLedger?: boolean };
 }
 
 /** settings:get 对外返回（派生只读字段；不含任何密钥明文） */
@@ -56,12 +58,13 @@ const DEFAULTS: AppSettings = {
   prefetchOnIdentifier: false,
   prefetchOaResults: false,
   primaryAutoOpenReader: false,
+  corpus: { depth: "structured", maxPapers: 24, useLedger: true },
 };
 const KEY = "app_settings";
 /** settings:get 派生字段，禁止写入 DB */
 const VIEW_ONLY_KEYS = new Set(["emailConfigured", "emailFromEnv"]);
 /** 浅合并时保留子对象字段，避免 partial save 抹掉 sibling 键 */
-const NESTED_MERGE_KEYS = ["llm", "reader", "app", "prompts", "altMirrors"] as const;
+const NESTED_MERGE_KEYS = ["llm", "reader", "app", "prompts", "altMirrors", "corpus"] as const;
 
 export async function loadAppSettings(store: Store): Promise<AppSettings> {
   ensure(store);

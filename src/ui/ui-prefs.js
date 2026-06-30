@@ -20,7 +20,7 @@ export function patchJsonPref(store, key, patch) {
   saveJsonPref(store, key, { ...loadJsonPref(store, key, {}), ...patch });
 }
 
-export function corpusCacheKey(kind, ids) {
+export function corpusCacheKey(kind, ids, depth = "structured") {
   const sorted = [...ids].map(String).sort();
-  return "corpus:" + kind + ":" + sorted.join("|");
+  return "corpus:v2:" + kind + ":" + depth + ":" + sorted.join("|");
 }
