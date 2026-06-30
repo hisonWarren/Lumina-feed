@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { Store } from "../src/core/store/index.ts";
 import type { SecretStore } from "../src/core/secrets/keyvault.ts";
+import { isValidSecretValue } from "../src/core/secrets/keyvault.ts";
 import type { Paper } from "../src/core/model.ts";
 import { rawToSpec, type QueryFilters } from "../src/core/querySpec.ts";
 import { aggregateSearch, aggregateSearchStream, searchSingleSource } from "../src/core/aggregate.ts";
@@ -152,7 +153,7 @@ function broadcastSettingsChanged(): void {
 
 export function registerIpc(deps: IpcDeps): void {
   const { store, secrets } = deps;
-  const hasLlmSecret = async (k: string) => !!(await secrets.get(k));
+  const hasLlmSecret = async (k: string) => isValidSecretValue(await secrets.get(k));
   /** 升级后钥匙串有 key、DB 缺 llm 时尽早补写，避免各 IPC 路径各自漏调 hydrate */
   void hydrateLlmSettings(store, hasLlmSecret).catch(() => {});
   registerCiteExport();
@@ -729,8 +730,15 @@ export function registerIpc(deps: IpcDeps): void {
       return { ok: false, error: String((e as Error)?.message ?? e) };
     }
   });
-  ipcMain.handle("secrets:set", (_e, key: string, value: string) => secrets.set(key, value));
-  ipcMain.handle("secrets:has", async (_e, key: string) => !!(await secrets.get(key)));
+  ipcMain.handle("secrets:set", async (_e, key: string, value: string) => {
+    if (!isValidSecretValue(value)) {
+      await secrets.delete(key);
+      return;
+    }
+    await secrets.set(key, String(value).trim());
+  });
+  ipcMain.handle("secrets:delete", (_e, key: string) => secrets.delete(key));
+  ipcMain.handle("secrets:has", async (_e, key: string) => isValidSecretValue(await secrets.get(key)));
   // 测试连接：用当前(表单或已存)配置做一次极小补全，验证密钥/模型/网络是否通。不持久化、不回显密钥（红线3）。
   ipcMain.handle("llm:test", async (_e, cfg: { provider?: string; model?: string; baseUrl?: string; apiKey?: string }) => {
     try {

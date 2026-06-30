@@ -618,6 +618,11 @@ export const bridge = {
     if (!api || !api.secretHas || !key) return false;
     try { return !!(await api.secretHas(key)); } catch { return false; }
   },
+  async deleteSecret(key) {
+    const api = A();
+    if (!api || !api.deleteSecret || !key) return false;
+    try { await api.deleteSecret(key); return true; } catch { return false; }
+  },
   async saveSettings(s) {
     const api = A(); if (!api) return null;
     const clean = { ...(s || {}) };

@@ -514,17 +514,25 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
 
   const onTestLlm = useCallback(async () => {
     setTesting(true); setTestResult(null);
+    const usedFormKey = !!apiKey.trim();
     try {
       const res = await bridge.testLlm({
         provider,
         model: (model || preset.model).trim(),
         baseUrl: preset.showBase ? baseUrl.trim() : (preset.base || undefined),
-        apiKey: apiKey.trim() || undefined,
+        apiKey: usedFormKey ? apiKey.trim() : undefined,
       });
-      setTestResult(res && typeof res.ok === "boolean"
+      const formatted = res && typeof res.ok === "boolean"
         ? (res.ok ? res : { ok: false, error: formatLlmTestError(provider, preset, res.error) })
-        : { ok: false, error: "无响应" });
-      if (res?.ok && preset.needsKey && apiKey.trim()) {
+        : { ok: false, error: "无响应" };
+      setTestResult(formatted);
+      const is401 = !formatted.ok && /401/.test(String(formatted.error || ""));
+      if (is401 && !usedFormKey && preset.needsKey) {
+        await bridge.deleteSecret(provider + "_key");
+        setLlmKeySaved(false);
+        await refreshLlmKeyStatus(provider);
+      }
+      if (res?.ok && preset.needsKey && usedFormKey) {
         await bridge.setSecret(provider + "_key", apiKey.trim());
         setApiKey("");
         setLlmKeySaved(true);
@@ -532,7 +540,21 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
       }
     } catch (e) { setTestResult({ ok: false, error: "测试失败" }); }
     finally { setTesting(false); }
-  }, [provider, model, baseUrl, apiKey, preset, persistLlmFields]);
+  }, [provider, model, baseUrl, apiKey, preset, persistLlmFields, refreshLlmKeyStatus]);
+
+  const onClearLlmKey = useCallback(async () => {
+    if (!backend || !preset.needsKey) return;
+    try {
+      await bridge.deleteSecret(provider + "_key");
+      setApiKey("");
+      setLlmKeySaved(false);
+      setTestResult(null);
+      await refreshLlmKeyStatus(provider);
+      pushToast && pushToast("已清除钥匙串中的 API Key");
+    } catch {
+      pushToast && pushToast("清除密钥失败");
+    }
+  }, [backend, provider, preset, pushToast, refreshLlmKeyStatus]);
 
   const saveGeneral = useCallback(async () => {
     setSavingGen(true);
@@ -647,12 +669,15 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                         onChange={(e) => setApiKey(e.target.value)} />
                       <button type="button" className="set-key-eye" onClick={() => setShowKey((v) => !v)} aria-label={showKey ? "隐藏密钥" : "显示密钥"} title={showKey ? "隐藏" : "显示"}>{showKey ? <EyeOff size={15} /> : <Eye size={15} />}</button>
                     </div>
-                    <span className="set-hint">留空＝保持现有密钥不变；填入新值并保存＝更新。密钥不会回显、不写入任何配置文件（红线3）。</span>
+                    <span className="set-hint">留空＝保持现有密钥不变；填入新值并保存＝更新。密钥保存在 Windows 凭据管理器（服务名 <span className="set-mono">lumina-feed</span>），卸载应用通常不会清除，与下方 AppData 目录无关。</span>
                   </div>
                 )}
                 <div className="set-btnrow">
                   <button className="set-btn" onClick={saveLlm} disabled={savingLlm}><Save size={15} /> {savingLlm ? "保存中…" : "保存大模型设置"}</button>
                   <button className="set-btn2" onClick={onTestLlm} disabled={testing} title="用当前填写或已存的配置做一次极小调用，验证密钥/模型/网络是否通"><Plug size={15} /> {testing ? "测试中…" : "测试连接"}</button>
+                  {preset.needsKey && llmKeySaved ? (
+                    <button type="button" className="set-btn2" onClick={() => void onClearLlmKey()} title="从系统钥匙串删除已存 API Key">清除已存密钥</button>
+                  ) : null}
                 </div>
                 {testResult && <div className={"set-test" + (testResult.ok ? " ok" : " err")}>{testResult.ok ? ("✓ 连接成功 · " + testResult.model + (testResult.ms ? " · " + testResult.ms + " ms" : "")) : ("✗ " + (testResult.error || "连接失败"))}</div>}
               </>
@@ -892,9 +917,9 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                   <input className="set-in" type="email" value={contactEmail} placeholder="you@example.org" onChange={(e) => setContactEmail(e.target.value)} onBlur={saveEmailOnBlur} />
                 </div>
                 <button className="set-btn" onClick={saveGeneral} disabled={savingGen}><Save size={15} /> {savingGen ? "保存中…" : "保存联络邮箱"}</button>
-                <div className="set-note" style={{ marginTop: 16 }}><Info size={15} /><span className="set-note-t">本机数据保存在：<span className="set-mono">{userDataPath || "（启动后显示实际路径）"}</span> — 文献库、已下载 PDF 与阅读缓存均在此目录，不会上传云端。</span></div>
+                <div className="set-note" style={{ marginTop: 16 }}><Info size={15} /><span className="set-note-t">本机数据保存在：<span className="set-mono">{userDataPath || "（启动后显示实际路径）"}</span> — 文献库、已下载 PDF 与阅读 AI 缓存均在此目录。大模型 API Key <b>不在</b>此目录，而在 Windows 凭据管理器（<span className="set-mono">lumina-feed</span>）。卸载应用通常不会清除上述两处。</span></div>
                 <button className="set-btn set-btn-danger" onClick={onResetLocalData} disabled={resetting || !backend}><Trash2 size={15} /> {resetting ? "正在清除…" : "清除本机文献数据并重启"}</button>
-                <span className="set-hint">删除文献库、订阅、收藏、已下载 PDF 与阅读缓存；不删除大模型密钥与通用设置。</span>
+                <span className="set-hint">删除文献库、订阅、收藏、已下载 PDF 与阅读缓存；不删除大模型密钥。要清密钥请去「大模型」页点「清除已存密钥」，或在 Windows 凭据管理器中删除 <span className="set-mono">lumina-feed</span> 相关条目。</span>
               </>
             )}
 

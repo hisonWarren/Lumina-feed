@@ -5,6 +5,11 @@ export interface SecretStore {
   delete(key: string): Promise<void>;
 }
 
+/** 钥匙串条目是否算「已配置」：非空且去空白后至少 8 字符（避免空白/残缺条目误显示「已写入」）。 */
+export function isValidSecretValue(v: string | null | undefined): boolean {
+  return !!(v && String(v).trim().length >= 8);
+}
+
 export function keytarStore(): SecretStore {
   return {
     async get(key) {
