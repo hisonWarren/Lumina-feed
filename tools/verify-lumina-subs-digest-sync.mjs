@@ -38,7 +38,9 @@ has("electron/ipc.ts", /runDigestAiPhase/, "runDigestAiPhase");
 has("electron/ipc.ts", /subs:progress/, "subs:progress 事件");
 has("electron/ipc.ts", /summaries:get/, "summaries:get IPC");
 has("electron/ipc.ts", /asyncAi/, "异步 AI 队列");
-has("electron/ipc.ts", /newCount/, "newCount 可观测");
+has("src/core/subs/digest-search.ts", /filterDigestRecency/, "发表时间窗过滤");
+has("src/core/subs/digest-search.ts", /todayDateKey/, "todayDateKey 日界");
+has("electron/ipc.ts", /digestDateKey/, "run 时写入 todayDateKey");
 has("electron/ipc.ts", /aiSkippedReason|skippedReason/, "AI 跳过原因");
 
 console.log("\n[3] UI 简报 2.0");

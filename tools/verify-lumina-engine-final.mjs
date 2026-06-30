@@ -33,7 +33,8 @@ if(exists("electron/ipc.ts")){ const s=read("electron/ipc.ts");
   /Array\.isArray\(norm\.seenIds\)/.test(s)?ok("读取 seenIds"):bad("未读 seenIds");
   /freshHits\(/.test(s)?ok("只取新增 fresh（freshHits）"):bad("未去重");
   /seenIds: newSeen/.test(s)&&/slice\(-500\)/.test(s)?ok("回写 seenIds（≤500）"):bad("未回写");
-  /hits: todayMerged/.test(s)?ok("today/hits=todayMerged（含 fresh+carry）"):bad("未返回 todayMerged");
+  /hits: todayMerged/.test(s)?ok("today/hits=todayMerged（同日 fresh+carry；跨日重置）"):bad("未返回 todayMerged");
+  /todayDateKey/.test(s)&&/filterDigestRecency/.test(s)?ok("今日 dateKey 重置 + 发表时间窗过滤"):bad("缺今日简报边界");
 }
 console.log("\n— 5. PDF 正文 FTS5（抽取→索引→检索）—");
 if(exists("electron/ipc.ts")){ const s=read("electron/ipc.ts");

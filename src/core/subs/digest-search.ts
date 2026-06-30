@@ -44,8 +44,43 @@ export function buildDigestSpec(sub: Record<string, unknown> | null | undefined)
 }
 
 /** ISSUE-011 · 脏 payload 容错 + schemaVersion */
+export function digestDateKey(d = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** 简报检索时间窗起点（本地时区）：daily=今日 0 点 · weekly=近 7 日 · hourly=上次运行 */
+export function digestWindowStartMs(freq: string, now = new Date(), lastRunAt?: string): number {
+  if (freq === "hourly") {
+    const last = lastRunAt ? new Date(lastRunAt).getTime() : NaN;
+    if (Number.isFinite(last)) return last;
+    return now.getTime() - 55 * 60 * 1000;
+  }
+  if (freq === "weekly") {
+    const d = new Date(now);
+    d.setDate(d.getDate() - 7);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  }
+  const d = new Date(now);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/** 按发表日期收窄候选；无 pubDate 的条目保留（部分源不返回日期） */
+export function filterDigestRecency(papers: Paper[], freq: string, now = new Date(), lastRunAt?: string): Paper[] {
+  const since = digestWindowStartMs(freq, now, lastRunAt);
+  return papers.filter((p) => {
+    if (!p.pubDate) return true;
+    const t = new Date(p.pubDate).getTime();
+    return Number.isFinite(t) && t >= since;
+  });
+}
+
 export function normalizeSubscription(sub: Record<string, unknown> | null | undefined): Record<string, unknown> {
-  if (!sub || typeof sub !== "object") return { schemaVersion: 2, kind: "keyword", q: "", seenIds: [], today: [] };
+  if (!sub || typeof sub !== "object") return { schemaVersion: 2, kind: "keyword", q: "", seenIds: [], today: [], todayDateKey: "" };
   return {
     schemaVersion: 2,
     sortMode: "relevance",
@@ -57,6 +92,7 @@ export function normalizeSubscription(sub: Record<string, unknown> | null | unde
     seenIds: Array.isArray(sub.seenIds) ? sub.seenIds : [],
     readIds: Array.isArray(sub.readIds) ? sub.readIds : [],
     today: Array.isArray(sub.today) ? sub.today : [],
+    todayDateKey: typeof sub.todayDateKey === "string" ? sub.todayDateKey : "",
   };
 }
 

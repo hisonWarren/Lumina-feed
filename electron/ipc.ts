@@ -47,7 +47,7 @@ import { setPoliteIdentity } from "../src/core/sources/adapter.ts";
 import type { SearchOpts } from "../src/core/sources/adapter.ts";
 import { shouldSignalMissingEmail, maybeMissingEmailReason } from "../src/core/oa/oa-extended.ts";
 import {
-  applyDigestSearchOpts, buildDigestSpec, normalizeSubscription, freshHits, type DigestRunMeta,
+  applyDigestSearchOpts, buildDigestSpec, normalizeSubscription, freshHits, digestDateKey, filterDigestRecency, type DigestRunMeta,
   withPaperMarkedRead, todayPaperList, subscriptionReadIds,
 } from "../src/core/subs/digest-search.ts";
 import {
@@ -1664,6 +1664,8 @@ async function persistSubscriptionToday(
   seen: Set<string>,
   fresh: Paper[],
   meta: DigestRunMeta,
+  dateKey: string,
+  sameDay: boolean,
 ): Promise<void> {
   ensureSubsTable(store.db);
   const deliveredFresh = fresh.filter((p) => todayMerged.some((t) => t.id === p.id)).map((p) => p.id);
@@ -1671,6 +1673,8 @@ async function persistSubscriptionToday(
   const next = {
     ...norm,
     today: todayMerged,
+    todayDateKey: dateKey,
+    readIds: sameDay ? (Array.isArray(norm.readIds) ? norm.readIds : []) : [],
     lastRunAt: new Date().toISOString(),
     seenIds: newSeen,
     lastRunMeta: meta,
@@ -1700,9 +1704,16 @@ async function runSubscriptionNow(
     emitSubsProgress(sender, subId, { phase: "search", mode: "off", current: 0, total: 1, label: "检索中…" });
     const agg = await aggregateSearch(spec, searchOpts);
     if (!preview) store.papers.upsertMany(agg.papers);
+    const now = new Date();
+    const dateKey = digestDateKey(now);
+    const freq = String(norm.freq || "daily");
+    const sameDay = String(norm.todayDateKey || "") === dateKey;
     const seen = new Set<string>(Array.isArray(norm.seenIds) ? (norm.seenIds as string[]) : []);
-    const prevToday = Array.isArray(norm.today) ? (norm.today as Paper[]) : [];
-    const fresh = preview ? agg.papers.slice(0, 5) : freshHits(agg.papers, [...seen]);
+    const prevToday = sameDay ? todayPaperList(norm) : [];
+    const recencyPool = preview
+      ? agg.papers.slice(0, 5)
+      : filterDigestRecency(agg.papers, freq, now, norm.lastRunAt as string | undefined);
+    const fresh = preview ? recencyPool : freshHits(recencyPool, [...seen]);
     let todayMerged = preview
       ? fresh
       : (() => {
@@ -1724,7 +1735,7 @@ async function runSubscriptionNow(
       if (asyncAi && !preview) {
         meta.ai = { status: "queued", mode, processed: 0, total: 0, blurbs: 0, summaries: 0 };
         if (!preview) {
-          await persistSubscriptionToday(store, norm, todayMerged, seen, fresh, meta);
+          await persistSubscriptionToday(store, norm, todayMerged, seen, fresh, meta, dateKey, sameDay);
         }
         void (async () => {
           try {
@@ -1732,7 +1743,7 @@ async function runSubscriptionNow(
             todayMerged = mergeAiOntoToday(todayMerged, patchById);
             meta.ai = aiMeta;
             meta.durationMs = Date.now() - t0;
-            await persistSubscriptionToday(store, norm, todayMerged, seen, fresh, meta);
+            await persistSubscriptionToday(store, norm, todayMerged, seen, fresh, meta, dateKey, sameDay);
             emitSubsProgress(sender, subId, { phase: "ai", mode: mode as "blurb", current: aiMeta.processed, total: aiMeta.total, label: "AI 完成" });
             if (sender && !sender.isDestroyed()) sender.send("subs:updated", { subId, ai: aiMeta });
             scheduleDigestReport(store, secrets, "all");
@@ -1752,7 +1763,7 @@ async function runSubscriptionNow(
     meta.durationMs = Date.now() - t0;
     if (!preview) {
       try {
-        await persistSubscriptionToday(store, norm, todayMerged, seen, fresh, meta);
+        await persistSubscriptionToday(store, norm, todayMerged, seen, fresh, meta, dateKey, sameDay);
       } catch { /* 持久化失败不阻断 */ }
       scheduleDigestReport(store, secrets, "all");
     }

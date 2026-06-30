@@ -639,13 +639,13 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
               <button type="button" className="dg-markall" onClick={() => void markAllRead()}><Check size={14} /> 全部标为已读</button>
             )}
           </div>
-          <p className="brief-lead">你订阅的主题共有 <b>{total} 篇</b> 待读新发表。每条都标了证据来源，可直接取全文或让 AI 总结——<b>是否纳入你的研究，由你判断</b>。</p>
+          <p className="brief-lead">今日共有 <b>{total} 篇</b> 待读（本日新命中 + 今日已收录未读）。每条标了证据来源，可取全文或 AI 总结——<b>是否纳入研究由你判断</b>。</p>
           {total > 0 && (
             <div className="dg-tldr">
               <span>待读 <b>{total}</b> 篇</span>
               {preprintCount > 0 && <span className="dg-tldr-pill">预印本 {preprintCount}</span>}
-              <span className="dg-tldr-hi">按相关度排序</span>
-              <span title="简报检索与设置中的数据源/深度一致；计数为本次检索合并去重结果，非全库总数">继承全局数据源设置 · 本次检索</span>
+              <span className="dg-tldr-hi">今日窗口 · 按相关度</span>
+              <span title="每日 0 点重置简报列表；检索在发表时间窗内取候选，再与历史命中去重">仅收录时间窗内新发表 · 跨日不累积</span>
             </div>
           )}
           {total > 0 && (
