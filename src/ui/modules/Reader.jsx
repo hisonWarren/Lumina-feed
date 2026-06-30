@@ -85,7 +85,7 @@ const READER_CSS = `
 .rd-gexport:hover{border-color:var(--gold)}
 .rd-flowtool{display:flex;flex-direction:column;gap:9px}
 .rd-scaffold{box-sizing:border-box;width:100%;font-size:12px;color:var(--ink3);line-height:1.65;border:1px dashed var(--line2);border-radius:10px;padding:11px;background:var(--surf2)}
-.ev-card{border:1px solid var(--line);border-left:4px solid var(--gold);border-radius:11px;background:var(--surf);overflow:hidden}
+.ev-card{border:1px solid var(--line);border-left:4px solid var(--gold);border-radius:11px;background:var(--surf)}
 .ev-top{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:9px 11px;border-bottom:1px solid var(--line);font-size:12.5px;font-weight:600;color:var(--ink)}
 .ev-top>svg{color:var(--gold);flex-shrink:0}
 .ev-title{flex:1 1 7em;min-width:6em;line-height:1.4;word-break:break-word}
@@ -260,7 +260,14 @@ const READER_CSS = `
 .rd-right-body{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden}
 .rd-ai{width:100%;max-width:100%;flex:1;min-height:0;min-width:0;border-left:none;overflow:hidden;display:flex;flex-direction:column;gap:0;padding:0}
 .rd-zonepane{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
-.rd-zonepane > .rd-zonebody{flex:1;min-height:0;overflow-y:auto;padding:12px 10px 14px 12px}
+.rd-zonepane > .rd-zonebody,
+.rd-deep-layout > .rd-zonebody{flex:1;min-height:0;overflow-x:hidden;overflow-y:auto;padding:12px 10px 14px 12px;scrollbar-gutter:stable;-webkit-overflow-scrolling:touch}
+.rd-zonepane > .rd-zonebody > *,
+.rd-deep-layout > .rd-zonebody > *{flex-shrink:0}
+.rd-deep-layout{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;width:100%}
+.rd-deep-foot{flex-shrink:0;padding:10px 12px 12px;border-top:1px solid var(--line);background:var(--surf);box-shadow:0 -8px 24px color-mix(in srgb,var(--ink) 5%,transparent);display:flex;flex-direction:column;gap:8px}
+.rd-deep-foot .rd-rerun{margin-top:0;width:100%;padding:8px 10px}
+.rd-deep-foot .rd-swipe-save{margin-top:0}
 .rd-zonepane.assist{flex:1;min-height:0;overflow-x:hidden;overflow-y:auto;scrollbar-gutter:stable;display:flex;flex-direction:column}
 .rd-assist-main{flex:1 0 auto;display:flex;flex-direction:column;gap:14px;padding:12px 12px 6px;width:100%}
 .rd-assist-block{display:flex;flex-direction:column;gap:8px;width:100%}
@@ -1074,30 +1081,38 @@ function EvidencePane({ ensurePages, source, onGoto, pushToast, purpose, moveReq
   }, [source, pushToast]);
   const removeSwipe = useCallback(async (id) => { await bridge.swipeRemove(id); const l = await bridge.swipeGet(); setSwipe(l || []); }, []);
   return (
-    <div className="rd-zonebody">
-      <div className="rd-lane"><Shield size={11} /> 证据车道 · 每条结论可回原文核对</div>
-      <div className="rd-tools">
-        {DEEP_TOOLS.map((t) => (
-          <button key={t[0]} aria-label={t[1] + "：" + t[2]} className={"rd-tool" + (rec.includes(t[0]) ? " rec" : "") + (viewKind === t[0] ? " on" : "")} onClick={() => (byKind[t[0]] && !running ? setViewKind(t[0]) : run(t[0]))} disabled={!!running}>
-            {rec.includes(t[0]) && <span className="rd-toolrec">推荐</span>}
-            <span className="rd-toolname">{React.createElement(t[3], { size: 13 })} {t[1]}</span>
-            <span className="rd-tooldesc">{t[2]}</span>
-          </button>
-        ))}
-      </div>
-      {running ? <div className="rd-scaffold"><Loader size={13} className="rd-spin" /> 分析中…（结果带页码，可回原文核对）</div>
-        : env ? <><EnvelopeCard env={env} onGoto={onGoto} /><button type="button" className="rd-rerun" onClick={() => run(viewKind)}><RefreshCw size={12} /> 重新生成</button>{env.kind === "move" && <button className="rd-swipe-save" onClick={() => saveSwipe(env)}><Bookmark size={13} /> 存入写作 swipe file（带出处）</button>}</>
-        : <div className="rd-scaffold">点上面任一工具运行；或在正文划词选「写作观察」提取某句的修辞功能。结果走证据车道，带页码、可回原文核对。</div>}
-      {swipe.length > 0 && (
-        <div className="rd-swipe">
-          <div className="rd-swipe-h"><Bookmark size={12} /> 写作 swipe file · {swipe.length} 条（带出处）</div>
-          {swipe.map((it) => (
-            <div key={it.id} className="rd-swipe-item">
-              {it.page ? <button className="rd-pcite" onClick={() => onGoto(it.page)} title={"跳到第 " + it.page + " 页"}>p.{it.page}↗</button> : null}
-              <span>{String(it.text || "").slice(0, 90)}</span>
-              <button className="x" onClick={() => removeSwipe(it.id)} title="移除" aria-label="从写作 swipe file 移除"><Trash2 size={13} /></button>
-            </div>
+    <div className="rd-deep-layout">
+      <div className="rd-zonebody">
+        <div className="rd-lane"><Shield size={11} /> 证据车道 · 每条结论可回原文核对</div>
+        <div className="rd-tools">
+          {DEEP_TOOLS.map((t) => (
+            <button key={t[0]} aria-label={t[1] + "：" + t[2]} className={"rd-tool" + (rec.includes(t[0]) ? " rec" : "") + (viewKind === t[0] ? " on" : "")} onClick={() => (byKind[t[0]] && !running ? setViewKind(t[0]) : run(t[0]))} disabled={!!running}>
+              {rec.includes(t[0]) && <span className="rd-toolrec">推荐</span>}
+              <span className="rd-toolname">{React.createElement(t[3], { size: 13 })} {t[1]}</span>
+              <span className="rd-tooldesc">{t[2]}</span>
+            </button>
           ))}
+        </div>
+        {running ? <div className="rd-scaffold"><Loader size={13} className="rd-spin" /> 分析中…（结果带页码，可回原文核对）</div>
+          : env ? <EnvelopeCard env={env} onGoto={onGoto} />
+          : <div className="rd-scaffold">点上面任一工具运行；或在正文划词选「写作观察」提取某句的修辞功能。结果走证据车道，带页码、可回原文核对。</div>}
+        {swipe.length > 0 && (
+          <div className="rd-swipe">
+            <div className="rd-swipe-h"><Bookmark size={12} /> 写作 swipe file · {swipe.length} 条（带出处）</div>
+            {swipe.map((it) => (
+              <div key={it.id} className="rd-swipe-item">
+                {it.page ? <button className="rd-pcite" onClick={() => onGoto(it.page)} title={"跳到第 " + it.page + " 页"}>p.{it.page}↗</button> : null}
+                <span>{String(it.text || "").slice(0, 90)}</span>
+                <button className="x" onClick={() => removeSwipe(it.id)} title="移除" aria-label="从写作 swipe file 移除"><Trash2 size={13} /></button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      {!running && env && (
+        <div className="rd-deep-foot">
+          <button type="button" className="rd-rerun" onClick={() => run(viewKind)}><RefreshCw size={12} /> 重新生成</button>
+          {env.kind === "move" && <button className="rd-swipe-save" onClick={() => saveSwipe(env)}><Bookmark size={13} /> 存入写作 swipe file（带出处）</button>}
         </div>
       )}
     </div>
