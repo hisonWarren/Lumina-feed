@@ -516,9 +516,15 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
       setTestResult(res && typeof res.ok === "boolean"
         ? (res.ok ? res : { ok: false, error: formatLlmTestError(provider, preset, res.error) })
         : { ok: false, error: "无响应" });
+      if (res?.ok && preset.needsKey && apiKey.trim()) {
+        await bridge.setSecret(provider + "_key", apiKey.trim());
+        setApiKey("");
+        setLlmKeySaved(true);
+        await persistLlmFields();
+      }
     } catch (e) { setTestResult({ ok: false, error: "测试失败" }); }
     finally { setTesting(false); }
-  }, [provider, model, baseUrl, apiKey, preset]);
+  }, [provider, model, baseUrl, apiKey, preset, persistLlmFields]);
 
   const saveGeneral = useCallback(async () => {
     setSavingGen(true);

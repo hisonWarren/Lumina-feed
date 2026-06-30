@@ -633,6 +633,17 @@ function notifyAnalysisEnv(env, pushToast, fallback, opts) {
   }
   return true;
 }
+
+async function ensureLlmReady(pushToast) {
+  let s = await bridge.llmReady();
+  if (!s?.ok && s?.reason === "no_config") {
+    await new Promise((r) => setTimeout(r, 450));
+    s = await bridge.llmReady();
+  }
+  if (s?.ok) return true;
+  if (s?.message) pushToast?.(s.message);
+  return false;
+}
 const READER_ZONES = ["assist", "deep", "inf", "notes"];
 function loadReaderUiPref(docKey, field, fallback) {
   try { const v = sessionStorage.getItem("lumina_reader_" + field + ":" + docKey); return v != null ? v : fallback; } catch { return fallback; }
@@ -1132,6 +1143,7 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
   }, [source]);
 
   const doSummary = useCallback(async () => {
+    if (!(await ensureLlmReady(pushToast))) return;
     setSummarizing(true);
     setSummaryOpen(true);
     try {
@@ -1140,11 +1152,12 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
       setSummary(r || null);
       if (r) saveCachedAnalysis(source, { kind: "summary", lane: "evidence", model: r.model || "", title: "整篇接地总结", claims: [], text: r.text, sourceBasis: r.sourceBasis, groundedRatio: r.groundedRatio, banner: r.banner, pageCount: r.pageCount, pagesUsed: r.pagesUsed });
     }
-    catch (e) { pushToast && pushToast("总结失败"); }
+    catch (e) { pushToast && pushToast((e && e.message) || "总结失败"); }
     finally { setSummarizing(false); }
   }, [ensurePages, pushToast, source]);
 
   const doOutline = useCallback(async () => {
+    if (!(await ensureLlmReady(pushToast))) return;
     setOutlining(true);
     setOutlineOpen(true);
     try {
@@ -1152,14 +1165,15 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
       const env = await bridge.readerAnalyze("outline", pages);
       setOutlineEnv(env || null);
       if (!notifyAnalysisEnv(env, pushToast, "大纲提取失败，请重试")) return;
-      if (env) saveCachedAnalysis(source, env);
-    } catch (e) { pushToast && pushToast("大纲提取失败"); }
+      if (env && !env.refused) saveCachedAnalysis(source, env);
+    } catch (e) { pushToast && pushToast((e && e.message) || "大纲提取失败"); }
     finally { setOutlining(false); }
   }, [ensurePages, pushToast, source]);
 
   const doAsk = useCallback(async (question) => {
     const qq = (question || "").trim();
     if (!qq || asking) return;
+    if (!(await ensureLlmReady(pushToast))) return;
     setQ(""); setAsking(true);
     setQa((list) => [...list, { q: qq, a: null, loading: true }]);
     try {

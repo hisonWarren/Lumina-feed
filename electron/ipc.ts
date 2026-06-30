@@ -16,6 +16,7 @@ import { resolveIdentifierInput, classifyInput } from "../src/core/locate/resolv
 import { shouldPrefetchOnLocate, shouldPrefetchOaResult } from "../src/core/locate/prefetch-eligibility.ts";
 import { listSourceRegistry } from "../src/core/sources/index.ts";
 import { llmFromConfig, listModels } from "../src/core/summarize/llm-client.ts";
+import { PROVIDER_DEFAULT_MODEL } from "../src/core/summarize/model-presets.ts";
 import { makeOaFullTextProvider, fetchPaperPdf, isOaMarkedPaper } from "../src/core/oa/provider.ts";
 import { attemptSignal } from "../src/core/oa/timeout.ts";
 import { probeAllMirrors } from "../src/core/oa/mirror-health.ts";
@@ -117,15 +118,18 @@ export function getTrayMetrics(): { searchInflight: number; fetchQueue: ReturnTy
   return { searchInflight: traySearchInflightFn(), fetchQueue: fetchQueueStatus(), subsBatchRunning: traySubsBatchRunning };
 }
 
+function isLlmSetupMessage(msg: string): boolean {
+  return /请先在「设置 → 大模型」/.test(msg) || /缺少 .+ API key/.test(msg) || msg === "未配置 LLM";
+}
+
 /** 统一异常 → 拒绝信封（ISSUE-001/004）：分析类 IPC 失败时不返回 null，而给结构化拒绝原因，UI 可显示。 */
 function analysisError(kind: string, e: unknown, opts: { vision?: boolean; sourceBasis?: string } = {}): AnalysisEnvelope {
   const msg = (e && (e as { message?: unknown }).message) ? String((e as { message?: unknown }).message) : "未知错误";
   const spec = (KIND_REGISTRY as Record<string, { lane?: "evidence" | "inference"; title?: string }>)[kind];
   const lane: "evidence" | "inference" = (spec && spec.lane) || "inference";
   const title: string = (spec && spec.title) || "分析";
-  const noLlm = /未配置 LLM/.test(msg);
   let reason: string;
-  if (noLlm) reason = "尚未配置大模型。请在『设置 → 大模型』选择 provider 并填入密钥后重试。";
+  if (isLlmSetupMessage(msg)) reason = msg;
   else if (opts.vision) reason = "图表分析调用失败（" + msg + "）。常见原因：当前模型不支持视觉输入。请改用本地 Ollama 视觉模型（如 llava / qwen2-vl），或 OpenAI / Anthropic 的视觉模型——纯文本模型（如 deepseek-v4-flash）无法读图。";
   else reason = "分析失败（" + msg + "）。请重试；若反复失败，请检查模型、密钥或网络。";
   return { kind, lane, groundability: "L2", sourceBasis: (opts.sourceBasis as AnalysisEnvelope["sourceBasis"]) || "fulltext", model: "(none)", title, refused: { reason }, claims: [] } as AnalysisEnvelope;
@@ -848,19 +852,36 @@ export function registerIpc(deps: IpcDeps): void {
   });
 
   // 大模型就绪：已选提供方+模型；云端还需钥匙串密钥（Ollama 免密钥）。
-  const checkLlmReady = async () => {
-    const settings = await loadAppSettings(store);
+  const resolveLlmConfig = (settings: Awaited<ReturnType<typeof loadAppSettings>>) => {
     const llm = settings.llm;
-    if (!llm || !llm.provider || !llm.model) {
+    const provider = llm?.provider;
+    if (!provider) return null;
+    const model = String(llm?.model || "").trim() || PROVIDER_DEFAULT_MODEL[provider] || "";
+    if (!model) return null;
+    return { provider, model, llm: { ...llm!, provider, model } };
+  };
+  const checkLlmReadyOnce = async () => {
+    const settings = await loadAppSettings(store);
+    const resolved = resolveLlmConfig(settings);
+    if (!resolved) {
       return { ok: false as const, reason: "no_config", message: "请先在「设置 → 大模型」选择提供方并填写模型。" };
     }
-    if (llm.provider !== "ollama") {
-      const key = await secrets.get(`${llm.provider}_key`);
+    if (resolved.provider !== "ollama") {
+      const key = await secrets.get(`${resolved.provider}_key`);
       if (!key) {
         return { ok: false as const, reason: "no_key", message: "请先在「设置 → 大模型」保存 API Key。" };
       }
     }
-    return { ok: true as const, provider: llm.provider, model: llm.model };
+    return { ok: true as const, provider: resolved.provider, model: resolved.model };
+  };
+  const checkLlmReady = async () => {
+    let status = await checkLlmReadyOnce();
+    // 设置页 blur 保存有延迟：首次调用可能早于 provider/model 落盘，短等后重读一次。
+    if (!status.ok && status.reason === "no_config") {
+      await new Promise((r) => setTimeout(r, 450));
+      status = await checkLlmReadyOnce();
+    }
+    return status;
   };
   ipcMain.handle("llm:status", () => checkLlmReady());
 
@@ -869,7 +890,9 @@ export function registerIpc(deps: IpcDeps): void {
     const status = await checkLlmReady();
     if (!status.ok) throw new Error(status.message || "未配置 LLM");
     const settings = await loadAppSettings(store);
-    return llmFromConfig(settings.llm!, () => secrets.get(`${settings.llm!.provider}_key`));
+    const resolved = resolveLlmConfig(settings);
+    if (!resolved) throw new Error("请先在「设置 → 大模型」选择提供方并填写模型。");
+    return llmFromConfig(resolved.llm, () => secrets.get(`${resolved.provider}_key`));
   };
   ipcMain.handle("reader:summarize", async (_e, payload: { pages?: ReaderPage[] }) => {
     const llm = await makeLlm();
