@@ -19,8 +19,8 @@ import { persistSettings } from "../settings-persist.js";
 const FREQ = { daily: "每日", weekly: "每周", hourly: "每小时" };
 const subKind = (s) => s.kind || "keyword";
 const subLabel = (s) => s.name || (subKind(s) === "journal" ? (s.journal && s.journal.name) : s.q) || "订阅";
-const AUTO = { off: "不自动总结", abstract: "自动总结·摘要", topN: "自动总结·前 3 条", blurb: "一句相关说明" };
-const AUTO_OPTS = [["off", "关闭"], ["abstract", "仅摘要"], ["topN", "Top-3"], ["blurb", "相关说明"]];
+const AUTO = { off: "不生成", abstract: "仅摘要", topN: "前3深总结", blurb: "一句相关" };
+const AUTO_OPTS = [["off", "关闭"], ["blurb", "一句相关"], ["abstract", "仅摘要"], ["topN", "前 3 条深总结"]];
 const FREQ_OPTS = [["daily", "每日"], ["weekly", "每周"], ["hourly", "每小时"]];
 
 const SUBS_CSS = `
@@ -90,11 +90,17 @@ const SUBS_CSS = `
 .subs-f label{font-size:12px;color:var(--ink2);font-weight:500}
 .subs-in{border:1px solid var(--line2);border-radius:9px;padding:9px 11px;font-size:13px;font-family:inherit;background:var(--surf);color:var(--ink);outline:none;width:100%;box-sizing:border-box}
 .subs-in:focus{border-color:var(--gold)}
-.subs-seg{display:inline-flex;border:1px solid var(--line2);border-radius:9px;overflow:hidden}
+.subs-seg{display:inline-flex;align-self:flex-start;border:1px solid var(--line2);border-radius:9px;overflow:hidden}
+.subs-seg-grid{display:grid;grid-template-columns:1fr 1fr;width:100%;border:1px solid var(--line2);border-radius:9px;overflow:hidden}
 .subs-seg button{border:none;background:transparent;color:var(--ink2);padding:7px 12px;font-size:12px;cursor:pointer;font-family:inherit;border-right:1px solid var(--line2)}
+.subs-seg-grid button{border:none;background:transparent;color:var(--ink2);padding:9px 10px;font-size:12px;cursor:pointer;font-family:inherit;border-right:1px solid var(--line2);border-bottom:1px solid var(--line2);text-align:center;line-height:1.35}
+.subs-seg-grid button:nth-child(2n){border-right:none}
+.subs-seg-grid button:nth-last-child(-n+2){border-bottom:none}
 .subs-seg button:last-child{border-right:none}
-.subs-seg button.on{background:var(--gold);color:#fff}
+.subs-seg button.on,.subs-seg-grid button.on{background:var(--gold);color:#fff}
 .subs-hint{font-size:11px;color:var(--ink4);line-height:1.5}
+.subs-rec{display:inline-block;margin-left:5px;font-size:10px;font-family:'Space Mono',monospace;color:var(--gold);font-weight:600;vertical-align:baseline}
+.subs-seg-grid button.on .subs-rec{color:rgba(255,255,255,.9)}
 .subs-dlg-acts{display:flex;gap:8px;justify-content:flex-end;margin-top:4px}
 .subs-btn{border:none;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
 .subs-btn.primary{background:linear-gradient(135deg,var(--gold),var(--goldDim));color:#fff;box-shadow:0 2px 8px var(--gold-tint)}
@@ -201,10 +207,9 @@ function SubDialog({ initial, onClose, onSave }) {
           <div className="subs-seg">{FREQ_OPTS.map(([k, l]) => <button key={k} className={freq === k ? "on" : ""} onClick={() => setFreq(k)}>{l}</button>)}</div>
         </div>
         <div className="subs-f"><label>运行时间</label><input className="subs-in" type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ maxWidth: 140 }} /></div>
-        <div className="subs-f"><label>成本闸（自动总结）</label>
-          <div className="subs-seg">{AUTO_OPTS.map(([k, l]) => <button key={k} className={autoSummarize === k ? "on" : ""} onClick={() => setAuto(k)}>{l}</button>)}</div>
-          <span className="subs-hint">默认「相关说明」：每条一句为何相关（推荐）。abstract/topN 会调用完整总结管线。未配置 LLM 时将跳过并提示。</span>
-          <span className="subs-hint">「不自动总结」仅控制命中后是否自动摘要单篇；今日报告由「设置 → 简报报告」总开关统一控制，与此处无关。</span>
+        <div className="subs-f"><label>命中后的 AI 说明</label>
+          <div className="subs-seg-grid">{AUTO_OPTS.map(([k, l]) => <button key={k} type="button" className={autoSummarize === k ? "on" : ""} onClick={() => setAuto(k)}>{l}{k === "blurb" ? <span className="subs-rec">推荐</span> : null}</button>)}</div>
+          <span className="subs-hint">推荐「一句相关」：每条写一句为何值得看，够用且省 API。「前 3 条深总结」最耗额度；未配大模型时自动跳过。今日综合报告在「设置 → 简报报告」单独开关，与此无关。</span>
         </div>
         {backend && (
           <div className="subs-f">
@@ -260,7 +265,13 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
   const scopeLabel = activeSub === "all"
     ? "今日全部简报"
     : (() => { const s = subs.find((x) => x.id === activeSub); return s ? String(subLabel(s)).slice(0, 40) : "订阅"; })();
+  const [runningSubId, setRunningSubId] = useState(null);
   const reportRetryRef = useRef({});
+
+  const clearRunBusy = useCallback(() => {
+    setRunProgress(null);
+    setRunningSubId(null);
+  }, []);
   const digestReport = digestReportsByScope[reportScope] ?? null;
 
   useEffect(() => {
@@ -295,6 +306,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
         setRunProgress({ label: "正在检查全部订阅…", current: 0, total: 0 });
       } else if (p.phase === "done") {
         setRunProgress(null);
+        setRunningSubId(null);
         if (p.ok) {
           const msg = p.newTotal > 0
             ? `全部订阅已检查 · 新增 ${p.newTotal} 条待读（${p.ran} 个订阅）`
@@ -434,6 +446,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
     setSubs((s) => s.filter((x) => x.id !== id));
     if (activeSub === id) setActiveSub("all");
     setRunProgress(null);
+    setRunningSubId(null);
     setReportGenerating(false);
     setDigestReportsByScope({});
     onSubsChange?.();
@@ -449,47 +462,62 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
   }, [pushToast, onSubsChange]);
   const subRunNow = useCallback(async (sub) => {
     const subId = sub.id;
-    setRunProgress({ label: "检索中…", current: 0, total: 0 });
-    const r = await bridge.subsRunNow(sub, {
-      onProgress: (p) => {
-        if (p?.subId && p.subId !== subId) return;
-        setRunProgress({ label: p.label || "处理中…", current: p.current || 0, total: p.total || 0 });
-      },
-      onUpdated: async ({ subId: sid, ai }) => {
-        if (sid !== subId) return;
-        setRunProgress(null);
-        const list = await bridge.subsList();
-        const updated = list.find((x) => x.id === sid);
-        if (updated) setSubs((s) => s.map((x) => (x.id === sid ? updated : x)));
-        onSubsChange?.();
-        if (ai && ai.status !== "failed" && ai.status !== "cancelled") pushToast && pushToast("简报 AI 内容已更新");
-      },
-    });
-    const aiQueued = r?.meta?.ai?.status === "queued";
-    if (aiQueued) {
-      setRunProgress({ label: "AI 内容生成中…", current: 0, total: 0 });
-      pushToast && pushToast("检索完成，正在后台生成 AI 内容…");
-    } else {
-      setRunProgress(null);
+    if (runningSubId === subId) {
+      pushToast && pushToast("该订阅正在处理中，请稍候…");
+      return;
     }
-    if (r && r.ok) {
-      if (Array.isArray(r.hits)) {
-        setSubs((s) => s.map((x) => (x.id === sub.id ? { ...x, today: r.hits } : x)));
-      }
-      onSubsChange?.();
-      const n = typeof r.newCount === "number" ? r.newCount : (r.hits || []).length;
-      if (r.aiSkippedReason === "llm_not_configured") {
-        pushToast && pushToast("未配置 LLM · 请在设置中填写 API Key 后重试");
-      } else if (n > 0) {
-        pushToast && pushToast("已检索：新增 " + n + " 条待读" + (r.meta?.ai?.blurbs ? " · " + r.meta.ai.blurbs + " 条相关说明" : ""));
+    setRunningSubId(subId);
+    setRunProgress({ label: "检索中…", current: 0, total: 0 });
+    let aiQueued = false;
+    try {
+      const r = await bridge.subsRunNow(sub, {
+        onProgress: (p) => {
+          if (p?.subId && p.subId !== subId) return;
+          const lbl = p.label || "处理中…";
+          if (p.phase === "ai" && /完成|失败|取消/.test(lbl)) {
+            clearRunBusy();
+            return;
+          }
+          setRunProgress({ label: lbl, current: p.current || 0, total: p.total || 0 });
+        },
+        onUpdated: async ({ subId: sid, ai }) => {
+          if (sid !== subId) return;
+          clearRunBusy();
+          const list = await bridge.subsList();
+          const updated = list.find((x) => x.id === sid);
+          if (updated) setSubs((s) => s.map((x) => (x.id === sid ? updated : x)));
+          onSubsChange?.();
+          if (ai && ai.status !== "failed" && ai.status !== "cancelled") pushToast && pushToast("简报 AI 内容已更新");
+        },
+      });
+      aiQueued = r?.meta?.ai?.status === "queued";
+      if (aiQueued) {
+        setRunProgress({ label: "AI 内容生成中…", current: 0, total: 0 });
       } else {
+        clearRunBusy();
+      }
+      if (r && r.ok) {
+        if (Array.isArray(r.hits)) {
+          setSubs((s) => s.map((x) => (x.id === sub.id ? { ...x, today: r.hits } : x)));
+        }
+        onSubsChange?.();
+        const n = typeof r.newCount === "number" ? r.newCount : (r.hits || []).length;
+        if (r.aiSkippedReason === "llm_not_configured") {
+          pushToast && pushToast("未配置 LLM · 请在设置中填写 API Key 后重试");
+        } else if (n > 0) {
+          pushToast && pushToast("已检索：新增 " + n + " 条待读" + (r.meta?.ai?.blurbs ? " · " + r.meta.ai.blurbs + " 条相关说明" : ""));
+        } else {
+          pushToast && pushToast(backend ? "本次没有新命中" : "需引擎调度真实检索（原型未接后端）");
+        }
+      } else {
+        clearRunBusy();
         pushToast && pushToast(backend ? "本次没有新命中" : "需引擎调度真实检索（原型未接后端）");
       }
-    } else {
-      setRunProgress(null);
-      pushToast && pushToast(backend ? "本次没有新命中" : "需引擎调度真实检索（原型未接后端）");
+    } catch {
+      clearRunBusy();
+      pushToast && pushToast("订阅检索失败，请重试");
     }
-  }, [backend, pushToast, onSubsChange]);
+  }, [backend, pushToast, onSubsChange, clearRunBusy, runningSubId]);
   const markRead = useCallback(async (paperId, subIds) => {
     if (!paperId) return;
     if (backend && bridge.subsMarkRead) {
@@ -596,6 +624,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
   useEffect(() => {
     if (countSubsUnread(subs) > 0 && subs.length > 0) return;
     setRunProgress(null);
+    setRunningSubId(null);
     setReportGenerating(false);
     if (subs.length === 0) setDigestReportsByScope({});
   }, [subs]);
@@ -604,6 +633,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
     if (subs.length === 0 || countSubsUnread(subs) <= 0) return null;
     if (runProgress) {
       const lbl = runProgress.label || "";
+      if (/完成|失败|取消/.test(lbl)) return null;
       const kind = /检索|检查/.test(lbl) ? "search" : "ai";
       return { label: lbl || "处理中…", current: runProgress.current || 0, total: runProgress.total || 0, kind };
     }
@@ -626,9 +656,13 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
     if (!backend || !bridge.onDigestReportUpdated) return;
     return bridge.onDigestReportUpdated((p) => {
       if (p && p.scope && p.scope !== reportScope) return;
+      if (p?.status === "ready" || p?.status === "failed" || p?.status === "skipped") {
+        setReportGenerating(false);
+        clearRunBusy();
+      }
       void loadReport();
     });
-  }, [backend, loadReport, reportScope]);
+  }, [backend, loadReport, reportScope, clearRunBusy]);
 
   useEffect(() => {
     if (!backend || total <= 0 || reportScopeLoading) return;
@@ -662,7 +696,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
               <div className="sc">{subKind(s) === "journal" ? <span className="subkind">期刊{s.journal && s.journal.issn ? " · " + s.journal.issn : ""}</span> : null}<Clock size={12} /> {FREQ[s.freq] || s.freq} {s.time}{s.enabled === false ? " · 已暂停" : ""} · {AUTO[s.autoSummarize || "off"]}</div>
             </div>
             <div className="subctl" onClick={(e) => e.stopPropagation()}>
-              <button title="立即运行一次" onClick={() => subRunNow(s)}><Clock size={13} /></button>
+              <button title="立即运行一次" disabled={runningSubId === s.id} onClick={() => subRunNow(s)}><Clock size={13} /></button>
               <button title={s.enabled === false ? "恢复" : "暂停"} onClick={() => subPatch(s.id, { enabled: s.enabled === false })}>{s.enabled === false ? <Play size={13} /> : <Pause size={13} />}</button>
               <button title="编辑" onClick={() => { setEditSub(s); setDlgOpen(true); }}><Pencil size={13} /></button>
               <button title="删除" onClick={() => subRemove(s.id)}><Trash2 size={13} /></button>
@@ -741,7 +775,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
           {loading ? (
             <div className="dg-empty"><Loader size={22} className="dg-spin" /><p>读取订阅…</p></div>
           ) : subs.length === 0 ? (
-            <div className="dg-empty"><Rss size={28} strokeWidth={1.6} /><h2>还没有订阅</h2><p>新建主题订阅（关键词 + 频率 + 成本闸），新发表汇成证据简报，可批量取全文或 AI 总结。</p></div>
+            <div className="dg-empty"><Rss size={28} strokeWidth={1.6} /><h2>还没有订阅</h2><p>新建主题订阅（关键词 + 频率 + AI 说明档位），新发表汇成证据简报，可批量取全文或 AI 总结。</p></div>
           ) : viewMode === "retro" ? (
             <DigestRetro
               scope={reportScope}

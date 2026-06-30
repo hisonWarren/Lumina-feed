@@ -1899,7 +1899,7 @@ async function runSubscriptionNow(
             const { patchById, aiMeta } = await runDigestAiPhase(mode, norm, todayMerged, fresh, false, store, secrets, subId, onProgress);
             if (!subscriptionExists(store, subId)) {
               emitSubsProgress(sender, subId, { phase: "ai", mode: mode as "blurb", current: 0, total: 0, label: "已取消" });
-              if (sender && !sender.isDestroyed()) sender.send("subs:updated", { subId, ai: { status: "cancelled", mode } });
+              broadcastSubsUpdated({ subId, ai: { status: "cancelled", mode } });
               return;
             }
             todayMerged = mergeAiOntoToday(todayMerged, patchById);
@@ -1907,11 +1907,11 @@ async function runSubscriptionNow(
             meta.durationMs = Date.now() - t0;
             await persistSubscriptionToday(store, norm, todayMerged, seen, fresh, meta, dateKey, sameDay, recencyPool, agg.papers);
             emitSubsProgress(sender, subId, { phase: "ai", mode: mode as "blurb", current: aiMeta.processed, total: aiMeta.total, label: "AI 完成" });
-            if (sender && !sender.isDestroyed()) sender.send("subs:updated", { subId, ai: aiMeta });
+            broadcastSubsUpdated({ subId, ai: aiMeta });
             scheduleDigestReport(store, secrets, "all");
           } catch {
             emitSubsProgress(sender, subId, { phase: "ai", mode: mode as "blurb", current: 0, total: 0, label: "AI 失败" });
-            if (sender && !sender.isDestroyed()) sender.send("subs:updated", { subId, ai: { status: "failed", mode } });
+            broadcastSubsUpdated({ subId, ai: { status: "failed", mode } });
           }
         })();
         emitSubsProgress(sender, subId, { phase: "search", mode: "off", current: 1, total: 1, label: "检索完成" });
