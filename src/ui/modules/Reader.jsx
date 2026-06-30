@@ -749,6 +749,7 @@ function EvidenceCard({ env, onGoto }) {
   return (
     <div className="ev-card">
       <div className="ev-top"><Layers size={14} /> <span className="ev-title">{env.title}</span><span className="gbadge"><Shield size={9} /> 接地·带页码</span></div>
+      {env.banner && <div className="ev-note" style={{ margin: "8px 11px 0" }}><Info size={12} /><div>{env.banner}</div></div>}
       {env.framing && <div className="framing" style={{ margin: "9px 11px 0" }}><Info size={13} /><div>{env.framing}</div></div>}
       {isCite && <div className="ev-note"><Link2 size={12} /><div>这里是<b>正文里被讨论到的关键引用</b>各起什么作用（背景 / 方法 / 数据 / 对照…），最多展示 {CITEROLE_UI_CAP} 处，<b>不是完整参考文献表</b>。全部书目 → 在「我的文献」<b>导出到 Zotero</b>。</div></div>}
       {claims.length === 0
@@ -772,6 +773,7 @@ function InfBody({ env, onGoto }) {
   return (
     <>
       {env.framing && <div className="framing"><Info size={13} /><div>{env.framing}</div></div>}
+      {env.banner && <div className="ev-note"><Info size={12} /><div>{env.banner}</div></div>}
       {env.refused
         ? <div className="refuse"><Ban size={15} /><div>{env.refused.reason}</div></div>
         : env.claims.map((c, i) => (

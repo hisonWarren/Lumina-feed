@@ -154,11 +154,11 @@ function groundReaderAnswer(answer: string, pages: ReaderPage[], opts: { hi?: nu
 
 const ONE_PASS_CAP = 16000; // 单次直送字符上限（小文档一次过即可）
 const MAP_CHUNK = 8000;     // 每个 map 分片字符上限
-const MAX_CHUNKS = 8;       // map 分片数上限（控并发调用数）
+const MAX_CHUNKS = 16;      // map 分片数上限（长文档尽量覆盖全篇）
 
-function totalChars(pages: ReaderPage[]): number { let n = 0; for (const p of pages) n += (p.text || "").length; return n; }
+export function totalChars(pages: ReaderPage[]): number { let n = 0; for (const p of pages) n += (p.text || "").length; return n; }
 // 按页边界切片：每片连续若干页、累计不超过 chunkCap；片数不超过 maxChunks（超出则尾页并入最后一片）。页码锚不跨片错位。
-function chunkByPages(pages: ReaderPage[], chunkCap: number, maxChunks: number): ReaderPage[][] {
+export function chunkByPages(pages: ReaderPage[], chunkCap: number, maxChunks: number): ReaderPage[][] {
   const chunks: ReaderPage[][] = []; let cur: ReaderPage[] = []; let curLen = 0;
   for (const p of pages) {
     const len = (p.text || "").length + 8;

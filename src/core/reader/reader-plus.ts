@@ -2,7 +2,7 @@
 // 统一输出信封 AnalysisEnvelope：lane 是契约字段——渲染层只按 lane 路由（证据/推断/拒绝），
 // 杜绝"把推断洗成接地"（需求共议生死线）。复用 reader-ai 页锚与不杜撰纪律：只单篇、带页码、不杜撰。
 import type { LlmClient } from "../summarize/types.ts";
-import type { ReaderPage } from "./reader-ai.ts";
+import { chunkByPages, type ReaderPage } from "./reader-ai.ts";
 
 export type Lane = "evidence" | "inference";
 export type Groundability = "L0" | "L1" | "L2" | "L3";
@@ -58,7 +58,8 @@ export const KIND_REGISTRY: Record<string, KindSpec> = {
   flowmap:     { lane: "inference", groundability: "L2", title: "方法 / 逻辑流程图", framing: "这是 AI 从正文方法/流程描述重建的流程图（推断车道）：每个节点标注页码、点击可回原文核对；箭头是 AI 解读的步骤依赖，非原文断言。无页码依据的节点已标灰，请谨慎采信。" },
 };
 
-const SYS = "你是严谨的科研阅读助手。只依据用户提供的逐页正文作答，不杜撰数字与引用。每个条目都要给出其依据的页码（整数数组）。仅输出 JSON 对象，不要任何解释、不要 Markdown 代码围栏。";
+const ZH_TEXT_RULE = "用简体中文写每条 text（一句概括）；若原文关键术语、引文、数值为英文，在中文后用括号保留原文（如「内感受（interoception）」）。";
+const SYS = "你是严谨的科研阅读助手。只依据用户提供的逐页正文作答，不杜撰数字与引用。" + ZH_TEXT_RULE + "每个条目都要给出其依据的页码（整数数组）。仅输出 JSON 对象，不要任何解释、不要 Markdown 代码围栏。";
 
 // 字符串/转义安全地扫出某个 '[' 之后、该数组内所有「完整的顶层 {…} 对象」子串。
 // 用于截断救援：长列表（ledger/citerole）常被 maxTokens 截断，导致整段 JSON.parse 失败 → 旧版静默空卡。
@@ -185,45 +186,126 @@ function assertStructuredClaims(kind: string, raw: string, parsed: any, claims: 
   }
 }
 
-// 默认逐页拼接（前部优先）；多数分析器只需结构骨架，不必喂全文。
+// 默认逐页拼接（前部优先）；短文档单次过，长文档走 map-reduce 覆盖全篇。
 function pagesText(pages: ReaderPage[], cap = 24000): string {
   let out = "";
   for (const p of pages) { out += `[p.${p.page}] ${p.text}\n\n`; if (out.length > cap) break; }
   return out;
 }
-// 头尾取材：引文角色既要正文里的引用上下文（前/中部），也要文末参考文献表——超长文档时单纯截断会丢掉参考文献。
-// 故前 head 字符 + 末 tail 字符各取，中间以省略标记衔接（页码锚仍在两端文本内）。
-function pagesTextHeadTail(pages: ReaderPage[], head = 42000, tail = 24000): string {
-  const full = pages.map((p) => `[p.${p.page}] ${p.text}`).join("\n\n");
-  if (full.length <= head + tail) return full;
-  return full.slice(0, head) + "\n\n…（中段从略，仅用于控制长度）…\n\n" + full.slice(full.length - tail);
+function pagesTextLen(pages: ReaderPage[]): number {
+  let n = 0;
+  for (const p of pages) n += `[p.${p.page}] ${p.text}\n\n`.length;
+  return n;
 }
-// 每个 kind 的输入取材上限与输出 token 预算（“不计成本、最佳体验”：列表型分析器给足额度，避免被截断成 6 条）。
-const INPUT_CAP: Record<string, number> = { ledger: 32000, recipe: 30000, repro: 30000 };
-const OUTPUT_MAXTOK: Record<string, number> = { ledger: 3200, citerole: 3600, recipe: 2400, repro: 2400, cars: 1800, falsify: 1800, outline: 1800, hardcore: 1800, limitations: 1800, flowmap: 1400 };
+// 每个 kind 的输入取材上限与输出 token 预算（最佳体验：列表型分析器给足额度；超长走 map-reduce 而非截断）。
+const INPUT_CAP: Record<string, number> = { ledger: 36000, recipe: 32000, repro: 32000, cars: 28000 };
+const OUTPUT_MAXTOK: Record<string, number> = { ledger: 4000, citerole: 3600, recipe: 2800, repro: 2800, cars: 2200, falsify: 2200, outline: 2200, hardcore: 2200, limitations: 2200, stats: 2400, flowmap: 1800 };
+const MR_CHUNK = 10000;
+const MR_MAX_CHUNKS = 16;
+const MAP_CHUNK_SUFFIX = "\n\n【分段说明】以下仅是论文连续片段之一；只抽取本片段中出现的条目，页码必须用片段内 [p.N] 的真实页码。不要编造、不要重复其他片段会有内容。";
 /** 引文角色硬上限（A1+）：只列正文讨论过的 in-text 引用，防滑向完整书目。 */
 export const CITEROLE_MAX_CLAIMS = 20;
+const MAP_REDUCE_KINDS = new Set(["cars", "ledger", "recipe", "repro", "falsify", "citerole", "hardcore", "limitations", "stats", "outline"]);
+
 function bodyFor(kind: string, pages: ReaderPage[]): string {
-  if (kind === "citerole") return pagesTextHeadTail(pages); // 跨全文 + 参考文献表
-  return pagesText(pages, INPUT_CAP[kind] ?? 24000);
+  return pagesText(pages, INPUT_CAP[kind] ?? 26000);
+}
+
+function needsMapReduce(kind: string, pages: ReaderPage[]): boolean {
+  if (!MAP_REDUCE_KINDS.has(kind)) return false;
+  const len = pagesTextLen(pages);
+  if (pages.length <= 2 && len <= 14000) return false;
+  // 最佳体验：≥4 页或正文偏长时分段扫描全篇，避免只读前几页引言
+  return len > 14000 || pages.length >= 4;
+}
+
+function coverageBanner(pages: ReaderPage[], chunks: number): string {
+  return `已分段扫描全文 ${pages.length} 页（${chunks} 段）`;
+}
+
+function dedupeClaims(claims: AnalysisClaim[]): AnalysisClaim[] {
+  const seen = new Set<string>();
+  const out: AnalysisClaim[] = [];
+  for (const c of claims) {
+    const key = c.text.replace(/\s+/g, " ").trim().slice(0, 120).toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(c);
+  }
+  return out;
+}
+
+async function mapStructuredChunk(
+  kind: string,
+  chunkPages: ReaderPage[],
+  instruction: string,
+  llm: LlmClient,
+  opts: { signal?: AbortSignal } = {},
+): Promise<any[]> {
+  const body = chunkPages.map((p) => `[p.${p.page}] ${p.text}`).join("\n\n");
+  const raw = await llm.complete(
+    [{ role: "system", content: SYS }, { role: "user", content: instruction + MAP_CHUNK_SUFFIX + "\n\n正文片段：\n" + body }],
+    { maxTokens: Math.min(OUTPUT_MAXTOK[kind] ?? 1600, 2200), temperature: 0.2, signal: opts.signal },
+  );
+  const parsed = extractJson(raw);
+  return pickClaimsArray(parsed) || [];
+}
+
+async function runStructuredMapReduce(
+  kind: string,
+  pages: ReaderPage[],
+  spec: KindSpec,
+  llm: LlmClient,
+  opts: { signal?: AbortSignal } = {},
+): Promise<AnalysisEnvelope> {
+  const instruction = PROMPTS[kind];
+  if (!instruction) throw new Error("analyzeReader: kind 尚未在本版本实现：" + kind);
+  const valid = new Set<number>(pages.map((p) => p.page));
+  const chunks = chunkByPages(pages, MR_CHUNK, MR_MAX_CHUNKS);
+  const mapped = await Promise.all(chunks.map((c) => mapStructuredChunk(kind, c, instruction, llm, opts).catch(() => [])));
+  const flat = mapped.flat();
+  if (!flat.length) {
+    throw new Error("分段扫描未抽出任何条目。请重试，或在「设置 → 大模型」换用更强模型。");
+  }
+  let claims = dedupeClaims(mapClaimsFromArray(flat, kind, spec, valid));
+  if (!claims.length) {
+    throw new Error("分段扫描返回了结构，但均无有效文本。请重试或更换模型。");
+  }
+  if (kind === "citerole" && claims.length > CITEROLE_MAX_CLAIMS) {
+    claims = claims.slice(0, CITEROLE_MAX_CLAIMS);
+  }
+  return {
+    kind,
+    lane: spec.lane,
+    groundability: spec.groundability,
+    sourceBasis: "fulltext",
+    model: llm.model,
+    title: spec.title,
+    framing: spec.framing,
+    banner: coverageBanner(pages, chunks.length),
+    claims,
+  };
 }
 
 // 每个 kind 的指令（用 JSON 形状的"文字描述"而非字面 JSON，避免源码内裸引号；模型仍只输出 JSON）。
 const PROMPTS: Record<string, string> = {
-  cars: "重建作者论证逻辑（CARS 五步：① 确立领域重要性 → ② 指出研究空白 → ③ 提出占位即本研究如何填补 → ④ 方法选择的论证 → ⑤ 贡献声明），依据 Introduction 与相关工作。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text（一步，可带「① 确立领域重要性」前缀）与 pageRefs（页码整数数组）。只输出该 JSON。",
-  ledger: "列出本文每条承重论断及其证据。对每条标注 evidenceType，取值为 internal_data（本研究内部数据）、cites_others（引用他人，非本研究证明）、author_inference（作者推断，非直接实验之一）。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text（论断本身）、evidenceType、pageRefs（页码整数数组）；当 evidenceType 为 author_inference 时再加字段 flag 取值 needs_recheck。只输出该 JSON。",
-  recipe: "抽取可复用的方法配方，分为：设计、数据与队列、结局定义、验证或测量指标、统计方法。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text（可带「设计：」这类前缀）与 pageRefs（页码整数数组）。只输出该 JSON。",
-  repro: "对照预测模型/临床研究报告规范（TRIPOD、CONSORT、PRISMA 思路），逐项核查本文是否报告了：样本量与时间窗、结局定义、缺失数据处理、数据可得性声明、代码或模型可得性、研究预注册等。对每项给字段 status，取值为 ok（已报告）、warn（缺失或未见声明）、no（明确未做）。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text、status、pageRefs（status 非 ok 且文中无对应位置时 pageRefs 可为空数组）。不要把未报告的项说成已报告。只输出该 JSON。",
-  falsify: "抽取作者自陈的可证伪边界：什么观察会推翻其结论、或在什么条件下结论不成立。若作者未给出明确的可证伪条件，则输出一条 text 说明未陈述可证伪条件、并加字段 flag 取值 unstated——这本身是一个值得注意的发现。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text、pageRefs（页码整数数组）与可选的 flag。只输出该 JSON。",
-  citerole: "通读全文，只解释正文里被讨论到的关键引用各起什么作用。角色类别如：背景支撑、方法来源、对比或张力、数据来源、结果佐证。每条必须能在正文找到该引用被使用的上下文；参考文献表里有但正文未讨论的条目不要输出。尽量覆盖正文各处的重要引用簇（不只前几页）。claims 数组最多 20 条；若重要引用超过 20，优先保留对论证结构最关键者。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text（形如「[12,13]：背景支撑，用于确立早期识别改善预后这一前提」）与 pageRefs（该引用出现处的页码整数数组）。只输出该 JSON。",
-  hardcore: "把本研究依赖的假设分为两层：硬核（被否证则整篇结论要重做的承重假设）与保护带（可调整而不动核心的辅助假设）。这是基于研究纲领方法论（Lakatos）的推断分层，作者通常并不如此区分。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text（可带「硬核 H1：」或「保护带 P1：」前缀）与 pageRefs（若文中有据，整数数组，可为空）。只输出该 JSON。",
-  limitations: "指出作者未明确陈述、但从其方法与数据可合理推断的潜在局限；每条都应能与正文方法交叉核对。这是 AI 的推测、需外部佐证、可能误判。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text 与 pageRefs（若与某页方法相关，整数数组，可为空）。只输出该 JSON。",
-  stats: "扫描本文的统计报告，找出看起来可能不一致、值得复核的地方，例如：报告的 p 值与检验统计量及自由度看起来对不上、百分比与分子分母或样本量看起来对不上、置信区间与 p 值的显著性方向看起来矛盾、自由度与样本量看起来不一致、数字四舍五入后看起来不自洽等。这只是提示、不是判定出错：你无法可靠核验算术，每条都必须表述为「看起来……建议复核」，并提醒用户手动重算或用 statcheck/GRIM 等工具确认。不要断言任何数字是错的，不要编造文中没有的数字。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text（一处「看起来需复核」的描述）、pageRefs（页码整数数组）、confidence 取值 c3、flag 取值 needs_recheck。只输出该 JSON。",
-  outline: "提取这篇论文的逻辑大纲（如：背景 → 研究空白 → 研究问题 → 方法 → 结果 → 讨论/局限 → 结论）。逻辑结构来自正文章节标题与主题句。用简体中文写每条 text（一句概括）；若原文关键术语为英文，在中文后用括号保留英文专名（如「弥散加权成像（DWI）」）。输出一个 JSON 对象，含字段 claims（数组）；claims 的每个元素含两个字段：text（一句话条目，可带「背景：」这类前缀）与 pageRefs（该条依据的页码，整数数组）。只输出该 JSON 对象。",
+  cars: "重建作者论证逻辑（CARS 五步：① 确立领域重要性 → ② 指出研究空白 → ③ 提出占位即本研究如何填补 → ④ 方法选择的论证 → ⑤ 贡献声明），依据 Introduction 与相关工作。" + ZH_TEXT_RULE + "输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text（一步，可带「① 确立领域重要性」前缀）与 pageRefs（页码整数数组）。只输出该 JSON。",
+  ledger: "通读全文，列出每条承重论断及其证据（含引言、方法、结果、讨论、结论各节；不要只列前几页背景）。" + ZH_TEXT_RULE + "对每条标注 evidenceType，取值为 internal_data（本研究内部数据）、cites_others（引用他人，非本研究证明）、author_inference（作者推断，非直接实验之一）。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text、evidenceType、pageRefs（页码整数数组）；当 evidenceType 为 author_inference 时再加字段 flag 取值 needs_recheck。只输出该 JSON。",
+  recipe: "抽取可复用的方法配方，分为：设计、数据与队列、结局定义、验证或测量指标、统计方法。" + ZH_TEXT_RULE + "输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text（可带「设计：」这类前缀）与 pageRefs（页码整数数组）。只输出该 JSON。",
+  repro: "对照预测模型/临床研究报告规范（TRIPOD、CONSORT、PRISMA 思路），逐项核查本文是否报告了：样本量与时间窗、结局定义、缺失数据处理、数据可得性声明、代码或模型可得性、研究预注册等。" + ZH_TEXT_RULE + "对每项给字段 status，取值为 ok（已报告）、warn（缺失或未见声明）、no（明确未做）。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text、status、pageRefs（status 非 ok 且文中无对应位置时 pageRefs 可为空数组）。不要把未报告的项说成已报告。只输出该 JSON。",
+  falsify: "抽取作者自陈的可证伪边界：什么观察会推翻其结论、或在什么条件下结论不成立。" + ZH_TEXT_RULE + "若作者未给出明确的可证伪条件，则输出一条 text 说明未陈述可证伪条件、并加字段 flag 取值 unstated——这本身是一个值得注意的发现。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text、pageRefs（页码整数数组）与可选的 flag。只输出该 JSON。",
+  citerole: "通读全文，只解释正文里被讨论到的关键引用各起什么作用。角色类别如：背景支撑、方法来源、对比或张力、数据来源、结果佐证。" + ZH_TEXT_RULE + "每条必须能在正文找到该引用被使用的上下文；参考文献表里有但正文未讨论的条目不要输出。尽量覆盖正文各处的重要引用簇（不只前几页）。claims 数组最多 20 条；若重要引用超过 20，优先保留对论证结构最关键者。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text（形如「[12,13]：背景支撑，用于确立……」）与 pageRefs（该引用出现处的页码整数数组）。只输出该 JSON。",
+  hardcore: "把本研究依赖的假设分为两层：硬核（被否证则整篇结论要重做的承重假设）与保护带（可调整而不动核心的辅助假设）。这是基于研究纲领方法论（Lakatos）的推断分层，作者通常并不如此区分。" + ZH_TEXT_RULE + "输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text（可带「硬核 H1：」或「保护带 P1：」前缀）与 pageRefs（若文中有据，整数数组，可为空）。只输出该 JSON。",
+  limitations: "指出作者未明确陈述、但从其方法与数据可合理推断的潜在局限；每条都应能与正文方法交叉核对。这是 AI 的推测、需外部佐证、可能误判。" + ZH_TEXT_RULE + "输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text 与 pageRefs（若与某页方法相关，整数数组，可为空）。只输出该 JSON。",
+  stats: "扫描全文统计报告，找出看起来可能不一致、值得复核的地方，例如：报告的 p 值与检验统计量及自由度看起来对不上、百分比与分子分母或样本量看起来对不上、置信区间与 p 值的显著性方向看起来矛盾、自由度与样本量看起来不一致、数字四舍五入后看起来不自洽等。这只是提示、不是判定出错：你无法可靠核验算术，每条都必须表述为「看起来……建议复核」，并提醒用户手动重算或用 statcheck/GRIM 等工具确认。不要断言任何数字是错的，不要编造文中没有的数字。" + ZH_TEXT_RULE + "输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text、pageRefs（页码整数数组）、confidence 取值 c3、flag 取值 needs_recheck。只输出该 JSON。",
+  outline: "提取这篇论文的逻辑大纲（如：背景 → 研究空白 → 研究问题 → 方法 → 结果 → 讨论/局限 → 结论）。逻辑结构来自正文章节标题与主题句。" + ZH_TEXT_RULE + "输出一个 JSON 对象，含字段 claims（数组）；claims 的每个元素含两个字段：text（一句话条目，可带「背景：」这类前缀）与 pageRefs（该条依据的页码，整数数组）。只输出该 JSON 对象。",
   flowmap: "把这篇论文的研究/方法逻辑抽成一张有向流程图，严格按正文真实描述的步骤与先后依赖来组织——可能是线性流水线，也可能有分支、并行或回路；只画正文写明的环节，不要补充论文未描述的步骤。节点 label 用简体中文（≤10 字），必要时括号保留英文缩写。输出一个 JSON 对象，含两个字段：nodes（数组，每个元素含 id 短字符串、label 步骤简称、pageRefs 该步骤依据的页码整数数组）与 edges（数组，每个元素含 from 与 to 为节点 id、可选 label 关系简述不超过 6 个中文字）。节点数控制在 5 到 10 个，分支与汇合用多条边表达。只输出该 JSON。",
 };
 
 async function runStructured(kind: string, pages: ReaderPage[], spec: KindSpec, llm: LlmClient, opts: { signal?: AbortSignal } = {}): Promise<AnalysisEnvelope> {
+  if (needsMapReduce(kind, pages)) {
+    return runStructuredMapReduce(kind, pages, spec, llm, opts);
+  }
   const instruction = PROMPTS[kind];
   if (!instruction) throw new Error("analyzeReader: kind 尚未在本版本实现：" + kind);
   const valid = new Set<number>(pages.map((p) => p.page));
@@ -239,7 +321,8 @@ async function runStructured(kind: string, pages: ReaderPage[], spec: KindSpec, 
   if (kind === "citerole" && outClaims.length > CITEROLE_MAX_CLAIMS) {
     outClaims = outClaims.slice(0, CITEROLE_MAX_CLAIMS);
   }
-  return { kind, lane: spec.lane, groundability: spec.groundability, sourceBasis: "fulltext", model: llm.model, title: spec.title, framing: spec.framing, claims: outClaims };
+  const banner = pages.length > 1 ? `已扫描全文 ${pages.length} 页` : undefined;
+  return { kind, lane: spec.lane, groundability: spec.groundability, sourceBasis: "fulltext", model: llm.model, title: spec.title, framing: spec.framing, banner, claims: outClaims };
 }
 
 const SYS_MOVE = "你分析学术写作的修辞功能。只就给定句子说明它在做什么修辞动作（如铺垫/让步/转折/反驳/收束/重申），以及在什么情境下适合这样写；不要给可照抄的句式模板，不要改写或仿写该句。仅输出 JSON 对象，含字段 function（这句在做什么修辞动作）与 condition（什么情境下适合这样写），不要解释、不要代码围栏。";
@@ -323,38 +406,89 @@ export async function analyzeCorpus(kind: string, papers: CorpusPaper[], llm: Ll
 
 // 逻辑流程图（flowmap）：LLM 只产结构化 nodes+edges（JSON），前端确定性渲染——绝不让模型直接画 SVG（防幻觉黑箱，研究公认做法）。
 // 每节点 pageRefs 经真实页码过滤；引用不存在节点的边被丢弃；无页码节点保留但前端标灰（暴露而非静默删除）。整图走推断车道。
-async function runFlowmap(kind: string, pages: ReaderPage[], spec: KindSpec, llm: LlmClient, opts: { signal?: AbortSignal } = {}): Promise<AnalysisEnvelope> {
-  const instruction = PROMPTS[kind];
-  const valid = new Set<number>(pages.map((p) => p.page));
-  const raw = await llm.complete(
-    [ { role: "system", content: SYS }, { role: "user", content: instruction + "\n\n正文：\n" + pagesText(pages, 26000) } ],
-    { maxTokens: OUTPUT_MAXTOK[kind] ?? 1400, temperature: 0.2, signal: opts.signal },
-  );
-  const parsed: any = extractJson(raw) || {};
-  const rawTrim = String(raw || "").trim();
-  if (!rawTrim) {
-    throw new Error("模型未返回任何内容，无法重建流程图。请重试或更换模型。");
-  }
-  const rawNodes: any[] = Array.isArray(parsed.nodes) ? parsed.nodes : [];
+const FLOWMAP_CAP = 52000;
+const FLOWMAP_MAP_SUFFIX = "\n\n【分段说明】以下仅是论文连续片段之一；只抽取本片段中出现的流程步骤与依赖，页码用片段内真实 [p.N]。不要编造步骤。";
+
+function parseFlowmapPayload(parsed: any, valid: Set<number>): { nodes: { id: string; label: string; pageRefs: number[] }[]; edges: { from: string; to: string; label?: string }[] } {
+  const rawNodes: any[] = Array.isArray(parsed?.nodes) ? parsed.nodes : [];
   const nodes = rawNodes.map((n: any, i: number) => {
     const refs = claimPageRefs(n, valid);
     const label = String((n && (n.label ?? n.text ?? n.title ?? n.name)) || "").trim().slice(0, 40);
     return { id: String((n && n.id) || ("n" + i)), label, pageRefs: refs };
   }).filter((n) => n.label.length > 0);
-  if (!nodes.length) {
-    if (parsed == null || !Object.keys(parsed).length) {
-      throw new Error("模型输出无法解析为流程图 JSON。请重试或更换模型。");
-    }
-    throw new Error("模型未返回有效流程节点。请重试；若正文方法描述很简略，可换更强模型。");
-  }
   const ids = new Set(nodes.map((n) => n.id));
-  const rawEdges: any[] = Array.isArray(parsed.edges) ? parsed.edges : [];
+  const rawEdges: any[] = Array.isArray(parsed?.edges) ? parsed.edges : [];
   const edges = rawEdges.map((e: any) => {
     const edge: { from: string; to: string; label?: string } = { from: String((e && e.from) || ""), to: String((e && e.to) || "") };
     if (e && e.label) edge.label = String(e.label).trim().slice(0, 16);
     return edge;
   }).filter((e) => ids.has(e.from) && ids.has(e.to) && e.from !== e.to);
-  return { kind, lane: spec.lane, groundability: spec.groundability, sourceBasis: "fulltext", model: llm.model, title: spec.title, framing: spec.framing, graph: { nodes, edges }, claims: [] };
+  return { nodes, edges };
+}
+
+function mergeFlowmapParts(parts: { nodes: { id: string; label: string; pageRefs: number[] }[]; edges: { from: string; to: string; label?: string }[] }[]): { nodes: { id: string; label: string; pageRefs: number[] }[]; edges: { from: string; to: string; label?: string }[] } {
+  const nodeKey = (n: { label: string; pageRefs: number[] }) => n.label + "|" + n.pageRefs.join(",");
+  const seen = new Map<string, string>();
+  const nodes: { id: string; label: string; pageRefs: number[] }[] = [];
+  const idRemap = new Map<string, string>();
+  for (const part of parts) {
+    for (const n of part.nodes) {
+      const k = nodeKey(n);
+      if (seen.has(k)) { idRemap.set(n.id, seen.get(k)!); continue; }
+      const nid = "n" + nodes.length;
+      seen.set(k, nid);
+      idRemap.set(n.id, nid);
+      nodes.push({ id: nid, label: n.label, pageRefs: n.pageRefs });
+    }
+  }
+  const edgeSeen = new Set<string>();
+  const edges: { from: string; to: string; label?: string }[] = [];
+  for (const part of parts) {
+    for (const e of part.edges) {
+      const from = idRemap.get(e.from);
+      const to = idRemap.get(e.to);
+      if (!from || !to || from === to) continue;
+      const ek = from + ">" + to + (e.label || "");
+      if (edgeSeen.has(ek)) continue;
+      edgeSeen.add(ek);
+      edges.push({ from, to, label: e.label });
+    }
+  }
+  return { nodes, edges };
+}
+
+async function runFlowmap(kind: string, pages: ReaderPage[], spec: KindSpec, llm: LlmClient, opts: { signal?: AbortSignal } = {}): Promise<AnalysisEnvelope> {
+  const instruction = PROMPTS[kind];
+  const valid = new Set<number>(pages.map((p) => p.page));
+  let graph: { nodes: { id: string; label: string; pageRefs: number[] }[]; edges: { from: string; to: string; label?: string }[] };
+  let banner: string | undefined;
+  if (pagesTextLen(pages) > FLOWMAP_CAP) {
+    const chunks = chunkByPages(pages, MR_CHUNK, MR_MAX_CHUNKS);
+    const parts = await Promise.all(chunks.map(async (chunk) => {
+      const body = chunk.map((p) => `[p.${p.page}] ${p.text}`).join("\n\n");
+      const raw = await llm.complete(
+        [{ role: "system", content: SYS }, { role: "user", content: instruction + FLOWMAP_MAP_SUFFIX + "\n\n正文片段：\n" + body }],
+        { maxTokens: OUTPUT_MAXTOK[kind] ?? 1400, temperature: 0.2, signal: opts.signal },
+      );
+      return parseFlowmapPayload(extractJson(raw) || {}, valid);
+    }));
+    graph = mergeFlowmapParts(parts);
+    banner = coverageBanner(pages, chunks.length);
+  } else {
+    const raw = await llm.complete(
+      [{ role: "system", content: SYS }, { role: "user", content: instruction + "\n\n正文：\n" + pagesText(pages, FLOWMAP_CAP) }],
+      { maxTokens: OUTPUT_MAXTOK[kind] ?? 1400, temperature: 0.2, signal: opts.signal },
+    );
+    const parsed: any = extractJson(raw) || {};
+    const rawTrim = String(raw || "").trim();
+    if (!rawTrim) throw new Error("模型未返回任何内容，无法重建流程图。请重试或更换模型。");
+    graph = parseFlowmapPayload(parsed, valid);
+    banner = pages.length > 1 ? `已扫描全文 ${pages.length} 页` : undefined;
+  }
+  if (!graph.nodes.length) {
+    throw new Error("模型未返回有效流程节点。请重试；若正文方法描述很简略，可换更强模型。");
+  }
+  return { kind, lane: spec.lane, groundability: spec.groundability, sourceBasis: "fulltext", model: llm.model, title: spec.title, framing: spec.framing, banner, graph, claims: [] };
 }
 
 const GENESIS_SPEC_PROMPT =
@@ -365,22 +499,38 @@ const GENESIS_SPEC_PROMPT =
 /** genesis·标注推测（L3 opt-in）：用户显式请求后才调用；全程 c3、推断车道。 */
 async function runGenesisSpeculative(pages: ReaderPage[], spec: KindSpec, llm: LlmClient, opts: { signal?: AbortSignal } = {}): Promise<AnalysisEnvelope> {
   const valid = new Set<number>(pages.map((p) => p.page));
-  const raw = await llm.complete(
-    [ { role: "system", content: SYS }, { role: "user", content: GENESIS_SPEC_PROMPT + "\n\n正文：\n" + pagesText(pages, 24000) } ],
-    { maxTokens: 1400, temperature: 0.25, signal: opts.signal },
-  );
-  const parsed = extractJson(raw);
-  const arr = pickClaimsArray(parsed) || [];
-  const claims = mapClaimsFromArray(arr, "genesis", spec, valid).map((c) => ({
+  let arr: any[] = [];
+  let banner: string | undefined;
+  if (needsMapReduce("limitations", pages)) {
+    const chunks = chunkByPages(pages, MR_CHUNK, MR_MAX_CHUNKS);
+    const mapped = await Promise.all(chunks.map(async (chunk) => {
+      const body = chunk.map((p) => `[p.${p.page}] ${p.text}`).join("\n\n");
+      const raw = await llm.complete(
+        [{ role: "system", content: SYS }, { role: "user", content: GENESIS_SPEC_PROMPT + MAP_CHUNK_SUFFIX + "\n\n正文片段：\n" + body }],
+        { maxTokens: 1200, temperature: 0.25, signal: opts.signal },
+      );
+      return pickClaimsArray(extractJson(raw)) || [];
+    }));
+    arr = mapped.flat();
+    banner = coverageBanner(pages, chunks.length);
+  } else {
+    const raw = await llm.complete(
+      [{ role: "system", content: SYS }, { role: "user", content: GENESIS_SPEC_PROMPT + "\n\n正文：\n" + pagesText(pages, 32000) }],
+      { maxTokens: 1600, temperature: 0.25, signal: opts.signal },
+    );
+    arr = pickClaimsArray(extractJson(raw)) || [];
+    banner = pages.length > 1 ? `已扫描全文 ${pages.length} 页` : undefined;
+  }
+  const claims = dedupeClaims(mapClaimsFromArray(arr, "genesis", spec, valid).map((c) => ({
     ...c,
     confidence: "c3" as const,
     flag: "needs_recheck" as const,
     text: c.text.startsWith("推测") ? c.text : "推测：" + c.text,
-  }));
+  })));
   return {
     kind: "genesis", lane: spec.lane, groundability: "L3", sourceBasis: "fulltext", model: llm.model, title: spec.title,
     framing: "以下为 AI 基于正文叙事链的标注推测，不是作者真实发现过程，不可引用为事实。请回原文核对后再采信。",
-    speculative: true, claims,
+    speculative: true, banner, claims,
   };
 }
 
