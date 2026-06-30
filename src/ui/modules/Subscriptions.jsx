@@ -580,6 +580,19 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
   const visibleLimit = (gid) => loadMore[gid] || DIGEST_PAGE;
   const bumpLoad = (gid, totalN) => setLoadMore((m) => ({ ...m, [gid]: Math.min(totalN, (m[gid] || DIGEST_PAGE) + DIGEST_PAGE) }));
 
+  const globalActivity = (() => {
+    if (runProgress) {
+      const lbl = runProgress.label || "";
+      const kind = /检索|检查/.test(lbl) ? "search" : "ai";
+      return { label: lbl || "处理中…", current: runProgress.current || 0, total: runProgress.total || 0, kind };
+    }
+    if (reportScopeLoading) return { label: "读取简报…", current: 0, total: 0, kind: "load" };
+    if (reportGenerating || digestReport?.status === "generating") {
+      return { label: "正在撰写今日简报…", current: 0, total: 0, kind: "report" };
+    }
+    return null;
+  })();
+
   useEffect(() => {
     if (!onActivityChange) return;
     const busy = !!(reportGenerating || runProgress || digestReport?.status === "generating");
@@ -670,6 +683,25 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
               <button type="button" role="tab" aria-selected={viewMode === "retro"} className={viewMode === "retro" ? "on" : ""} onClick={() => setViewMode("retro")}>回顾</button>
             </div>
           )}
+          {globalActivity && (
+            <div className="dg-activity" role="status" aria-live="polite" data-kind={globalActivity.kind}>
+              <div className="dg-activity-row">
+                <Loader size={14} className="dg-spin" />
+                <span className="dg-activity-lbl">{globalActivity.label}</span>
+                {globalActivity.total > 0 && (
+                  <span className="dg-activity-frac">{globalActivity.current}/{globalActivity.total}</span>
+                )}
+              </div>
+              {globalActivity.total > 0 && (
+                <div className="dg-activity-track" aria-hidden="true">
+                  <div
+                    className="dg-activity-fill"
+                    style={{ width: `${Math.max(6, Math.round((globalActivity.current / globalActivity.total) * 100))}%` }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
           {!backend && <div className="dg-note"><Info size={15} /> 原型模式：订阅（含按期刊）可建/编辑/管理，但「今日命中」需引擎按计划真实检索——关键词按检索式、期刊按 ISSN/刊名匹配各源（PubMed/Crossref/OpenAlex）。接入 Electron 引擎后，每日新发表会自动出现在这里。</div>}
           {backend && subs.length > 0 && !subsBgHintDismissed && (
             <div className="dg-note">
@@ -684,13 +716,6 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
           )}
         </div>
         <div className="dg-list">
-          {runProgress && (
-            <div className="dg-run-progress dg-run-progress-top" role="status" aria-live="polite">
-              <Loader size={14} className="dg-spin" />
-              <span>{runProgress.label}</span>
-              {runProgress.total > 0 && <span className="dg-run-frac">{runProgress.current}/{runProgress.total}</span>}
-            </div>
-          )}
           {loading ? (
             <div className="dg-empty"><Loader size={22} className="dg-spin" /><p>读取订阅…</p></div>
           ) : subs.length === 0 ? (
@@ -723,6 +748,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
                 <DigestReportHero
                   report={digestReport}
                   scopeLoading={reportScopeLoading}
+                  hideBusy={!!globalActivity && globalActivity.kind !== "load"}
                   collapsed={reportCollapsed}
                   onToggleCollapse={toggleReportCollapsed}
                   onGenerate={generateReport}

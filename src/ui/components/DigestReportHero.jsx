@@ -104,6 +104,7 @@ function ReportSections({ report, titles, jump, mode }) {
 export default function DigestReportHero({
   report,
   scopeLoading = false,
+  hideBusy = false,
   collapsed,
   onToggleCollapse,
   onGenerate,
@@ -118,7 +119,7 @@ export default function DigestReportHero({
 }) {
   const status = report?.status || "idle";
   const ready = status === "ready";
-  const busy = !scopeLoading && (generating || status === "generating");
+  const busy = !scopeLoading && !hideBusy && (generating || status === "generating");
   const titles = paperTitleById || {};
   const jump = (id) => onJumpPaper && onJumpPaper(id);
   const mode = scopeMode === "single" ? "single" : "all";
