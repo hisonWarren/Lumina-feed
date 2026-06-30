@@ -219,6 +219,7 @@ const OUTPUT_MAXTOK: Record<string, number> = { ledger: 4000, citerole: 3600, re
 const MR_CHUNK = 10000;
 const MR_MAX_CHUNKS = 16;
 const MAP_CHUNK_SUFFIX = "\n\n【分段说明】以下仅是论文连续片段之一；只抽取本片段中出现的条目，页码必须用片段内 [p.N] 的真实页码。不要编造、不要重复其他片段会有内容。";
+const LEDGER_CHUNK_SUFFIX = "\n\n【分段说明】以下仅是论文连续片段之一。列出本片段内每一条可核对的「论断→证据」对：text 用「论断：…；证据：…」格式（各一句，不要合并成段落主题摘要）。综述/理论评论也要拆细到段内各主张。本片段若有实质内容，至少输出 3 条；页码必须用片段内 [p.N]。不要编造、不要重复其他片段内容。";
 /** 引文角色硬上限（A1+）：只列正文讨论过的 in-text 引用，防滑向完整书目。 */
 export const CITEROLE_MAX_CLAIMS = 20;
 const MAP_REDUCE_KINDS = new Set(["cars", "ledger", "recipe", "repro", "falsify", "citerole", "hardcore", "limitations", "stats", "outline"]);
@@ -235,20 +236,43 @@ function needsMapReduce(kind: string, pages: ReaderPage[]): boolean {
   return len > 14000 || pages.length >= 4;
 }
 
-function coverageBanner(pages: ReaderPage[], chunks: number): string {
-  return `已分段扫描全文 ${pages.length} 页（${chunks} 段）`;
+function coverageBanner(pages: ReaderPage[], chunks: number, hits?: number): string {
+  const base = `已分段扫描全文 ${pages.length} 页（${chunks} 段）`;
+  if (hits != null && hits < chunks) return `${base} · ${hits}/${chunks} 段抽出条目`;
+  return base;
 }
 
-function dedupeClaims(claims: AnalysisClaim[]): AnalysisClaim[] {
+function mapChunkSuffix(kind: string): string {
+  return kind === "ledger" ? LEDGER_CHUNK_SUFFIX : MAP_CHUNK_SUFFIX;
+}
+
+function mapChunkMaxTokens(kind: string): number {
+  if (kind === "ledger") return 3600;
+  if (kind === "citerole") return 3200;
+  return Math.min(OUTPUT_MAXTOK[kind] ?? 1600, 2200);
+}
+
+function dedupeClaims(claims: AnalysisClaim[], kind?: string): AnalysisClaim[] {
   const seen = new Set<string>();
   const out: AnalysisClaim[] = [];
   for (const c of claims) {
-    const key = c.text.replace(/\s+/g, " ").trim().slice(0, 120).toLowerCase();
+    const norm = c.text.replace(/\s+/g, " ").trim().toLowerCase();
+    const key = kind === "ledger"
+      ? `${c.pageRefs?.[0] ?? 0}:${norm.slice(0, 100)}`
+      : norm.slice(0, 120);
     if (!key || seen.has(key)) continue;
     seen.add(key);
     out.push(c);
   }
   return out;
+}
+
+function sortClaimsByPage(claims: AnalysisClaim[]): AnalysisClaim[] {
+  return claims.slice().sort((a, b) => {
+    const pa = a.pageRefs?.[0] ?? 9999;
+    const pb = b.pageRefs?.[0] ?? 9999;
+    return pa - pb || a.text.localeCompare(b.text);
+  });
 }
 
 async function mapStructuredChunk(
@@ -260,8 +284,8 @@ async function mapStructuredChunk(
 ): Promise<any[]> {
   const body = chunkPages.map((p) => `[p.${p.page}] ${p.text}`).join("\n\n");
   const raw = await llm.complete(
-    [{ role: "system", content: SYS }, { role: "user", content: instruction + MAP_CHUNK_SUFFIX + "\n\n正文片段：\n" + body }],
-    { maxTokens: Math.min(OUTPUT_MAXTOK[kind] ?? 1600, 2200), temperature: 0.2, signal: opts.signal },
+    [{ role: "system", content: SYS }, { role: "user", content: instruction + mapChunkSuffix(kind) + "\n\n正文片段：\n" + body }],
+    { maxTokens: mapChunkMaxTokens(kind), temperature: 0.2, signal: opts.signal },
   );
   const parsed = extractJson(raw);
   return pickClaimsArray(parsed) || [];
@@ -279,11 +303,12 @@ async function runStructuredMapReduce(
   const valid = new Set<number>(pages.map((p) => p.page));
   const chunks = chunkByPages(pages, MR_CHUNK, MR_MAX_CHUNKS);
   const mapped = await Promise.all(chunks.map((c) => mapStructuredChunk(kind, c, instruction, llm, opts).catch(() => [])));
+  const hitChunks = mapped.filter((arr) => arr.length > 0).length;
   const flat = mapped.flat();
   if (!flat.length) {
     throw new Error("分段扫描未抽出任何条目。请重试，或在「设置 → 大模型」换用更强模型。");
   }
-  let claims = dedupeClaims(mapClaimsFromArray(flat, kind, spec, valid));
+  let claims = sortClaimsByPage(dedupeClaims(mapClaimsFromArray(flat, kind, spec, valid), kind));
   if (!claims.length) {
     throw new Error("分段扫描返回了结构，但均无有效文本。请重试或更换模型。");
   }
@@ -298,7 +323,7 @@ async function runStructuredMapReduce(
     model: llm.model,
     title: spec.title,
     framing: spec.framing,
-    banner: coverageBanner(pages, chunks.length),
+    banner: coverageBanner(pages, chunks.length, hitChunks),
     claims,
   };
 }
@@ -306,7 +331,7 @@ async function runStructuredMapReduce(
 // 每个 kind 的指令（用 JSON 形状的"文字描述"而非字面 JSON，避免源码内裸引号；模型仍只输出 JSON）。
 const PROMPTS: Record<string, string> = {
   cars: "重建作者论证逻辑（CARS 五步：① 确立领域重要性 → ② 指出研究空白 → ③ 提出占位即本研究如何填补 → ④ 方法选择的论证 → ⑤ 贡献声明），依据 Introduction 与相关工作。" + ZH_TEXT_RULE + "输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text（一步，可带「① 确立领域重要性」前缀）与 pageRefs（页码整数数组）。只输出该 JSON。",
-  ledger: "通读全文，列出每条承重论断及其证据（含引言、方法、结果、讨论、结论各节；不要只列前几页背景）。" + ZH_TEXT_RULE + "对每条标注 evidenceType，取值为 internal_data（本研究内部数据）、cites_others（引用他人，非本研究证明）、author_inference（作者推断，非直接实验之一）。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text、evidenceType、pageRefs（页码整数数组）；当 evidenceType 为 author_inference 时再加字段 flag 取值 needs_recheck。只输出该 JSON。",
+  ledger: "通读全文，列出每条承重论断及其证据（含引言、方法、结果、讨论、结论各节；不要只列前几页背景，也不要整篇只给 2–3 条主题概括）。" + ZH_TEXT_RULE + "每条 text 必须用「论断：…；证据：…」格式（各一句：论断是作者主张什么，证据是数据/引用/推理依据）。综述、理论评论、立场文章也要按段拆细到可核对的主张—依据对，不要合并成宏观摘要。对每条标注 evidenceType，取值为 internal_data（本研究内部数据）、cites_others（引用他人，非本研究证明）、author_inference（作者推断，非直接实验之一）。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text、evidenceType、pageRefs（页码整数数组）；当 evidenceType 为 author_inference 时再加字段 flag 取值 needs_recheck。只输出该 JSON。",
   recipe: "抽取可复用的方法配方，分为：设计、数据与队列、结局定义、验证或测量指标、统计方法。" + ZH_TEXT_RULE + "输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text（可带「设计：」这类前缀）与 pageRefs（页码整数数组）。只输出该 JSON。",
   repro: "对照预测模型/临床研究报告规范（TRIPOD、CONSORT、PRISMA 思路），逐项核查本文是否报告了：样本量与时间窗、结局定义、缺失数据处理、数据可得性声明、代码或模型可得性、研究预注册等。" + ZH_TEXT_RULE + "对每项给字段 status，取值为 ok（已报告）、warn（缺失或未见声明）、no（明确未做）。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text、status、pageRefs（status 非 ok 且文中无对应位置时 pageRefs 可为空数组）。不要把未报告的项说成已报告。只输出该 JSON。",
   falsify: "抽取作者自陈的可证伪边界：什么观察会推翻其结论、或在什么条件下结论不成立。" + ZH_TEXT_RULE + "若作者未给出明确的可证伪条件，则输出一条 text 说明未陈述可证伪条件、并加字段 flag 取值 unstated——这本身是一个值得注意的发现。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text、pageRefs（页码整数数组）与可选的 flag。只输出该 JSON。",

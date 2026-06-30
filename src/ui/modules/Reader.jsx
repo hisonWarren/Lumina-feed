@@ -752,6 +752,7 @@ function EvidenceCard({ env, onGoto }) {
       {env.banner && <div className="ev-note" style={{ margin: "8px 11px 0" }}><Info size={12} /><div>{env.banner}</div></div>}
       {env.framing && <div className="framing" style={{ margin: "9px 11px 0" }}><Info size={13} /><div>{env.framing}</div></div>}
       {isCite && <div className="ev-note"><Link2 size={12} /><div>这里是<b>正文里被讨论到的关键引用</b>各起什么作用（背景 / 方法 / 数据 / 对照…），最多展示 {CITEROLE_UI_CAP} 处，<b>不是完整参考文献表</b>。全部书目 → 在「我的文献」<b>导出到 Zotero</b>。</div></div>}
+      {env.kind === "ledger" && <div className="ev-note"><Scale size={12} /><div>每条为「论断 → 证据」对，按页码排列。综述/评论文以<b>引用他人</b>为主属正常；若条目偏少，点「重新生成」——长文会分段扫描全文。</div></div>}
       {claims.length === 0
         ? <div className="ev-empty"><Info size={13} />{env.banner || "未能从本篇正文提取到可标注页码的条目。可点「重新生成」重试，或在设置里换更强的模型。"}</div>
         : <>
