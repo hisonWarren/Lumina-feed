@@ -33,8 +33,8 @@ const app = read("src/ui/LuminaApp.jsx");
 /onLibraryRemove/.test(app) ? ok("LuminaApp 接 onLibraryRemove") : bad("LuminaApp 未接 onLibraryRemove");
 
 const subs = read("src/ui/modules/Subscriptions.jsx");
-/subsBackgroundHintDismissed/.test(subs) && /最小化到托盘/.test(subs)
-  ? ok("Subscriptions 首次订阅后台说明横幅") : bad("Subscriptions 后台说明缺失");
+/subsBackgroundHintDismissed/.test(subs) && /最小化到托盘/.test(subs) && !/settingsGet/.test(subs)
+  ? ok("Subscriptions 首次订阅后台说明横幅") : bad("Subscriptions 后台说明缺失或 API 错误");
 
 const settings = read("electron/settings.ts");
 /subsBackgroundHintDismissed/.test(settings) ? ok("settings prompts 键") : bad("settings 缺 subsBackgroundHintDismissed");

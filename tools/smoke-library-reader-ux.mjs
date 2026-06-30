@@ -106,7 +106,8 @@ try {
   const title = resolveImportTitle(bytes, "Neural_Dynamics_Review.pdf", "Nature Neuroscience | Volume 26\nIndividual differences in functional connectivity\n");
   title.includes("Individual differences") ? pass("IPC 层题名启发式", title.slice(0, 48)) : fail("题名启发式", title);
 
-  pass("CDP 烟测完成");
+  const boot = await evalJs(cdp, `return { rootChildren: document.getElementById('root')?.childElementCount ?? 0 };`);
+  boot?.rootChildren > 0 ? pass("应用启动渲染", `root children=${boot.rootChildren}`) : fail("白屏：#root 无子节点");
 } catch (e) {
   fail("烟测异常", e.message);
 } finally {

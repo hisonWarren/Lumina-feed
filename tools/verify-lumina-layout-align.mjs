@@ -19,8 +19,12 @@ const hub = read("src/ui/modules/ReadHub.jsx");
 const sp  = read("tools/verify-lumina-shell-polish.mjs");
 
 console.log("\n[1] 检索页 · 头部与卡片列对齐（content-box 推导：卡片 border-box=958）");
-ok(/\.ff-head\{[^}]*max-width:958px;margin:0 auto/.test(lf), "ff-head 收敛宽 → 958（搜索框/工具行左右边对齐卡片列）");
+ok(!/\.ff-head\{[^}]*max-width:958px/.test(lf), "ff-head 不再单独限宽（避免与 padding 叠窄检索框）");
+ok(/\.ff\{[^}]*padding:16px 20px/.test(lf), "ff 统一左右 gutter（头/结果同列）");
+ok(/\.ff-head\{[^}]*padding:0 0 4px/.test(lf), "ff-head 无独立水平 padding");
+ok(/className="ff-track"[\s\S]{0,80}className="ff-head"/.test(ff), "单一 ff-track 包裹检索头与结果区");
 ok(/\.ff-track\{[^}]*max-width:958px/.test(ff), "ff-track 收敛宽 → 958（命中来源条左边对齐卡片列）");
+ok(/\.ff-tools\{[^}]*width:100%/.test(ff), "ff-tools 满列宽（排序与信息条右缘对齐）");
 ok(/\.ff-track\{[^}]*align-items:stretch/.test(ff), "ff-track 子项拉伸满列宽");
 ok(/\.ff-session-bar\{[^}]*box-sizing:border-box[^}]*width:100%/.test(ff), "ff-session-bar border-box 满列宽");
 ok(/\.ff-primary-banner\{[^}]*box-sizing:border-box[^}]*width:100%/.test(ff), "ff-primary-banner border-box 满列宽");

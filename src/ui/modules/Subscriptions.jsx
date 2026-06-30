@@ -276,7 +276,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
     return () => { alive = false; };
   }, []);
   useEffect(() => {
-    bridge.settingsGet().then((s) => {
+    bridge.getSettings && bridge.getSettings().then((s) => {
       setSubsBgHintDismissed(!!s?.prompts?.subsBackgroundHintDismissed);
     }).catch(() => {});
   }, []);

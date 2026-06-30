@@ -73,7 +73,7 @@ const SORT_OPTS = [
 const EXPAND_SOURCES = ["libgen", "annas", "crossref", "openalex", "semanticscholar", "pubmed", "europepmc"];
 
 const FF_CSS = `
-.ff-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:9px}
+.ff-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:9px;width:100%}
 .ff-tool{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:8px;padding:5px 10px;font-size:12px;cursor:pointer;font-family:inherit}
 .ff-tool:hover{border-color:var(--gold);color:var(--gold)}
 .ff-tool.on{border-color:var(--gold);color:var(--gold)}
@@ -526,6 +526,7 @@ export default function FindFetch({
   return (
     <div className="ff">
       <style>{FF_CSS}</style>
+      <div className="ff-track">
       <div className="ff-head">
         <div className="ff-bar">
           <Search size={16} />
@@ -610,7 +611,7 @@ export default function FindFetch({
 
       <div className="ff-results" ref={resultsScrollRef} tabIndex={-1}>
         {submitted && (
-          <div className="ff-track">
+          <>
             <div className="ff-session-bar" role="status">
               <span><strong>本次检索</strong> · {total} 条{sessionAge ? ` · ${sessionAge}` : ""}{loading ? " · 仍在补充…" : ""}</span>
               <span className="ff-session-h">切换模块不会清空本次结果；要重新定位请点「新检索」。</span>
@@ -638,12 +639,10 @@ export default function FindFetch({
                 )}
               </>
             )}
-          </div>
+          </>
         )}
         {showSearchEmail && (
-          <div className="ff-track">
-            <EmailPrompt variant="search" onDismiss={dismissSearchEmail} />
-          </div>
+          <EmailPrompt variant="search" onDismiss={dismissSearchEmail} />
         )}
         {!submitted && !loading ? (
           <div className="ff-empty">
@@ -657,11 +656,11 @@ export default function FindFetch({
             </div>
           </div>
         ) : loading && results.length === 0 ? (
-          <div className="ff-track">
+          <>
             <div className="lf-skel"><div className="ln" style={{ width: "72%" }} /><div className="ln" style={{ width: "48%" }} /><div className="ln" style={{ width: "88%" }} /></div>
             <div className="lf-skel"><div className="ln" style={{ width: "65%" }} /><div className="ln" style={{ width: "40%" }} /></div>
             <p className="ff-more"><Loader size={14} className="ff-spin" /> 正在多源检索「{submitted}」…结果流式追加（首包通常来自 OpenAlex / Crossref）</p>
-          </div>
+          </>
         ) : err ? (
           <div className="ff-empty"><AlertTriangle size={24} /><h2>{err}</h2></div>
         ) : results.length === 0 ? (
@@ -724,7 +723,7 @@ export default function FindFetch({
             total={total}
             page={safePage}
             pageSize={pageSize}
-            onPage={(p) => { setPage(p); document.querySelector(".ff-results")?.scrollTo?.({ top: 0, behavior: "smooth" }); }}
+            onPage={(p) => { setPage(p); document.querySelector(".ff")?.scrollTo?.({ top: 0, behavior: "smooth" }); }}
             onPageSize={(s) => { setPageSize(s); setPage(1); }}
             onRefine={() => ref.current && ref.current.focus()}
           />
@@ -735,12 +734,11 @@ export default function FindFetch({
             </div>
           )}
           {submitted && (
-            <div className="ff-track">
-              <GoogleScholarLink query={submitted} count={shown.length} onOpen={(u) => bridge.openExternal(u)} />
-            </div>
+            <GoogleScholarLink query={submitted} count={shown.length} onOpen={(u) => bridge.openExternal(u)} />
           )}
           </>
         )}
+      </div>
       </div>
 
       {sel && (
