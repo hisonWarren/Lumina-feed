@@ -868,6 +868,9 @@ function ConfChip({ lvl }) {
 }
 const EV_PAGE_LEDGER = 12;
 const EV_PAGE_CITER = 8;
+const EV_PAGE_INF = 10;
+const INF_UI_CAP = 80;
+const FLOW_LIST_PAGE = 12;
 const LEDGER_FILTERS = [
   { id: "all", label: "全部" },
   { id: "internal_data", label: "内部数据" },
@@ -999,6 +1002,41 @@ function EvidenceCard(props) {
 }
 // 推断卡正文（车道内容：框定语 + 拒绝块 或 带把握度的 claim）——InfCard 与 InfAnalyzer 共用
 function InfBody({ env, onGoto }) {
+  const safeEnv = env || {};
+  const allClaims = useMemo(
+    () => asClaimArray(safeEnv.claims).filter((c) => c && String(c.text || "").trim()),
+    [safeEnv.claims],
+  );
+  const claims = useMemo(() => allClaims.slice(0, INF_UI_CAP), [allClaims]);
+  const [confFilter, setConfFilter] = useState("all");
+  const [groundFilter, setGroundFilter] = useState("all");
+  const [pageIdx, setPageIdx] = useState(0);
+  useEffect(() => { setConfFilter("all"); setGroundFilter("all"); setPageIdx(0); }, [safeEnv.title, safeEnv.kind, safeEnv.banner, safeEnv.framing]);
+  const filtered = useMemo(() => {
+    return claims.filter((c) => {
+      const okConf = confFilter === "all" ? true : (String(c.confidence || "") === confFilter);
+      const hasRefs = Array.isArray(c.pageRefs) && c.pageRefs.length > 0;
+      const okGround = groundFilter === "all" ? true : (groundFilter === "grounded" ? hasRefs : !hasRefs);
+      return okConf && okGround;
+    });
+  }, [claims, confFilter, groundFilter]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / EV_PAGE_INF));
+  const pageClaims = useMemo(
+    () => filtered.slice(pageIdx * EV_PAGE_INF, (pageIdx + 1) * EV_PAGE_INF),
+    [filtered, pageIdx],
+  );
+  useEffect(() => { if (pageIdx >= totalPages) setPageIdx(Math.max(0, totalPages - 1)); }, [pageIdx, totalPages]);
+  const confCounts = useMemo(() => ({
+    all: claims.length,
+    c1: claims.filter((c) => c.confidence === "c1").length,
+    c2: claims.filter((c) => c.confidence === "c2").length,
+    c3: claims.filter((c) => c.confidence === "c3").length,
+  }), [claims]);
+  const groundCounts = useMemo(() => ({
+    all: claims.length,
+    grounded: claims.filter((c) => Array.isArray(c.pageRefs) && c.pageRefs.length > 0).length,
+    ungrounded: claims.filter((c) => !Array.isArray(c.pageRefs) || c.pageRefs.length === 0).length,
+  }), [claims]);
   if (!env) return null;
   return (
     <>
@@ -1006,12 +1044,40 @@ function InfBody({ env, onGoto }) {
       {env.banner && <div className="ev-note"><Info size={12} /><div>{env.banner}</div></div>}
       {env.refused
         ? <div className="refuse"><Ban size={15} /><div>{env.refused.reason}</div></div>
-        : asClaimArray(env.claims).map((c, i) => (
-          <div key={i} className="ev-claim" style={{ borderColor: "var(--amberLine)" }}>
-            <div>{String(c.text ?? "")}</div>
-            <div className="ev-meta">{c.confidence && <ConfChip lvl={c.confidence} />}<Cites refs={c.pageRefs} onGoto={onGoto} /></div>
-          </div>
-        ))}
+        : <>
+            {allClaims.length > INF_UI_CAP && (
+              <div className="ev-note"><Info size={12} /><div>推读结果较长，已为流畅体验展示前 {INF_UI_CAP} 条；可切换筛选快速定位。</div></div>
+            )}
+            <div className="ledger-filters">
+              {[["all", "全部"], ["c1", "文中有据"], ["c2", "需外部佐证"], ["c3", "仅供联想"]].map(([id, label]) => (
+                <button key={id} type="button" className={"ledger-filter" + (confFilter === id ? " on" : "")} onClick={() => { setConfFilter(id); setPageIdx(0); }}>
+                  {label}{confCounts[id] ? ` (${confCounts[id]})` : ""}
+                </button>
+              ))}
+            </div>
+            <div className="ledger-filters" style={{ borderTop: 0 }}>
+              {[["all", "全部条目"], ["grounded", "带页码"], ["ungrounded", "未标页码"]].map(([id, label]) => (
+                <button key={id} type="button" className={"ledger-filter" + (groundFilter === id ? " on" : "")} onClick={() => { setGroundFilter(id); setPageIdx(0); }}>
+                  {label}{groundCounts[id] ? ` (${groundCounts[id]})` : ""}
+                </button>
+              ))}
+            </div>
+            {filtered.length === 0
+              ? <div className="ev-empty"><Info size={13} />当前筛选下暂无条目</div>
+              : pageClaims.map((c, i) => (
+                <div key={i} className="ev-claim" style={{ borderColor: "var(--amberLine)" }}>
+                  <div>{String(c.text ?? "")}</div>
+                  <div className="ev-meta">{c.confidence && <ConfChip lvl={c.confidence} />}<Cites refs={c.pageRefs} onGoto={onGoto} /></div>
+                </div>
+              ))}
+            {filtered.length > EV_PAGE_INF && (
+              <div className="ledger-pager">
+                <button type="button" disabled={pageIdx <= 0} onClick={() => setPageIdx((p) => p - 1)}><ChevronUp size={13} /> 上一页</button>
+                <span>{pageIdx + 1} / {totalPages} · 本页 {pageClaims.length} 条</span>
+                <button type="button" disabled={pageIdx >= totalPages - 1} onClick={() => setPageIdx((p) => p + 1)}>下一页 <ChevronDown size={13} /></button>
+              </div>
+            )}
+          </>}
     </>
   );
 }
@@ -1209,15 +1275,29 @@ function FlowGraph({ graph, onGoto, svgRef }) {
 }
 function FlowList({ graph, onGoto }) {
   const nodes = (graph && graph.nodes) || [];
+  const [pageIdx, setPageIdx] = useState(0);
+  const totalPages = Math.max(1, Math.ceil(nodes.length / FLOW_LIST_PAGE));
+  const visible = useMemo(
+    () => nodes.slice(pageIdx * FLOW_LIST_PAGE, (pageIdx + 1) * FLOW_LIST_PAGE),
+    [nodes, pageIdx],
+  );
+  useEffect(() => { if (pageIdx >= totalPages) setPageIdx(Math.max(0, totalPages - 1)); }, [pageIdx, totalPages]);
   if (!nodes.length) return null;
   return (
     <div className="rd-flist">
-      {nodes.map((n, i) => (
+      {visible.map((n, i) => (
         <div key={n.id || i} className="rd-flrow">
           <span>{n.label}</span>
           <Cites refs={n.pageRefs} onGoto={onGoto} />
         </div>
       ))}
+      {nodes.length > FLOW_LIST_PAGE && (
+        <div className="ledger-pager">
+          <button type="button" disabled={pageIdx <= 0} onClick={() => setPageIdx((p) => p - 1)}><ChevronUp size={13} /> 上一页</button>
+          <span>{pageIdx + 1} / {totalPages} · 本页 {visible.length} 条</span>
+          <button type="button" disabled={pageIdx >= totalPages - 1} onClick={() => setPageIdx((p) => p + 1)}>下一页 <ChevronDown size={13} /></button>
+        </div>
+      )}
     </div>
   );
 }
