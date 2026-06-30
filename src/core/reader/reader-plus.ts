@@ -219,7 +219,11 @@ const OUTPUT_MAXTOK: Record<string, number> = { ledger: 4000, citerole: 3600, re
 const MR_CHUNK = 10000;
 const MR_MAX_CHUNKS = 16;
 const MAP_CHUNK_SUFFIX = "\n\n【分段说明】以下仅是论文连续片段之一；只抽取本片段中出现的条目，页码必须用片段内 [p.N] 的真实页码。不要编造、不要重复其他片段会有内容。";
-const LEDGER_CHUNK_SUFFIX = "\n\n【分段说明】以下仅是论文连续片段之一。列出本片段内每一条可核对的「论断→证据」对：text 用「论断：…；证据：…」格式（各一句，不要合并成段落主题摘要）。综述/理论评论也要拆细到段内各主张。本片段若有实质内容，至少输出 3 条；页码必须用片段内 [p.N]。不要编造、不要重复其他片段内容。";
+const LEDGER_CHUNK_SUFFIX = "\n\n【分段说明】以下仅是论文连续片段之一。列出本片段内 3–8 条候选「论断→证据」对（承重主张，跳过琐碎背景句）：text 用「论断：…；证据：…」格式（各一句）。这些是分段要点、后续会归并，不要合并成宏观主题摘要，也不要逐句穷举。页码必须用片段内 [p.N]。不要编造、不要重复其他片段内容。";
+/** 账本承重论断硬上限：侧边栏可浏览、可核对，而非穷举全文每句。 */
+export const LEDGER_MAX_CLAIMS = 40;
+/** 候选条数超过此值时触发 LLM 归并（map→reduce）。 */
+export const LEDGER_REDUCE_THRESHOLD = 16;
 /** 引文角色硬上限（A1+）：只列正文讨论过的 in-text 引用，防滑向完整书目。 */
 export const CITEROLE_MAX_CLAIMS = 20;
 const MAP_REDUCE_KINDS = new Set(["cars", "ledger", "recipe", "repro", "falsify", "citerole", "hardcore", "limitations", "stats", "outline"]);
@@ -252,19 +256,89 @@ function mapChunkMaxTokens(kind: string): number {
   return Math.min(OUTPUT_MAXTOK[kind] ?? 1600, 2200);
 }
 
+function ledgerDedupeKey(c: AnalysisClaim): string {
+  const norm = c.text.replace(/\s+/g, " ").trim().toLowerCase();
+  const claimPart = norm.includes("论断：")
+    ? norm.split("证据：")[0].replace(/^论断：/, "").trim()
+    : norm;
+  return `${c.pageRefs?.[0] ?? 0}:${claimPart.slice(0, 88)}`;
+}
+
 function dedupeClaims(claims: AnalysisClaim[], kind?: string): AnalysisClaim[] {
   const seen = new Set<string>();
   const out: AnalysisClaim[] = [];
   for (const c of claims) {
-    const norm = c.text.replace(/\s+/g, " ").trim().toLowerCase();
-    const key = kind === "ledger"
-      ? `${c.pageRefs?.[0] ?? 0}:${norm.slice(0, 100)}`
-      : norm.slice(0, 120);
+    const key = kind === "ledger" ? ledgerDedupeKey(c) : c.text.replace(/\s+/g, " ").trim().toLowerCase().slice(0, 120);
     if (!key || seen.has(key)) continue;
     seen.add(key);
     out.push(c);
   }
   return out;
+}
+
+async function reduceLedgerClaims(
+  rawClaims: AnalysisClaim[],
+  spec: KindSpec,
+  llm: LlmClient,
+  valid: Set<number>,
+  opts: { signal?: AbortSignal } = {},
+): Promise<AnalysisClaim[]> {
+  const limit = LEDGER_MAX_CLAIMS;
+  const lines = rawClaims.map((c, i) => {
+    const pg = (c.pageRefs || []).join(",");
+    return `[#${i + 1}] p.${pg || "?"} type=${c.evidenceType || ""} ${c.text}`;
+  }).join("\n");
+  const instruction =
+    `以下是全文分段扫描抽出的 ${rawClaims.length} 条候选「论断→证据」要点。请归并为最多 ${limit} 条承重论断：`
+    + "合并语义重复或同一主张的变体；删掉琐碎背景、与论证承重无关的复述；保留对理解本文论证最关键者。"
+    + "每条 text 保持「论断：…；证据：…」格式；保留 evidenceType（internal_data/cites_others/author_inference）；"
+    + "pageRefs 取自候选中的真实页码（可合并多条页码）。不要杜撰正文没有的内容。"
+    + ZH_TEXT_RULE
+    + "输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text、evidenceType、pageRefs（整数数组）；"
+    + "当 evidenceType 为 author_inference 时再加字段 flag 取值 needs_recheck。只输出该 JSON。";
+  const raw = await llm.complete(
+    [{ role: "system", content: SYS }, { role: "user", content: instruction + "\n\n候选列表：\n" + lines }],
+    { maxTokens: 4800, temperature: 0.15, signal: opts.signal },
+  );
+  const parsed = extractJson(raw);
+  const arr = pickClaimsArray(parsed) || [];
+  let claims = sortClaimsByPage(dedupeClaims(mapClaimsFromArray(arr, "ledger", spec, valid), "ledger"));
+  if (!claims.length) {
+    return sortClaimsByPage(rawClaims).slice(0, limit);
+  }
+  if (claims.length > limit) claims = claims.slice(0, limit);
+  return claims;
+}
+
+async function finalizeLedgerClaims(
+  claims: AnalysisClaim[],
+  pages: ReaderPage[],
+  spec: KindSpec,
+  llm: LlmClient,
+  valid: Set<number>,
+  banner: string | undefined,
+  opts: { signal?: AbortSignal } = {},
+): Promise<{ claims: AnalysisClaim[]; banner?: string }> {
+  const mappedCount = claims.length;
+  if (mappedCount <= LEDGER_REDUCE_THRESHOLD) {
+    const capped = mappedCount > LEDGER_MAX_CLAIMS ? claims.slice(0, LEDGER_MAX_CLAIMS) : claims;
+    return { claims: capped, banner };
+  }
+  try {
+    const reduced = await reduceLedgerClaims(claims, spec, llm, valid, opts);
+    const base = banner || (pages.length > 1 ? `已扫描全文 ${pages.length} 页` : undefined);
+    return {
+      claims: reduced,
+      banner: base ? `${base} · 候选 ${mappedCount} 条 → 归并 ${reduced.length} 条承重论断` : `候选 ${mappedCount} 条 → 归并 ${reduced.length} 条承重论断`,
+    };
+  } catch {
+    const fallback = sortClaimsByPage(claims).slice(0, LEDGER_MAX_CLAIMS);
+    const base = banner || (pages.length > 1 ? `已扫描全文 ${pages.length} 页` : undefined);
+    return {
+      claims: fallback,
+      banner: base ? `${base} · 归并未成功，已保留前 ${fallback.length} 条` : `归并未成功，已保留前 ${fallback.length} 条`,
+    };
+  }
 }
 
 function sortClaimsByPage(claims: AnalysisClaim[]): AnalysisClaim[] {
@@ -312,7 +386,12 @@ async function runStructuredMapReduce(
   if (!claims.length) {
     throw new Error("分段扫描返回了结构，但均无有效文本。请重试或更换模型。");
   }
-  if (kind === "citerole" && claims.length > CITEROLE_MAX_CLAIMS) {
+  let banner = coverageBanner(pages, chunks.length, hitChunks);
+  if (kind === "ledger") {
+    const fin = await finalizeLedgerClaims(claims, pages, spec, llm, valid, banner, opts);
+    claims = fin.claims;
+    banner = fin.banner;
+  } else if (kind === "citerole" && claims.length > CITEROLE_MAX_CLAIMS) {
     claims = claims.slice(0, CITEROLE_MAX_CLAIMS);
   }
   return {
@@ -323,7 +402,7 @@ async function runStructuredMapReduce(
     model: llm.model,
     title: spec.title,
     framing: spec.framing,
-    banner: coverageBanner(pages, chunks.length, hitChunks),
+    banner,
     claims,
   };
 }
@@ -331,7 +410,7 @@ async function runStructuredMapReduce(
 // 每个 kind 的指令（用 JSON 形状的"文字描述"而非字面 JSON，避免源码内裸引号；模型仍只输出 JSON）。
 const PROMPTS: Record<string, string> = {
   cars: "重建作者论证逻辑（CARS 五步：① 确立领域重要性 → ② 指出研究空白 → ③ 提出占位即本研究如何填补 → ④ 方法选择的论证 → ⑤ 贡献声明），依据 Introduction 与相关工作。" + ZH_TEXT_RULE + "输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text（一步，可带「① 确立领域重要性」前缀）与 pageRefs（页码整数数组）。只输出该 JSON。",
-  ledger: "通读全文，列出每条承重论断及其证据（含引言、方法、结果、讨论、结论各节；不要只列前几页背景，也不要整篇只给 2–3 条主题概括）。" + ZH_TEXT_RULE + "每条 text 必须用「论断：…；证据：…」格式（各一句：论断是作者主张什么，证据是数据/引用/推理依据）。综述、理论评论、立场文章也要按段拆细到可核对的主张—依据对，不要合并成宏观摘要。对每条标注 evidenceType，取值为 internal_data（本研究内部数据）、cites_others（引用他人，非本研究证明）、author_inference（作者推断，非直接实验之一）。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text、evidenceType、pageRefs（页码整数数组）；当 evidenceType 为 author_inference 时再加字段 flag 取值 needs_recheck。只输出该 JSON。",
+  ledger: "通读全文，列出承重论断及其证据（含引言、方法、结果、讨论、结论各节；不要只列前几页背景，也不要整篇只给 2–3 条主题概括）。" + ZH_TEXT_RULE + "每条 text 必须用「论断：…；证据：…」格式（各一句：论断是作者主张什么，证据是数据/引用/推理依据）。优先承重主张，跳过琐碎背景句；长文分段扫描后会归并为最多约 40 条，此处勿穷举每句。对每条标注 evidenceType，取值为 internal_data（本研究内部数据）、cites_others（引用他人，非本研究证明）、author_inference（作者推断，非直接实验之一）。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text、evidenceType、pageRefs（页码整数数组）；当 evidenceType 为 author_inference 时再加字段 flag 取值 needs_recheck。只输出该 JSON。",
   recipe: "抽取可复用的方法配方，分为：设计、数据与队列、结局定义、验证或测量指标、统计方法。" + ZH_TEXT_RULE + "输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text（可带「设计：」这类前缀）与 pageRefs（页码整数数组）。只输出该 JSON。",
   repro: "对照预测模型/临床研究报告规范（TRIPOD、CONSORT、PRISMA 思路），逐项核查本文是否报告了：样本量与时间窗、结局定义、缺失数据处理、数据可得性声明、代码或模型可得性、研究预注册等。" + ZH_TEXT_RULE + "对每项给字段 status，取值为 ok（已报告）、warn（缺失或未见声明）、no（明确未做）。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text、status、pageRefs（status 非 ok 且文中无对应位置时 pageRefs 可为空数组）。不要把未报告的项说成已报告。只输出该 JSON。",
   falsify: "抽取作者自陈的可证伪边界：什么观察会推翻其结论、或在什么条件下结论不成立。" + ZH_TEXT_RULE + "若作者未给出明确的可证伪条件，则输出一条 text 说明未陈述可证伪条件、并加字段 flag 取值 unstated——这本身是一个值得注意的发现。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text、pageRefs（页码整数数组）与可选的 flag。只输出该 JSON。",
@@ -359,10 +438,14 @@ async function runStructured(kind: string, pages: ReaderPage[], spec: KindSpec, 
   const claims = mapClaimsFromArray(arr, kind, spec, valid);
   assertStructuredClaims(kind, raw, parsed, claims);
   let outClaims = claims;
-  if (kind === "citerole" && outClaims.length > CITEROLE_MAX_CLAIMS) {
+  let banner = pages.length > 1 ? `已扫描全文 ${pages.length} 页` : undefined;
+  if (kind === "ledger") {
+    const fin = await finalizeLedgerClaims(outClaims, pages, spec, llm, valid, banner, opts);
+    outClaims = fin.claims;
+    banner = fin.banner;
+  } else if (kind === "citerole" && outClaims.length > CITEROLE_MAX_CLAIMS) {
     outClaims = outClaims.slice(0, CITEROLE_MAX_CLAIMS);
   }
-  const banner = pages.length > 1 ? `已扫描全文 ${pages.length} 页` : undefined;
   return { kind, lane: spec.lane, groundability: spec.groundability, sourceBasis: "fulltext", model: llm.model, title: spec.title, framing: spec.framing, banner, claims: outClaims };
 }
 

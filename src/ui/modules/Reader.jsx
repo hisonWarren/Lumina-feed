@@ -96,6 +96,16 @@ const READER_CSS = `
 .ev-note b{color:var(--goldDim);font-weight:600}
 .ev-more{display:flex;align-items:center;justify-content:center;gap:5px;width:100%;border:none;border-top:1px solid var(--line2);background:var(--surf2);color:var(--goldDim);padding:8px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit}
 .ev-more:hover{background:rgba(14,124,111,.08)}
+.ledger-filters{display:flex;flex-wrap:wrap;gap:5px;padding:8px 11px;border-bottom:1px solid var(--line2)}
+.ledger-filter{border:1px solid var(--line2);background:var(--surf2);border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer;font-family:inherit;color:var(--inkSoft)}
+.ledger-filter.on{background:rgba(14,124,111,.12);border-color:var(--goldLine);color:var(--goldDim);font-weight:600}
+.ledger-filter:hover{border-color:var(--goldLine)}
+.ledger-page-group{border-bottom:1px solid var(--line2)}
+.ledger-page-sum{padding:6px 11px;font-size:11px;font-weight:600;color:var(--inkSoft);cursor:pointer;list-style:none}
+.ledger-page-sum::-webkit-details-marker{display:none}
+.ledger-pager{display:flex;align-items:center;justify-content:center;gap:10px;padding:8px;border-top:1px solid var(--line2);font-size:11.5px;color:var(--inkSoft)}
+.ledger-pager button{border:1px solid var(--line2);background:var(--surf2);border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;font-family:inherit;color:var(--ink)}
+.ledger-pager button:disabled{opacity:.4;cursor:default}
 .gbadge{margin-left:auto;display:inline-flex;align-items:center;gap:4px;font-family:'Space Mono',monospace;font-size:9px;color:var(--goldDim);background:rgba(14,124,111,.10);border:1px solid rgba(14,124,111,.30);border-radius:5px;padding:1px 6px;white-space:nowrap}
 .ibadge{display:inline-flex;align-items:center;gap:4px;font-family:'Space Mono',monospace;font-size:9px;color:var(--amberDim);background:var(--amberTint);border:1px solid var(--amberLine);border-radius:5px;padding:1px 6px;white-space:nowrap}
 .ev-claim{display:flex;flex-direction:column;gap:5px;padding:9px 11px;border-bottom:1px solid var(--line2);font-size:12.5px;line-height:1.6;color:var(--ink)}
@@ -746,9 +756,95 @@ function ConfChip({ lvl }) {
 const EV_PAGE_LEDGER = 12;
 const EV_PAGE_CITER = 8;
 const CITEROLE_UI_CAP = 20;
-function EvidenceCard({ env, onGoto }) {
+const LEDGER_FILTERS = [
+  { id: "all", label: "全部" },
+  { id: "internal_data", label: "内部数据" },
+  { id: "cites_others", label: "引用他人" },
+  { id: "author_inference", label: "作者推断" },
+];
+function LedgerClaimRow({ c, onGoto }) {
+  return (
+    <div className="ev-claim">
+      <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
+        {c.status && <StatusIcon s={c.status} />}
+        <span>{c.text}{c.flag === "needs_recheck" && <span className="evtype" style={{ marginLeft: 6, color: "var(--amberDim)", borderColor: "var(--amberLine)" }}>需核对</span>}</span>
+      </div>
+      <div className="ev-meta">{c.evidenceType && <span className="evtype">{EVTYPE[c.evidenceType] || c.evidenceType}</span>}<Cites refs={c.pageRefs} onGoto={onGoto} /></div>
+    </div>
+  );
+}
+function LedgerClaimsView({ claims, onGoto }) {
+  const [filter, setFilter] = useState("all");
+  const [pageIdx, setPageIdx] = useState(0);
+  const filtered = useMemo(() => {
+    if (filter === "all") return claims;
+    return claims.filter((c) => c.evidenceType === filter);
+  }, [claims, filter]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / EV_PAGE_LEDGER));
+  const pageClaims = useMemo(
+    () => filtered.slice(pageIdx * EV_PAGE_LEDGER, (pageIdx + 1) * EV_PAGE_LEDGER),
+    [filtered, pageIdx],
+  );
+  const pageGrouped = useMemo(() => {
+    const m = new Map();
+    for (const c of pageClaims) {
+      const pg = c.pageRefs?.[0] ?? 0;
+      if (!m.has(pg)) m.set(pg, []);
+      m.get(pg).push(c);
+    }
+    return [...m.entries()].sort((a, b) => (a[0] || 9999) - (b[0] || 9999));
+  }, [pageClaims]);
+  useEffect(() => { if (pageIdx >= totalPages) setPageIdx(Math.max(0, totalPages - 1)); }, [pageIdx, totalPages]);
+  return (
+    <>
+      <div className="ledger-filters">
+        {LEDGER_FILTERS.map((f) => {
+          const n = f.id === "all" ? claims.length : claims.filter((c) => c.evidenceType === f.id).length;
+          return (
+            <button key={f.id} type="button" className={"ledger-filter" + (filter === f.id ? " on" : "")} onClick={() => { setFilter(f.id); setPageIdx(0); }}>
+              {f.label}{n ? ` (${n})` : ""}
+            </button>
+          );
+        })}
+      </div>
+      {filtered.length === 0
+        ? <div className="ev-empty"><Info size={13} />该分类下暂无条目</div>
+        : <>
+            {pageGrouped.map(([pg, items]) => (
+              <details key={pg} className="ledger-page-group" open>
+                <summary className="ledger-page-sum">{pg ? `第 ${pg} 页` : "未标页码"} · {items.length} 条</summary>
+                {items.map((c, i) => <LedgerClaimRow key={i} c={c} onGoto={onGoto} />)}
+              </details>
+            ))}
+            {totalPages > 1 && (
+              <div className="ledger-pager">
+                <button type="button" disabled={pageIdx <= 0} onClick={() => setPageIdx((p) => p - 1)}><ChevronUp size={13} /> 上一页</button>
+                <span>{pageIdx + 1} / {totalPages} · 本页 {pageClaims.length} 条</span>
+                <button type="button" disabled={pageIdx >= totalPages - 1} onClick={() => setPageIdx((p) => p + 1)}>下一页 <ChevronDown size={13} /></button>
+              </div>
+            )}
+          </>}
+    </>
+  );
+}
+function LedgerEvidenceCard({ env, onGoto }) {
   const claims = env.claims || [];
-  const pageSize = env.kind === "citerole" ? EV_PAGE_CITER : env.kind === "ledger" ? EV_PAGE_LEDGER : EV_PAGE_CITER;
+  return (
+    <div className="ev-card">
+      <div className="ev-top"><Layers size={14} /> <span className="ev-title">{env.title}</span><span className="gbadge"><Shield size={9} /> 接地·带页码</span></div>
+      {env.banner && <div className="ev-note" style={{ margin: "8px 11px 0" }}><Info size={12} /><div>{env.banner}</div></div>}
+      {env.framing && <div className="framing" style={{ margin: "9px 11px 0" }}><Info size={13} /><div>{env.framing}</div></div>}
+      <div className="ev-note"><Scale size={12} /><div>承重论断账本：长文先分段抽候选，再<b>归并为最多约 40 条</b>可核对主张。可按证据类型筛选、按页分组浏览；综述以「引用他人」为主属正常。</div></div>
+      {claims.length === 0
+        ? <div className="ev-empty"><Info size={13} />{env.banner || "未能从本篇正文提取到可标注页码的条目。可点「重新生成」重试，或在设置里换更强的模型。"}</div>
+        : <LedgerClaimsView claims={claims} onGoto={onGoto} />}
+    </div>
+  );
+}
+function EvidenceCard({ env, onGoto }) {
+  if (env.kind === "ledger") return <LedgerEvidenceCard env={env} onGoto={onGoto} />;
+  const claims = env.claims || [];
+  const pageSize = env.kind === "citerole" ? EV_PAGE_CITER : EV_PAGE_CITER;
   const [shown, setShown] = useState(pageSize);
   const isCite = env.kind === "citerole";
   const visible = claims.slice(0, shown);
@@ -759,7 +855,6 @@ function EvidenceCard({ env, onGoto }) {
       {env.banner && <div className="ev-note" style={{ margin: "8px 11px 0" }}><Info size={12} /><div>{env.banner}</div></div>}
       {env.framing && <div className="framing" style={{ margin: "9px 11px 0" }}><Info size={13} /><div>{env.framing}</div></div>}
       {isCite && <div className="ev-note"><Link2 size={12} /><div>这里是<b>正文里被讨论到的关键引用</b>各起什么作用（背景 / 方法 / 数据 / 对照…），最多展示 {CITEROLE_UI_CAP} 处，<b>不是完整参考文献表</b>。全部书目 → 在「我的文献」<b>导出到 Zotero</b>。</div></div>}
-      {env.kind === "ledger" && <div className="ev-note"><Scale size={12} /><div>每条为「论断 → 证据」对，按页码排列。综述/评论文以<b>引用他人</b>为主属正常；若条目偏少，点「重新生成」——长文会分段扫描全文。</div></div>}
       {claims.length === 0
         ? <div className="ev-empty"><Info size={13} />{env.banner || "未能从本篇正文提取到可标注页码的条目。可点「重新生成」重试，或在设置里换更强的模型。"}</div>
         : <>

@@ -14,6 +14,7 @@ ok(/evidenceType.*internal_data.*cites_others.*author_inference/s.test(rp) || /l
 ok(/repro:[^]*status/.test(rp), "repro prompt 要求逐项 status，且不得把未报告说成已报告");
 ok(/falsify:[^]*unstated/.test(rp), "falsify prompt：未陈述可证伪条件→flag unstated（本身是发现）");
 ok(/runStructuredMapReduce/.test(rp) && /needsMapReduce/.test(rp), "长文档 map-reduce 全文扫描（runStructuredMapReduce）");
+ok(/reduceLedgerClaims/.test(rp) && /LEDGER_MAX_CLAIMS/.test(rp), "账本 reduce 归并 + 承重上限（非仅 map 拼接）");
 ok(/ZH_TEXT_RULE/.test(rp) && /用简体中文写每条 text/.test(rp), "结构化分析输出简体中文（保留英文术语括号）");
 const rd = R("src/ui/modules/Reader.jsx");
 ok(/const DEEP_TOOLS = \[/.test(rd) && six.every((k) => rd.includes('"' + k + '"')), "EvidencePane 六工具齐（DEEP_TOOLS）");

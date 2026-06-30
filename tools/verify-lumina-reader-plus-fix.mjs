@@ -30,7 +30,7 @@ ok(/function bodyFor/.test(rp) && /kind === "citerole"\)\s*return pagesTextHeadT
 ok(/throw new Error\("模型输出无法解析为结构化 JSON/.test(rp) || /throw new Error\("模型 JSON 缺少 claims/.test(rp), "结构化硬失败→抛错（可见 analysisError），不再静默返回空账本");
 ok(/CLAIM_ARRAY_KEYS/.test(rp) && /pickClaimsArray/.test(rp) && /outline/.test(rp), "claims 解析兼容 outline/sections/items 等别名字段");
 ok(/模型未返回任何内容/.test(rp) && /均无有效文本/.test(rp), "空输出/空条目/无文本 分因抛错，不再静默空卡");
-ok(/citerole:[^]*被讨论到/.test(rp) && (/CITEROLE_MAX_CLAIMS/.test(rp) || /最多 20 条/.test(rp)), "引文角色 A1+：in-text 讨论 + 硬上限 20（非完整书目）");
+ok(/reduceLedgerClaims/.test(rp) && /LEDGER_MAX_CLAIMS/.test(rp) && /finalizeLedgerClaims/.test(rp), "账本 map→reduce 归并 + 承重论断硬上限（防 300+ 条爆炸）");
 ok(/flowmap:[^]*分支/.test(rp) && /只画正文写明的环节/.test(rp), "逻辑图 prompt 去固定流水线，按论文真实结构（可分支/并行/回路）");
 ok(!/预处理.{0,4}建模.{0,4}评测/.test(rp), "旧固定模板「数据→预处理→建模→评测→结论」已移除");
 
@@ -42,7 +42,9 @@ ok(/function renderInline/.test(rd) && /renderInline[\s\S]{0,600}<strong/.test(r
 ok(!/\.rd-ai-body\{[^}]*pre-wrap/.test(rd) && !/\.rd-ai-a\{[^}]*pre-wrap/.test(rd), "AI 正文去 white-space:pre-wrap（改由 .rd-md 行结构排版）");
 ok(/\.inf-title\s*\{/.test(rd) && /\.inf-h\{[^}]*flex-wrap/.test(rd), "推读卡头 .inf-h 改 flex-wrap，标题 .inf-title 可占整行（修竖排）");
 ok((rd.match(/className="inf-title"/g) || []).length >= 3, "三处推读卡标题均包入 .inf-title（InfCard / InfAnalyzer / 图表分析）");
-ok(/EV_PAGE_LEDGER/.test(rd) && /EV_PAGE_CITER/.test(rd) && /setShown\(/.test(rd) && /className="ev-more"/.test(rd), "证据卡 claim 列表分页（账本 12 / 引文 8 + 展开收起）");
+ok(/citerole:[^]*被讨论到/.test(rp) && (/CITEROLE_MAX_CLAIMS/.test(rp) || /最多 20 条/.test(rp)), "引文角色 A1+：in-text 讨论 + 硬上限 20（非完整书目）");
+ok(/EV_PAGE_LEDGER/.test(rd) && /EV_PAGE_CITER/.test(rd) && /LedgerClaimsView/.test(rd) && /ledger-pager/.test(rd) && /ledger-filter/.test(rd), "账本：类型筛选 + 按页分组 + 分页（非一次展开 300+ 条）");
+ok(/setShown\(/.test(rd) && /className="ev-more"/.test(rd), "引文角色等证据卡仍保留展开收起");
 ok(/className="ev-empty"/.test(rd) && /未.*提取到可标注页码的条目/.test(rd), "证据卡空态提示（账本/引文角色为空时不再白屏）");
 ok(/className="ev-note"/.test(rd) && /不是完整参考文献表/.test(rd) && /导出到 Zotero/.test(rd), "引文角色范围注：非完整书目→导出 Zotero（不滑向文献管理器）");
 ok(/function nodeColor/.test(rd) && /className="rd-gedge"/.test(rd) && /const d = "M"[\s\S]{0,90}" C"/.test(rd), "逻辑图美化：阶段配色节点 + 贝塞尔曲线连线");
