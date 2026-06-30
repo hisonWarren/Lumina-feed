@@ -460,13 +460,26 @@ export const bridge = {
   async subsRunNow(sub, opts = {}) {
     const api = A(); if (!api || !api.subsRunNow) return { ok: false, mock: true, hits: [] };
     const q = (sub && sub.q) || "";
+    const subId = sub && sub.id;
     let stopProgress = null;
     let stopUpdated = null;
+    let updatedTimer = null;
     if (api.onSubsProgress && opts.onProgress) {
-      stopProgress = api.onSubsProgress(opts.onProgress);
+      stopProgress = api.onSubsProgress((p) => {
+        if (subId && p && p.subId && p.subId !== subId) return;
+        opts.onProgress(p);
+      });
     }
     if (api.onSubsUpdated && opts.onUpdated) {
-      stopUpdated = api.onSubsUpdated(opts.onUpdated);
+      const detachUpdated = () => {
+        if (updatedTimer) { clearTimeout(updatedTimer); updatedTimer = null; }
+        if (stopUpdated) { stopUpdated(); stopUpdated = null; }
+      };
+      stopUpdated = api.onSubsUpdated((payload) => {
+        if (subId && payload && payload.subId && payload.subId !== subId) return;
+        try { opts.onUpdated(payload); } finally { detachUpdated(); }
+      });
+      updatedTimer = setTimeout(detachUpdated, 15 * 60 * 1000);
     }
     try {
       const r = (await api.subsRunNow(sub, { asyncAi: opts.asyncAi !== false })) || { ok: true, hits: [] };
@@ -474,7 +487,6 @@ export const bridge = {
     } catch (e) { return { ok: false, hits: [] }; }
     finally {
       if (stopProgress) stopProgress();
-      if (stopUpdated) stopUpdated();
     }
   },
   async subsPreview(draft) {

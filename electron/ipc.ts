@@ -1894,9 +1894,11 @@ async function runSubscriptionNow(
             if (sender && !sender.isDestroyed()) sender.send("subs:updated", { subId, ai: aiMeta });
             scheduleDigestReport(store, secrets, "all");
           } catch {
+            emitSubsProgress(sender, subId, { phase: "ai", mode: mode as "blurb", current: 0, total: 0, label: "AI 失败" });
             if (sender && !sender.isDestroyed()) sender.send("subs:updated", { subId, ai: { status: "failed", mode } });
           }
         })();
+        emitSubsProgress(sender, subId, { phase: "search", mode: "off", current: 1, total: 1, label: "检索完成" });
         return { ok: true, hits: todayMerged, newCount: fresh.length, perSource: meta.perSource, meta, preview, aiSkippedReason: undefined };
       }
       const { patchById, aiMeta } = await runDigestAiPhase(mode, norm, todayMerged, fresh, preview, store, secrets, subId, onProgress);
@@ -1913,6 +1915,7 @@ async function runSubscriptionNow(
       } catch { /* 持久化失败不阻断 */ }
       scheduleDigestReport(store, secrets, "all");
     }
+    emitSubsProgress(sender, subId, { phase: "search", mode: "off", current: 1, total: 1, label: "检索完成" });
     return {
       ok: true,
       hits: todayMerged,

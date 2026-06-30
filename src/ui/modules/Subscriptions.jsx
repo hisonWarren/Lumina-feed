@@ -40,8 +40,8 @@ const SUBS_CSS = `
 .suball{cursor:pointer;text-align:left}
 .addsub{margin-top:4px;display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px dashed var(--line2);background:transparent;color:var(--ink2);border-radius:11px;padding:10px;font-size:13px;cursor:pointer;font-family:inherit}
 .addsub:hover{border-color:var(--gold);color:var(--gold)}
-.digest{flex:1;min-width:0;display:flex;flex-direction:column}
-.dg-head{padding:22px 26px 14px;border-bottom:1px solid var(--line)}
+.digest{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
+.dg-head{flex-shrink:0;padding:22px 26px 14px;border-bottom:1px solid var(--line);background:var(--surf)}
 .dg-h1row{display:flex;align-items:flex-start;gap:14px}
 .dg-head h1{font-family:'Source Serif 4',Georgia,serif;font-size:24px;font-weight:600;margin:0;color:var(--ink)}
 .dg-date{font-family:'Space Mono',monospace;font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.1em;margin-top:6px}
@@ -438,19 +438,26 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
     pushToast && pushToast(sub.name || sub.q ? "订阅已保存" : "订阅已保存");
   }, [pushToast, onSubsChange]);
   const subRunNow = useCallback(async (sub) => {
+    const subId = sub.id;
     setRunProgress({ label: "检索中…", current: 0, total: 0 });
     const r = await bridge.subsRunNow(sub, {
-      onProgress: (p) => setRunProgress({ label: p.label || "处理中…", current: p.current || 0, total: p.total || 0 }),
-      onUpdated: async ({ subId }) => {
+      onProgress: (p) => {
+        if (p?.subId && p.subId !== subId) return;
+        setRunProgress({ label: p.label || "处理中…", current: p.current || 0, total: p.total || 0 });
+      },
+      onUpdated: async ({ subId: sid, ai }) => {
+        if (sid !== subId) return;
         const list = await bridge.subsList();
-        const updated = list.find((x) => x.id === subId);
-        if (updated) setSubs((s) => s.map((x) => (x.id === subId ? updated : x)));
+        const updated = list.find((x) => x.id === sid);
+        if (updated) setSubs((s) => s.map((x) => (x.id === sid ? updated : x)));
         setRunProgress(null);
         onSubsChange?.();
-        pushToast && pushToast("简报 AI 内容已更新");
+        if (ai && ai.status !== "failed") pushToast && pushToast("简报 AI 内容已更新");
       },
     });
-    if (r?.meta?.ai?.status === "queued") {
+    const aiQueued = r?.meta?.ai?.status === "queued";
+    if (aiQueued) {
+      setRunProgress({ label: "AI 内容生成中…", current: 0, total: 0 });
       pushToast && pushToast("检索完成，正在后台生成 AI 内容…");
     } else {
       setRunProgress(null);
@@ -566,6 +573,16 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
   const visibleLimit = (gid) => loadMore[gid] || DIGEST_PAGE;
   const bumpLoad = (gid, totalN) => setLoadMore((m) => ({ ...m, [gid]: Math.min(totalN, (m[gid] || DIGEST_PAGE) + DIGEST_PAGE) }));
 
+  const reportBusyRef = useRef(false);
+  useEffect(() => {
+    const busy = !!(reportGenerating || digestReport?.status === "generating");
+    if (busy && !reportBusyRef.current && viewMode === "scan") {
+      setReportCollapsed(false);
+      try { localStorage.setItem("lumina_digest_report_collapsed", "0"); } catch { /* ignore */ }
+    }
+    reportBusyRef.current = busy;
+  }, [reportGenerating, digestReport?.status, viewMode]);
+
   useEffect(() => {
     if (!onActivityChange) return;
     const busy = !!(reportGenerating || runProgress || digestReport?.status === "generating");
@@ -656,13 +673,6 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
               <button type="button" role="tab" aria-selected={viewMode === "retro"} className={viewMode === "retro" ? "on" : ""} onClick={() => setViewMode("retro")}>回顾</button>
             </div>
           )}
-          {runProgress && (
-            <div className="dg-run-progress">
-              <Loader size={14} className="dg-spin" />
-              <span>{runProgress.label}</span>
-              {runProgress.total > 0 && <span className="dg-run-frac">{runProgress.current}/{runProgress.total}</span>}
-            </div>
-          )}
           {!backend && <div className="dg-note"><Info size={15} /> 原型模式：订阅（含按期刊）可建/编辑/管理，但「今日命中」需引擎按计划真实检索——关键词按检索式、期刊按 ISSN/刊名匹配各源（PubMed/Crossref/OpenAlex）。接入 Electron 引擎后，每日新发表会自动出现在这里。</div>}
           {backend && subs.length > 0 && !subsBgHintDismissed && (
             <div className="dg-note">
@@ -677,6 +687,13 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
           )}
         </div>
         <div className="dg-list">
+          {runProgress && (
+            <div className="dg-run-progress dg-run-progress-top" role="status" aria-live="polite">
+              <Loader size={14} className="dg-spin" />
+              <span>{runProgress.label}</span>
+              {runProgress.total > 0 && <span className="dg-run-frac">{runProgress.current}/{runProgress.total}</span>}
+            </div>
+          )}
           {loading ? (
             <div className="dg-empty"><Loader size={22} className="dg-spin" /><p>读取订阅…</p></div>
           ) : subs.length === 0 ? (
