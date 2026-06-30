@@ -931,7 +931,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                   {userDataPath ? (
                     <p className="set-mono" style={{ marginTop: 10, fontSize: 12.5, wordBreak: "break-all" }}>本机数据：{userDataPath}</p>
                   ) : null}
-                  <p style={{ marginTop: 10 }}>检索并行覆盖 20 个来源（开放 API 与 LibGen、Anna's Archive 等）；结果为有界 lookup，非全库浏览。取文须点「获取全文」，OA 与备用库自动串联；不含 Google Scholar 或 Web of Science / Scopus 等商业库。</p>
+                  <p style={{ marginTop: 10 }}>检索并行覆盖 20 个来源（开放 API 与 LibGen、Anna&apos;s Archive 等）；结果是候选级检索，不提供库镜像式遍历。取文须点「获取全文」，OA 与备用库自动串联；不含 Google Scholar 或 Web of Science / Scopus 等商业库。</p>
                   <p style={{ marginTop: 10 }}><b>底线（始终成立）</b></p>
                   <p>· 全文按 OA → LibGen → Anna's Archive → Sci-Hub 顺序自动尝试；<br />· AI 只排序 / 总结，从不替你裁决纳入或排除；<br />· 密钥只入 OS 钥匙串，绝不写配置或代码；<br />· 每条总结都带依据徽章与页码引用，可回原文核对；<br />· 预印本标注「未经同行评议」、已撤稿明确提示；<br />· 数据、PDF 与索引都在本机。</p>
                 </div>

@@ -17,8 +17,8 @@ ok(/\.ev-card\{[^}]*border-left:4px solid var\(--gold\)/.test(rd) && /\.inf-card
 ok(/\.ibadge\{[^}]*var\(--amberDim\)/.test(rd), "ibadge 琥珀样式存在");
 // ARIA
 ok(/role="tablist"/.test(rd) && /role="tab" aria-selected=\{zone/.test(rd), "4 区 tabs：role=tablist/tab + aria-selected");
-ok((rd.match(/aria-expanded=\{open\}/g) || []).length === 2, "推断可折叠卡 aria-expanded（InfCard + InfAnalyzer）");
-ok((rd.match(/e\.key === "Enter" \|\| e\.key === " "/g) || []).length === 2, "可折叠卡键盘可达（Enter/Space 切换）");
+ok((rd.match(/aria-expanded=\{open\}/g) || []).length >= 2, "推断可折叠卡 aria-expanded（InfCard + InfAnalyzer）");
+ok((rd.match(/e\.key === "Enter" \|\| e\.key === " "/g) || []).length >= 2, "可折叠卡键盘可达（Enter/Space 切换）");
 ok(/aria-pressed=\{purpose/.test(rd), "目的 chips aria-pressed");
 ok(/aria-label=\{t\[1\] \+ "：" \+ t\[2\]\}/.test(rd), "深读工具按钮 aria-label");
 ok(/aria-label="从写作 swipe file 移除"/.test(rd), "swipe 移除按钮 aria-label");

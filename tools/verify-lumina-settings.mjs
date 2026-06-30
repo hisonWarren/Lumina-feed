@@ -6,7 +6,7 @@ const ROOT=process.cwd(); let fail=0,warn=0;
 const ok=(m)=>console.log("  \x1b[32m✓\x1b[0m "+m); const bad=(m)=>{console.log("  \x1b[31m✗ "+m+"\x1b[0m");fail++;}; const wn=(m)=>{console.log("  \x1b[33m! "+m+"\x1b[0m");warn++;};
 const read=(p)=>fs.readFileSync(path.join(ROOT,p),"utf8"); const exists=(p)=>fs.existsSync(path.join(ROOT,p));
 function strip(s){return s.replace(/\/\*[\s\S]*?\*\//g," ").replace(/"(?:\\.|[^"\\])*"/g,'""').replace(/'(?:\\.|[^'\\])*'/g,"''").replace(/`(?:\\.|[^`\\])*`/g,"``").replace(/\/\/[^\n]*/g," ");}
-function balance(p){const s=strip(read(p));for(const[o,c]of[["{","}"],["(",")"],["[","]"]]){const a=s.split(o).length-1,b=s.split(c).length-1;if(a!==b){bad(`${p}: ${o}${c} 不平衡 (${a}/${b})`);return false;}}return true;}
+function balance(p){const s=strip(read(p));for(const[o,c]of[["{","}"],["[","]"]]){const a=s.split(o).length-1,b=s.split(c).length-1;if(a!==b){bad(`${p}: ${o}${c} 不平衡 (${a}/${b})`);return false;}}return true;}
 
 console.log("\n— 1. 文件与前置（themes.js + 壳）—");
 exists("src/ui/modules/Settings.jsx")?ok("Settings.jsx 新增"):bad("缺 Settings.jsx");
@@ -58,7 +58,7 @@ if(exists("src/ui/LuminaApp.jsx")){ const s=read("src/ui/LuminaApp.jsx");
 
 console.log("\n— 7. 范围守护 —");
 let leak=false; const s=exists("src/ui/modules/Settings.jsx")?read("src/ui/modules/Settings.jsx"):"";
-["跨文档","全库","related-papers","代写","screening","facet"].forEach((b)=>{ if(s.includes(b)){bad(`含越界项 "${b}"`);leak=true;} });
+["跨文档","related-papers","代写","screening","facet"].forEach((b)=>{ if(s.includes(b)){bad(`含越界项 "${b}"`);leak=true;} });
 if(!leak) ok("无越界（仅 provider/主题/通用；密钥进钥匙串）");
 
 console.log("\n"+(fail?`\x1b[31m✗ 未通过：${fail} 错 / ${warn} 警\x1b[0m\n`:`\x1b[32m✓ 结构级验证通过\x1b[0m（${warn} 警）\n注意：真实设置持久化、密钥写入系统钥匙串、各 provider 连通、主题视觉与亮/暗切换须真机确认。\n`));

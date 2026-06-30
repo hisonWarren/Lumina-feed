@@ -665,7 +665,6 @@ const EVTYPE = { internal_data: "内部数据", cites_others: "引用他人", au
 const PURPOSE_REC = { replicate: ["recipe", "repro"], cite: ["citerole", "cars"], critique: ["ledger", "falsify"], borrow: ["recipe"] };
 const PURPOSE_HINT = { replicate: "已为「复现/设计」推荐：方法配方 + 可复现性清单。", cite: "已为「引为背景」推荐：引文角色 + 论证逻辑。", critique: "已为「批判性评估」推荐：claim 账本 + 可证伪边界；并建议看『推读』的硬核/保护带。", borrow: "已为「借方法/写法」推荐：方法配方；划词可提取写作观察。" };
 const DEEP_TOOLS = [["cars", "论证逻辑", "作者如何论证选题（CARS）", Target], ["ledger", "claim 账本", "每条论断给了什么证据", Scale], ["recipe", "方法配方", "可复用的研究设计骨架", FlaskConical], ["repro", "可复现性", "对照 TRIPOD 清单核查", ListChecks], ["falsify", "可证伪边界", "什么观察会推翻它", Target], ["citerole", "引文角色", "每条引用起什么作用", Link2]];
-const LEDGER_CACHE_CAP = 40;
 function safeEnvText(v) {
   if (v == null) return "";
   if (typeof v === "string") return v;
@@ -683,7 +682,6 @@ function ledgerEmptyHint(env) {
   return "未能从本篇正文提取到可标注页码的条目。可点「重新生成」重试，或在设置里换更强的模型。";
 }
 const CITEROLE_UI_CAP = 20;
-/** 旧版 ledger 缓存常为 300+ 条且 claims 形态不一；加载时归一化，避免深读挂载即白屏。 */
 function asClaimArray(claims) {
   if (Array.isArray(claims)) return claims;
   if (claims && typeof claims === "object") {
@@ -717,12 +715,6 @@ function normalizeCachedEnv(env, kind) {
     out.refused = { ...out.refused, reason: safeEnvText(out.refused.reason) };
   }
   let claims = asClaimArray(out.claims).map(normalizeClaimRow).filter(Boolean);
-  const rawLen = claims.length;
-  if (out.kind === "ledger" && claims.length > LEDGER_CACHE_CAP) {
-    const note = `检测到旧版 claim 账本缓存（${rawLen} 条），已按新版展示前 ${LEDGER_CACHE_CAP} 条；点「重新生成」可获归并后的完整结果。`;
-    out.banner = out.banner ? `${out.banner} ${note}` : note;
-    claims = claims.slice(0, LEDGER_CACHE_CAP);
-  }
   if (out.kind === "citerole" && claims.length > CITEROLE_UI_CAP) claims = claims.slice(0, CITEROLE_UI_CAP);
   out.claims = claims;
   if (out.graph && typeof out.graph === "object") {
@@ -731,41 +723,21 @@ function normalizeCachedEnv(env, kind) {
       edges: Array.isArray(out.graph.edges) ? out.graph.edges : [],
     };
   }
-  out._normalized = rawLen !== claims.length || out.kind !== env.kind || !Array.isArray(env.claims);
-  const { _normalized, ...clean } = out;
-  return { ...clean, _normalized };
+  return out;
 }
 function cleanAnalysisEnv(env, kind) {
   if (!env) return null;
-  const n = normalizeCachedEnv(env, kind);
-  if (!n) return null;
-  const { _normalized, ...clean } = n;
-  return clean;
+  return normalizeCachedEnv(env, kind);
 }
 // 分析缓存键与 docKey 对齐（paper:/hash:/local:/文件名:字节），跨重开/切模块/导入后自动恢复。
 const analysisDocKey = readerDocKey;
 async function loadCachedAnalysis(source, kind) {
-  const keys = readerDocKeyCandidates(source);
-  if (!keys.length || !kind) return null;
+  const key = analysisDocKey(source);
+  if (!key || !kind) return null;
   try {
-    for (const key of keys) {
-      const raw = await bridge.readerAnalysisGet(key, kind);
-      if (!raw) continue;
-      const env = normalizeCachedEnv(raw, kind);
-      if (!env) continue;
-      const primary = analysisDocKey(source);
-      const saveKey = primary || key;
-      if (primary && key !== primary) {
-        const { _normalized, ...clean } = env;
-        bridge.readerAnalysisSave(primary, clean);
-      } else if (env._normalized) {
-        const { _normalized, ...clean } = env;
-        bridge.readerAnalysisSave(saveKey, clean);
-      }
-      const { _normalized, ...clean } = env;
-      return clean;
-    }
-    return null;
+    const raw = await bridge.readerAnalysisGet(key, kind);
+    if (!raw) return null;
+    return normalizeCachedEnv(raw, kind);
   } catch { return null; }
 }
 function saveCachedAnalysis(source, env) {
