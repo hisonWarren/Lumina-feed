@@ -57,9 +57,20 @@ export function normalizeLocalPath(p: string): string {
   return path.normalize(path.resolve(String(p || "").trim()));
 }
 
+/** 阅读缓存 docKey 用的本地路径段：统一正斜杠 + Windows 盘符小写，避免 D:/ 与 d:/ 各存一份。 */
+export function localPathDocKeySegment(p: string): string {
+  let s = path.resolve(String(p || "").trim()).replace(/\\/g, "/");
+  if (/^[A-Za-z]:\//.test(s)) s = s[0].toLowerCase() + s.slice(1);
+  return s;
+}
+
+export function localDocKey(p: string): string {
+  return `local:${localPathDocKeySegment(p)}`;
+}
+
 export function entryKeyFor(opts: { paperId?: string; localPath?: string }): string | null {
   if (opts.paperId) return `paper:${opts.paperId}`;
-  if (opts.localPath) return `local:${normalizeLocalPath(opts.localPath)}`;
+  if (opts.localPath) return localDocKey(opts.localPath);
   return null;
 }
 

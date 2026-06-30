@@ -3,7 +3,7 @@
 // 真实文本层(可选择) + 页内查找 + 大纲目录 + 划词解释/翻译/带页码问答/多色批注 + 截取读图 + 证据/推断分析。
 // 续读位置(按 docKey) · 键盘快捷键 · 夜读反色 · 抓手平移。真实 PDF 渲染/文本层/选择/查找/各交互仅真机可验。
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
-import { ArrowLeft, X, PanelLeft, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Minus, Plus, Maximize, RotateCw, RotateCcw, Expand, Download, Search, Sparkles, Send, Languages, Copy, RefreshCw, List, Images, Highlighter, StickyNote, Crop, Trash2, FileDown, Loader, AlertTriangle, Square, Rows3, Columns2, FileText, Shield, Info, Layers, Lightbulb, Eye, Ban, Target, Scale, FlaskConical, ListChecks, Link2, Check, Quote, Bookmark, Workflow, Map, Moon, Hand, ScanLine, Undo2, Redo2, BookMarked } from "lucide-react";
+import { ArrowLeft, X, PanelLeft, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Minus, Plus, Maximize, RotateCw, RotateCcw, Expand, Download, Search, Sparkles, Send, Languages, Copy, RefreshCw, List, Images, Highlighter, StickyNote, Crop, Trash2, FileDown, Loader, AlertTriangle, Square, Rows3, Columns2, FileText, Shield, Info, Layers, Lightbulb, Eye, Ban, Target, Scale, FlaskConical, ListChecks, Link2, Check, Quote, Bookmark, Workflow, Map as MapIcon, Moon, Hand, ScanLine, Undo2, Redo2, BookMarked } from "lucide-react";
 import { openPdf, getOutline, getPageStrings, extractPageTextForTranslate, renderTextLayer, destToPageNumber, fitWidthScale, getDocPages, splitCites, renderRegion } from "../pdf-engine.js";
 import { bridge } from "../lumina-bridge.js";
 import { persistSettings } from "../settings-persist.js";
@@ -665,6 +665,22 @@ const PURPOSE_REC = { replicate: ["recipe", "repro"], cite: ["citerole", "cars"]
 const PURPOSE_HINT = { replicate: "已为「复现/设计」推荐：方法配方 + 可复现性清单。", cite: "已为「引为背景」推荐：引文角色 + 论证逻辑。", critique: "已为「批判性评估」推荐：claim 账本 + 可证伪边界；并建议看『推读』的硬核/保护带。", borrow: "已为「借方法/写法」推荐：方法配方；划词可提取写作观察。" };
 const DEEP_TOOLS = [["cars", "论证逻辑", "作者如何论证选题（CARS）", Target], ["ledger", "claim 账本", "每条论断给了什么证据", Scale], ["recipe", "方法配方", "可复用的研究设计骨架", FlaskConical], ["repro", "可复现性", "对照 TRIPOD 清单核查", ListChecks], ["falsify", "可证伪边界", "什么观察会推翻它", Target], ["citerole", "引文角色", "每条引用起什么作用", Link2]];
 const LEDGER_CACHE_CAP = 40;
+function safeEnvText(v) {
+  if (v == null) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  try { return JSON.stringify(v); } catch { return ""; }
+}
+function ledgerEmptyHint(env) {
+  const b = safeEnvText(env?.banner);
+  if (/0\s*页|无正文|未能抽取|提取失败/i.test(b)) {
+    return "未能从本篇 PDF 抽取到可用正文（扫描版或加密 PDF 常见）。请换可复制文本的 PDF，或先在阅读器确认能划词选中文字。";
+  }
+  if (/候选\s*0\s*条|空条目|归并\s*0/i.test(b)) {
+    return "已扫描正文，但模型未抽出可标注页码的承重论断。综述/评论类文章以背景叙述为主时较常见；可点「重新生成」，或在设置里换更强的模型。";
+  }
+  return "未能从本篇正文提取到可标注页码的条目。可点「重新生成」重试，或在设置里换更强的模型。";
+}
 const CITEROLE_UI_CAP = 20;
 /** 旧版 ledger 缓存常为 300+ 条且 claims 形态不一；加载时归一化，避免深读挂载即白屏。 */
 function asClaimArray(claims) {
@@ -693,6 +709,12 @@ function normalizeClaimRow(c) {
 function normalizeCachedEnv(env, kind) {
   if (!env || typeof env !== "object") return null;
   const out = { ...env, kind: env.kind || kind };
+  if (out.title != null) out.title = safeEnvText(out.title);
+  if (out.banner != null) out.banner = safeEnvText(out.banner);
+  if (out.framing != null) out.framing = safeEnvText(out.framing);
+  if (out.refused && typeof out.refused === "object" && out.refused.reason != null) {
+    out.refused = { ...out.refused, reason: safeEnvText(out.refused.reason) };
+  }
   let claims = asClaimArray(out.claims).map(normalizeClaimRow).filter(Boolean);
   const rawLen = claims.length;
   if (out.kind === "ledger" && claims.length > LEDGER_CACHE_CAP) {
@@ -772,18 +794,22 @@ const READER_ZONES = ["assist", "deep", "inf", "notes"];
 class ZoneErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { err: null }; }
   static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch() {}
   componentDidUpdate(prev) {
     if (prev.resetKey !== this.props.resetKey && this.state.err) this.setState({ err: null });
   }
   render() {
     if (this.state.err) {
+      const errMsg = String(this.state.err?.message || "").slice(0, 120);
       return (
         <div className="rd-zonebody">
           <div className="rd-scaffold" style={{ borderColor: "var(--amberLine)", color: "var(--ink2)" }}>
             <AlertTriangle size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />
-            {this.props.label || "本区"}加载失败。若刚完成分析后出错，可能是本机阅读缓存与新版不兼容（卸载应用通常不会清除 %AppData% 数据）。请点「重新生成」；仍失败可关闭阅读器后重开该文献。
+            {this.props.label || "本区"}面板渲染出错（<b>不一定是缓存问题</b>；清过 AppData 后仍出现，多为结果数据结构异常或分析未完成）。
+            {errMsg ? <span className="set-mono" style={{ display: "block", marginTop: 6, fontSize: 11.5, opacity: 0.85 }}>{errMsg}</span> : null}
+            <span style={{ display: "block", marginTop: 8 }}>请先点「重新加载面板」；若仍失败，点底部「重新生成」，并确认设置→大模型已保存且测试连接成功。仅当<b>未清过</b>本机数据时，才考虑设置→通用→清除本机文献数据。</span>
             <div style={{ marginTop: 10 }}>
-              <button type="button" className="rd-rerun" onClick={() => this.setState({ err: null })}>重试</button>
+              <button type="button" className="rd-rerun" onClick={() => this.setState({ err: null })}>重新加载面板</button>
             </div>
           </div>
         </div>
@@ -914,16 +940,26 @@ function LedgerClaimsView({ claims, onGoto }) {
     </>
   );
 }
+function EvidenceRefusedCard({ env }) {
+  return (
+    <div className="ev-card">
+      <div className="ev-top"><Layers size={14} /> <span className="ev-title">{safeEnvText(env.title) || "分析"}</span><span className="gbadge"><Shield size={9} /> 证据车道</span></div>
+      <div className="refuse" style={{ margin: "10px 11px" }}><Ban size={15} /><div>{safeEnvText(env.refused?.reason) || "分析未成功，请重试。"}</div></div>
+      <div className="ev-note" style={{ marginTop: 0 }}><Info size={12} /><div>这通常表示大模型未配置、连接失败，或模型输出无法解析——<b>不是</b>「本篇没有可提取论断」。请到设置→大模型检查密钥并测试连接后，再点「重新生成」。</div></div>
+    </div>
+  );
+}
 function LedgerEvidenceCard({ env, onGoto }) {
+  if (env.refused?.reason) return <EvidenceRefusedCard env={env} />;
   const claims = asClaimArray(env.claims);
   return (
     <div className="ev-card">
-      <div className="ev-top"><Layers size={14} /> <span className="ev-title">{env.title}</span><span className="gbadge"><Shield size={9} /> 接地·带页码</span></div>
-      {env.banner && <div className="ev-note" style={{ margin: "8px 11px 0" }}><Info size={12} /><div>{env.banner}</div></div>}
-      {env.framing && <div className="framing" style={{ margin: "9px 11px 0" }}><Info size={13} /><div>{env.framing}</div></div>}
-      <div className="ev-note"><Scale size={12} /><div>承重论断账本：长文先分段抽候选，再<b>归并为最多约 40 条</b>可核对主张。可按证据类型筛选、按页分组浏览；综述以「引用他人」为主属正常。</div></div>
+      <div className="ev-top"><Layers size={14} /> <span className="ev-title">{safeEnvText(env.title)}</span><span className="gbadge"><Shield size={9} /> 接地·带页码</span></div>
+      {env.banner && <div className="ev-note" style={{ margin: "8px 11px 0" }}><Info size={12} /><div>{safeEnvText(env.banner)}</div></div>}
+      {env.framing && <div className="framing" style={{ margin: "9px 11px 0" }}><Info size={13} /><div>{safeEnvText(env.framing)}</div></div>}
+      <div className="ev-note"><Scale size={12} /><div>承重论断账本：长文先分段抽候选，再<b>归并为最多约 40 条</b>可核对主张（14 页以上通常需 1–3 分钟）。可按证据类型筛选、按页分组浏览；综述以「引用他人」为主属正常。</div></div>
       {claims.length === 0
-        ? <div className="ev-empty"><Info size={13} />{env.banner || "未能从本篇正文提取到可标注页码的条目。可点「重新生成」重试，或在设置里换更强的模型。"}</div>
+        ? <div className="ev-empty"><Info size={13} />{safeEnvText(env.banner) || ledgerEmptyHint(env)}</div>
         : <LedgerClaimsView claims={claims} onGoto={onGoto} />}
     </div>
   );
@@ -1215,12 +1251,13 @@ function GraphCard({ env, onGoto }) {
 }
 function EnvelopeCard({ env, onGoto, defaultOpen }) {
   if (!env) return null;
+  if (env.refused?.reason && env.lane !== "inference") return <EvidenceRefusedCard env={env} />;
   if (env.kind === "ledger") return <LedgerEvidenceCard env={env} onGoto={onGoto} />;
   if (env.graph && Array.isArray(env.graph.nodes) && env.graph.nodes.length > 0) return <GraphCard env={env} onGoto={onGoto} />;
   if (env.lane === "inference" || env.refused) return <InfCard env={env} onGoto={onGoto} defaultOpen={defaultOpen} />;
   return <CiteEvidenceCard env={env} onGoto={onGoto} />;
 }
-function EvidencePane({ ensurePages, source, onGoto, pushToast, purpose, moveReq }) {
+function EvidencePane({ ensurePages, source, docKey, onGoto, pushToast, purpose, moveReq }) {
   const [byKind, setByKind] = useState({});
   const [viewKind, setViewKind] = useState("");
   const [running, setRunning] = useState("");
@@ -1249,7 +1286,7 @@ function EvidencePane({ ensurePages, source, onGoto, pushToast, purpose, moveReq
       });
     })();
     return () => { alive = false; };
-  }, [source]);
+  }, [docKey, source?.localPath, source?.paperId, source?.contentHash, source?.name, source?.data?.byteLength]);
   const run = useCallback(async (kind, opts) => {
     setRunning(kind);
     setViewKind(kind);
@@ -1502,7 +1539,7 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
                 {outlineEnv.refused ? <EnvelopeCard env={outlineEnv} onGoto={onGoto} /> : (
                   <>
                     <div className="rd-vtoggle" role="tablist" aria-label="大纲视图">
-                      <button role="tab" aria-selected={outlineView === "map"} className={"rd-vtab" + (outlineView === "map" ? " on" : "")} onClick={() => setOutlineView("map")}><Map size={13} /> 结构图</button>
+                      <button role="tab" aria-selected={outlineView === "map"} className={"rd-vtab" + (outlineView === "map" ? " on" : "")} onClick={() => setOutlineView("map")}><MapIcon size={13} /> 结构图</button>
                       <button role="tab" aria-selected={outlineView === "list"} className={"rd-vtab" + (outlineView === "list" ? " on" : "")} onClick={() => setOutlineView("list")}><List size={13} /> 列表</button>
                     </div>
                     {outlineView === "map" ? <StructureMap env={outlineEnv} onGoto={onGoto} /> : <EnvelopeCard env={outlineEnv} onGoto={onGoto} />}
@@ -1836,7 +1873,7 @@ function ReaderPanel({ zone, setZone, doc, source, docKey, onGoto, pushToast, ex
         <div className="rd-zonepane"><AssistantPanel ensurePages={ensurePages} source={source} onGoto={onGoto} pushToast={pushToast} explainReq={explainReq} purpose={purpose} setPurpose={setPurpose} /></div>
       )}
       {zone === "deep" && (
-        <div className="rd-zonepane"><ZoneErrorBoundary label="深读" resetKey={docKey}><EvidencePane ensurePages={ensurePages} source={source} onGoto={onGoto} pushToast={pushToast} purpose={purpose} moveReq={moveReq} /></ZoneErrorBoundary></div>
+        <div className="rd-zonepane"><ZoneErrorBoundary label="深读" resetKey={docKey}><EvidencePane ensurePages={ensurePages} source={source} docKey={docKey} onGoto={onGoto} pushToast={pushToast} purpose={purpose} moveReq={moveReq} /></ZoneErrorBoundary></div>
       )}
       {zone === "inf" && (
         <div className="rd-zonepane"><ZoneErrorBoundary label="推读" resetKey={docKey}><InferencePane ensurePages={ensurePages} source={source} onGoto={onGoto} pushToast={pushToast} figureEnv={figureEnv} figuring={figuring} /></ZoneErrorBoundary></div>
