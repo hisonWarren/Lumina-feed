@@ -27,7 +27,6 @@ import {
   IMPORT_PROVENANCE,
   importMapHashKey,
   importMapPathKey,
-  resolveImportTitle,
   titleQualityScore,
   isGarbledTitle,
 } from "../src/core/store/local-import.ts";
@@ -327,10 +326,6 @@ export function lookupImportedPaperId(
   return null;
 }
 
-async function guessTitleFromPdf(bytes: Uint8Array, filenameFallback: string): Promise<string> {
-  return resolveImportTitle(bytes, filenameFallback);
-}
-
 /** 本地 PDF 复制进应用目录、建 paper 条目、入库，并合并阅读缓存。 */
 export async function importLocalPdfToLibrary(
   deps: PaperAssetDeps,
@@ -355,7 +350,7 @@ export async function importLocalPdfToLibrary(
       existed = true;
     }
     const fallbackTitle = titleFromFilename(opts.title || opts.localPath || "document.pdf");
-    const title = await guessTitleFromPdf(bytes, fallbackTitle);
+    const title = fallbackTitle;
     ensureStubPaper(deps, paperId, title);
     const existing = deps.store.papers.getById(paperId);
     if (existing) {

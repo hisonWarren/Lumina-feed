@@ -149,18 +149,9 @@ export function pickTitleFromExtractedText(text: string, fallback: string): stri
   return best;
 }
 
-/** 综合：文件名 → PDF Info Title（导入路径不做全文抽取，保持响应快） */
-export function resolveImportTitle(bytes: Uint8Array, filenameFallback: string): string {
-  const fromFile = titleFromFilename(filenameFallback);
-  const fromInfo = titleFromPdfInfo(bytes);
-  const candidates = [fromFile, fromInfo].filter(Boolean) as string[];
-  let best = fromFile;
-  let bestScore = 0;
-  for (const c of candidates) {
-    const sc = titleQualityScore(c);
-    if (sc > bestScore) { best = c; bestScore = sc; }
-  }
-  return best;
+/** 导入题名：仅用文件名（不读 PDF 元数据、不跑全文） */
+export function resolveImportTitle(_bytes: Uint8Array, filenameFallback: string): string {
+  return titleFromFilename(filenameFallback);
 }
 
 export const IMPORT_PROVENANCE = "local_import";

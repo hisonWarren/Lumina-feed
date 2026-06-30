@@ -14,14 +14,16 @@ const bad = (m) => { fail++; console.log("  ✗", m); };
 console.log("=== verify-lumina-library-reader-ux ===\n");
 
 const localImport = read("src/core/store/local-import.ts");
-/isJournalMastheadLine/.test(localImport) && /resolveImportTitle/.test(localImport) && /titleFromPdfInfo/.test(localImport)
-  ? ok("local-import 题名启发式（跳过页眉）") : bad("local-import 题名启发式缺失");
+/isGarbledTitle/.test(localImport) && /resolveImportTitle/.test(localImport)
+  ? ok("local-import 题名仅用文件名") : bad("local-import 题名逻辑缺失");
 
 const ipc = read("electron/paper-asset-ipc.ts");
-/async function guessTitleFromPdf[\s\S]{0,120}resolveImportTitle/.test(ipc) && !/async function guessTitleFromPdf[\s\S]{0,200}extractText/.test(ipc)
-  ? ok("paper-asset-ipc 快速题名（无全文抽取）") : bad("paper-asset-ipc 导入仍跑全文抽取");
+/titleFromFilename\(opts\.title/.test(ipc) && !/guessTitleFromPdf/.test(ipc)
+  ? ok("paper-asset-ipc 导入不跑 PDF 题名抽取") : bad("paper-asset-ipc 仍抽取题名");
 
 const reader = read("src/ui/modules/Reader.jsx");
+/source\.paperId[\s\S]{0,120}onLibraryImport\(\{ paperId: source\.paperId/.test(reader)
+  ? ok("Reader 已有 paperId 时快速重新入库") : bad("Reader 重加仍走全量导入");
 /onLibraryRemove/.test(reader) && /scrollItemInContainer\(container, el\)/.test(reader) && /点击移出文献/.test(reader)
   ? ok("Reader 收藏切换 + 连续模式容器内滚动") : bad("Reader UX 修复不完整");
 
@@ -40,19 +42,15 @@ const settings = read("electron/settings.ts");
 /subsBackgroundHintDismissed/.test(settings) ? ok("settings prompts 键") : bad("settings 缺 subsBackgroundHintDismissed");
 
 try {
-  const { isJournalMastheadLine, isGarbledTitle, titleFromFilename, pickTitleFromExtractedText, titleQualityScore, titleFromPdfInfo } = await import("../src/core/store/local-import.ts");
+  const { isJournalMastheadLine, isGarbledTitle, titleFromFilename, resolveImportTitle, titleQualityScore } = await import("../src/core/store/local-import.ts");
   isGarbledTitle("þÿR o b u s t estimation") ? ok("乱码题名识别") : bad("乱码未识别");
   !isGarbledTitle("Robust estimation of cortical networks") ? ok("正常题名不误判乱码") : bad("正常题名误判");
   isJournalMastheadLine("Nature Neuroscience | Volume 26 | August 2023") ? ok("页眉行识别") : bad("页眉行未识别");
   !isJournalMastheadLine("Robust estimation of individual-level brain connectivity") ? ok("真实题名不误判") : bad("真实题名被误判为页眉");
   const fromFile = titleFromFilename("Smith_2024_neural_dynamics.pdf");
   fromFile.includes("Smith") ? ok("文件名题名") : bad("文件名题名失败");
-  const picked = pickTitleFromExtractedText("Nature Neuroscience | Volume 26\nRobust estimation of individual-level brain connectivity\nAbstract\n", fromFile);
-  picked.includes("Robust estimation") ? ok("正文选题名优于页眉") : bad("正文选题名失败");
-  titleQualityScore(picked) > titleQualityScore("Nature Neuroscience | Volume 26") ? ok("题名质量分") : bad("题名质量分异常");
-  const fakePdf = new TextEncoder().encode("%PDF-1.4\n/Title<FEFF0052006F006200750073007400200065007300740069006D006100740069006F006E>\n");
-  const utfTitle = titleFromPdfInfo(fakePdf);
-  utfTitle && utfTitle.startsWith("Robust") ? ok("UTF-16BE PDF Title 解码") : bad("UTF-16BE 解码: " + utfTitle);
+  const impTitle = resolveImportTitle(new Uint8Array(0), "Sebenius2023_MIND_NatNeurosci.pdf");
+  impTitle.includes("Sebenius2023") ? ok("resolveImportTitle 仅用文件名") : bad("resolveImportTitle 未仅用文件名");
 } catch (e) {
   bad("local-import 运行时: " + (e && e.message));
 }

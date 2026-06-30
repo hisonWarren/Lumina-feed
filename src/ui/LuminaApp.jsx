@@ -536,10 +536,11 @@ export default function LuminaApp() {
 
   const onImportToLibrary = useCallback(async (payload) => {
     if (!payload) return { ok: false, error: "invalid" };
-    if (payload.paperId && !payload.bytes && !payload.localPath) {
+    if (payload.paperId && !payload.bytes?.byteLength && !payload.localPath) {
       if (!lib.some((x) => x.id === payload.paperId)) {
-        await bridge.libraryAdd({ id: payload.paperId, title: payload.title || payload.paperId }, "find_fetch");
-        setLib((l) => [...l, { id: payload.paperId, title: payload.title || payload.paperId, provenance: "find_fetch" }]);
+        const title = payload.title || payload.paperId;
+        await bridge.libraryAdd({ id: payload.paperId, title }, "local_import");
+        setLib((l) => [...l, { id: payload.paperId, title, provenance: "local_import" }]);
       }
       await refreshLib();
       return { ok: true, paperId: payload.paperId, inLibrary: true, title: payload.title };

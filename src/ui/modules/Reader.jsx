@@ -1655,14 +1655,15 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
     if (!onLibraryImport) return;
     setImporting(true);
     try {
-      const res = await onLibraryImport({
-        paperId: source.paperId,
-        localPath: source.localPath,
-        title: source.name,
-        bytes: source.data,
-        fromDocKeys: readerDocKeyCandidates(source),
-        entryKey: source.entryKey,
-      });
+      const res = source.paperId
+        ? await onLibraryImport({ paperId: source.paperId, title: source.name })
+        : await onLibraryImport({
+          localPath: source.localPath,
+          title: source.name,
+          bytes: source.data,
+          fromDocKeys: readerDocKeyCandidates(source),
+          entryKey: source.entryKey,
+        });
       if (res && res.ok && res.paperId) {
         onSourceUpgrade && onSourceUpgrade({
           paperId: res.paperId,

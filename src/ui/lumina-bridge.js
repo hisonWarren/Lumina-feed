@@ -498,7 +498,7 @@ export const bridge = {
   async libraryImportLocal(opts = {}) {
     const api = A();
     if (!api || !api.libraryImportLocal) return { ok: false, error: "no_engine" };
-    try { return await api.libraryImportLocal(opts); } catch (e) { return { ok: false, error: "import_failed" }; }
+    try { return await api.libraryImportLocal(opts); } catch (e) { return { ok: false, error: (e && e.message) || "import_failed" }; }
   },
   async libraryRemove(paperId) {
     const api = A(); if (!api || !api.libraryRemove) { const i = _libMem.findIndex((x) => x.id === paperId); if (i >= 0) _libMem.splice(i, 1); return true; }
