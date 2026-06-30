@@ -54,7 +54,7 @@ const READER_CSS = `
 .rd-gexport{display:inline-flex;align-items:center;gap:5px;margin-top:9px;border:1px solid var(--line2);background:var(--surf2);color:var(--ink2);border-radius:8px;padding:6px 11px;font-size:12px;cursor:pointer;font-family:inherit}
 .rd-gexport:hover{border-color:var(--gold)}
 .rd-flowtool{display:flex;flex-direction:column;gap:9px}
-.rd-scaffold{font-size:12px;color:var(--ink3);line-height:1.65;border:1px dashed var(--line2);border-radius:10px;padding:11px;background:var(--surf2)}
+.rd-scaffold{box-sizing:border-box;width:100%;font-size:12px;color:var(--ink3);line-height:1.65;border:1px dashed var(--line2);border-radius:10px;padding:11px;background:var(--surf2)}
 .ev-card{border:1px solid var(--line);border-left:4px solid var(--gold);border-radius:11px;background:var(--surf);overflow:hidden}
 .ev-top{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:9px 11px;border-bottom:1px solid var(--line);font-size:12.5px;font-weight:600;color:var(--ink)}
 .ev-top>svg{color:var(--gold);flex-shrink:0}
@@ -225,12 +225,18 @@ const READER_CSS = `
 .rd-right{position:relative;flex-shrink:0;min-width:0;border-left:1px solid var(--line);background:var(--surf);display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box}
 .rd-resize-left{left:0;right:auto}
 .rd-right-body{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden}
-.rd-ai{width:100%;max-width:100%;flex:1;min-height:0;min-width:0;border-left:none;overflow:hidden;display:flex;flex-direction:column;gap:0;padding:0;scrollbar-gutter:stable}
+.rd-ai{width:100%;max-width:100%;flex:1;min-height:0;min-width:0;border-left:none;overflow:hidden;display:flex;flex-direction:column;gap:0;padding:0}
 .rd-zonepane{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 .rd-zonepane > .rd-zonebody{flex:1;min-height:0;overflow-y:auto;padding:12px 10px 14px 12px}
-.rd-zonepane.assist > .rd-assist-scroll{flex:1;min-height:0;overflow-y:auto;padding:12px 10px 8px 12px;scrollbar-gutter:stable}
-.rd-assist-foot{flex-shrink:0;padding:8px 10px 10px 12px;border-top:1px solid var(--line);background:var(--surf);display:flex;flex-direction:column;gap:8px}
-.rd-asec{border:1px solid var(--line);border-radius:11px;background:var(--surf2);overflow:hidden}
+.rd-zonepane.assist{flex:1;min-height:0;overflow-x:hidden;overflow-y:auto;scrollbar-gutter:stable;display:flex;flex-direction:column}
+.rd-assist-main{flex:1 0 auto;display:flex;flex-direction:column;gap:14px;padding:12px 12px 6px;width:100%}
+.rd-assist-block{display:flex;flex-direction:column;gap:8px;width:100%}
+.rd-assist-block-h{font-size:11.5px;font-weight:600;color:var(--ink3);line-height:1.45}
+.rd-assist-tools{display:flex;flex-direction:column;gap:8px;width:100%}
+.rd-assist-foot{flex-shrink:0;position:sticky;bottom:0;z-index:2;width:100%;padding:10px 12px 12px;border-top:1px solid var(--line);background:var(--surf);box-shadow:0 -10px 28px color-mix(in srgb,var(--ink) 5%,transparent);display:flex;flex-direction:column;gap:10px}
+.rd-assist-compose{background:var(--surf2);border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;width:100%}
+.rd-assist-hint{margin:0;padding:9px 11px;font-size:12px;line-height:1.55}
+.rd-asec{box-sizing:border-box;width:100%;border:1px solid var(--line);border-radius:11px;background:var(--surf2);overflow:hidden}
 .rd-asec-h{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:8px 10px}
 .rd-asec-toggle{display:inline-flex;align-items:center;gap:6px;border:none;background:transparent;color:var(--ink);font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit;padding:0;flex:1;min-width:0;text-align:left}
 .rd-asec-toggle svg{color:var(--gold);flex-shrink:0}
@@ -239,10 +245,11 @@ const READER_CSS = `
 .rd-asec-prev{flex:1 1 100%;font-size:11.5px;color:var(--ink3);line-height:1.5;padding:0 2px 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rd-asec-b{padding:0 10px 10px;display:flex;flex-direction:column;gap:8px}
 .rd-asec-act{flex-shrink:0}
+.rd-asec-act .rd-rerun{margin-top:0}
 .rd-ai-h{display:flex;align-items:center;gap:7px;font-family:'Source Serif 4',Georgia,serif;font-size:15px;font-weight:600;color:var(--ink)}
 .rd-ai-h svg{color:var(--gold)}
 .rd-ai-sec{display:flex;flex-direction:column;gap:10px}
-.rd-ai-act{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid var(--gold);background:rgba(14,124,111,.08);color:var(--goldDim);border-radius:10px;padding:9px 12px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
+.rd-ai-act{display:flex;align-items:center;justify-content:center;gap:7px;box-sizing:border-box;width:100%;border:1px solid var(--gold);background:rgba(14,124,111,.08);color:var(--goldDim);border-radius:10px;padding:9px 12px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
 .rd-ai-act:hover{background:rgba(14,124,111,.14)}
 .rd-ai-act:disabled{opacity:.6;cursor:default}
 .rd-ai-card{border:1px solid var(--line);border-radius:11px;padding:12px;background:var(--surf2)}
@@ -1214,9 +1221,9 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
 
   return (
     <div className="rd-zonepane assist">
-      <div className="rd-assist-scroll">
-        <div className="rd-ai-sec">
-          <div className="rd-ai-label">我这次为什么读？（据此推荐深读工具）</div>
+      <div className="rd-assist-main">
+        <div className="rd-assist-block">
+          <div className="rd-assist-block-h">我这次为什么读？（据此推荐深读工具）</div>
           <div className="rd-purpose">
             {[["replicate", "复现/设计"], ["cite", "引为背景"], ["critique", "批判性评估"], ["borrow", "借方法/写法"]].map((pp) => (
               <button key={pp[0]} aria-pressed={purpose === pp[0]} className={"rd-pchip" + (purpose === pp[0] ? " on" : "")} onClick={() => setPurpose(purpose === pp[0] ? null : pp[0])}>{pp[1]}</button>
@@ -1225,75 +1232,82 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
           {purpose && <div className="rd-phint">{PURPOSE_HINT[purpose]}</div>}
         </div>
 
-        <div className="rd-ai-sec">
-          {!summary ? (
-            <button className="rd-ai-act" onClick={doSummary} disabled={summarizing}>
-              {summarizing ? <><Loader size={14} className="rd-spin" /> 总结中…</> : <><Sparkles size={14} /> 整篇接地总结</>}
-            </button>
-          ) : (
-            <AssistSection title="整篇接地总结" icon={Sparkles} open={summaryOpen} onToggle={() => setSummaryOpen((v) => !v)} preview={summaryPreview(summary.text)}
-              action={<button type="button" className="rd-rerun" onClick={(e) => { e.stopPropagation(); doSummary(); }} disabled={summarizing}><RefreshCw size={12} /> 重生成</button>}>
-              <AnswerMeta basis={summary.sourceBasis} ratio={summary.groundedRatio} pagesUsed={summary.pagesUsed} pageCount={summary.pageCount} />
-              {summary.banner && <div className="rd-ai-banner">{summary.banner}</div>}
-              <div className="rd-ai-body"><CiteText text={summary.text} onGoto={onGoto} /></div>
-            </AssistSection>
-          )}
-          {summarizing && !summary && <div className="rd-scaffold"><Loader size={13} className="rd-spin" /> 正在通读全文并生成总结…</div>}
-        </div>
+        <div className="rd-assist-block">
+          <div className="rd-assist-block-h">通读工具（接地总结 · 逻辑大纲）</div>
+          <div className="rd-assist-tools">
+            {!summary ? (
+              <button className="rd-ai-act" onClick={doSummary} disabled={summarizing}>
+                {summarizing ? <><Loader size={14} className="rd-spin" /> 总结中…</> : <><Sparkles size={14} /> 整篇接地总结</>}
+              </button>
+            ) : (
+              <AssistSection title="整篇接地总结" icon={Sparkles} open={summaryOpen} onToggle={() => setSummaryOpen((v) => !v)} preview={summaryPreview(summary.text)}
+                action={<button type="button" className="rd-rerun" onClick={(e) => { e.stopPropagation(); doSummary(); }} disabled={summarizing}><RefreshCw size={12} /> 重生成</button>}>
+                <AnswerMeta basis={summary.sourceBasis} ratio={summary.groundedRatio} pagesUsed={summary.pagesUsed} pageCount={summary.pageCount} />
+                {summary.banner && <div className="rd-ai-banner">{summary.banner}</div>}
+                <div className="rd-ai-body"><CiteText text={summary.text} onGoto={onGoto} /></div>
+              </AssistSection>
+            )}
+            {summarizing && !summary && <div className="rd-scaffold"><Loader size={13} className="rd-spin" /> 正在通读全文并生成总结…</div>}
 
-        <div className="rd-ai-sec">
-          {!outlineEnv ? (
-            <button className="rd-ai-act" onClick={doOutline} disabled={outlining}>
-              {outlining ? <><Loader size={14} className="rd-spin" /> 提取中…</> : <><Layers size={14} /> 逻辑大纲</>}
-            </button>
-          ) : (
-            <AssistSection title="逻辑大纲" icon={Layers} open={outlineOpen} onToggle={() => setOutlineOpen((v) => !v)} preview={outlinePreview}
-              action={<button type="button" className="rd-rerun" onClick={(e) => { e.stopPropagation(); doOutline(); }} disabled={outlining}><RefreshCw size={12} /> 重提取</button>}>
-              {outlineEnv.refused ? <EnvelopeCard env={outlineEnv} onGoto={onGoto} /> : (
-                <>
-                  <div className="rd-vtoggle" role="tablist" aria-label="大纲视图">
-                    <button role="tab" aria-selected={outlineView === "map"} className={"rd-vtab" + (outlineView === "map" ? " on" : "")} onClick={() => setOutlineView("map")}><Map size={13} /> 结构图</button>
-                    <button role="tab" aria-selected={outlineView === "list"} className={"rd-vtab" + (outlineView === "list" ? " on" : "")} onClick={() => setOutlineView("list")}><List size={13} /> 列表</button>
-                  </div>
-                  {outlineView === "map" ? <StructureMap env={outlineEnv} onGoto={onGoto} /> : <EnvelopeCard env={outlineEnv} onGoto={onGoto} />}
-                </>
-              )}
-            </AssistSection>
-          )}
-          {outlining && !outlineEnv && <div className="rd-scaffold"><Loader size={13} className="rd-spin" /> 正在提取逻辑大纲…</div>}
-        </div>
-
-        <div className="rd-ai-sec">
-          <div className="rd-ai-label">问答记录（全文检索 · 回答带页码，点击跳页）</div>
-          <div className="rd-ai-flow">
-            {qa.length === 0 && <div className="rd-scaffold">在下方选预设问题或输入自定义问题；将通读全文后作答。</div>}
-            {qa.map((item, i) => (
-              <div key={i} className="rd-ai-qa">
-                <div className="rd-ai-q">{item.q}</div>
-                <div className="rd-ai-a">
-                  {item.loading ? <span className="rd-ai-load"><Loader size={13} className="rd-spin" /> 通读全文中…</span> : (
-                    <>
-                      <AnswerMeta basis={item.sourceBasis} ratio={item.groundedRatio} pagesUsed={item.pagesUsed} pageCount={item.pageCount} />
-                      {item.banner && <div className="rd-ai-banner">{item.banner}</div>}
-                      <CiteText text={item.a} onGoto={onGoto} />
-                    </>
-                  )}
-                </div>
-              </div>
-            ))}
-            <div ref={qaEndRef} />
+            {!outlineEnv ? (
+              <button className="rd-ai-act" onClick={doOutline} disabled={outlining}>
+                {outlining ? <><Loader size={14} className="rd-spin" /> 提取中…</> : <><Layers size={14} /> 逻辑大纲</>}
+              </button>
+            ) : (
+              <AssistSection title="逻辑大纲" icon={Layers} open={outlineOpen} onToggle={() => setOutlineOpen((v) => !v)} preview={outlinePreview}
+                action={<button type="button" className="rd-rerun" onClick={(e) => { e.stopPropagation(); doOutline(); }} disabled={outlining}><RefreshCw size={12} /> 重提取</button>}>
+                {outlineEnv.refused ? <EnvelopeCard env={outlineEnv} onGoto={onGoto} /> : (
+                  <>
+                    <div className="rd-vtoggle" role="tablist" aria-label="大纲视图">
+                      <button role="tab" aria-selected={outlineView === "map"} className={"rd-vtab" + (outlineView === "map" ? " on" : "")} onClick={() => setOutlineView("map")}><Map size={13} /> 结构图</button>
+                      <button role="tab" aria-selected={outlineView === "list"} className={"rd-vtab" + (outlineView === "list" ? " on" : "")} onClick={() => setOutlineView("list")}><List size={13} /> 列表</button>
+                    </div>
+                    {outlineView === "map" ? <StructureMap env={outlineEnv} onGoto={onGoto} /> : <EnvelopeCard env={outlineEnv} onGoto={onGoto} />}
+                  </>
+                )}
+              </AssistSection>
+            )}
+            {outlining && !outlineEnv && <div className="rd-scaffold"><Loader size={13} className="rd-spin" /> 正在提取逻辑大纲…</div>}
           </div>
         </div>
+
+        {qa.length > 0 && (
+          <div className="rd-assist-block">
+            <div className="rd-assist-block-h">问答记录（全文检索 · 回答带页码，点击跳页）</div>
+            <div className="rd-ai-flow">
+              {qa.map((item, i) => (
+                <div key={i} className="rd-ai-qa">
+                  <div className="rd-ai-q">{item.q}</div>
+                  <div className="rd-ai-a">
+                    {item.loading ? <span className="rd-ai-load"><Loader size={13} className="rd-spin" /> 通读全文中…</span> : (
+                      <>
+                        <AnswerMeta basis={item.sourceBasis} ratio={item.groundedRatio} pagesUsed={item.pagesUsed} pageCount={item.pageCount} />
+                        {item.banner && <div className="rd-ai-banner">{item.banner}</div>}
+                        <CiteText text={item.a} onGoto={onGoto} />
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <div ref={qaEndRef} />
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="rd-assist-foot">
-        <div className="rd-ai-label">问这一篇</div>
-        <div className="rd-ai-presets">
-          {PRESET_Q.map((pq, i) => <button key={i} className="rd-ai-chip" onClick={() => doAsk(pq)} disabled={asking}>{pq}</button>)}
-        </div>
-        <div className="rd-ai-input">
-          <input value={q} placeholder="输入问题，回车提问…" onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") doAsk(q); }} />
-          <button className="rd-ai-send" onClick={() => doAsk(q)} disabled={asking || !q.trim()} title="提问"><Send size={15} /></button>
+        {qa.length === 0 && (
+          <div className="rd-scaffold rd-assist-hint" role="status">在下方选预设问题或输入自定义问题；将通读全文后作答。</div>
+        )}
+        <div className="rd-assist-compose">
+          <div className="rd-assist-block-h">问这一篇</div>
+          <div className="rd-ai-presets">
+            {PRESET_Q.map((pq, i) => <button key={i} className="rd-ai-chip" onClick={() => doAsk(pq)} disabled={asking}>{pq}</button>)}
+          </div>
+          <div className="rd-ai-input">
+            <input value={q} placeholder="输入问题，回车提问…" onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") doAsk(q); }} />
+            <button className="rd-ai-send" onClick={() => doAsk(q)} disabled={asking || !q.trim()} title="提问"><Send size={15} /></button>
+          </div>
         </div>
       </div>
     </div>

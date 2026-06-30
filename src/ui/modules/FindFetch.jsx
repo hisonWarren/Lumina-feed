@@ -96,12 +96,13 @@ const FF_CSS = `
 .ff-field-opt{display:flex;align-items:center;justify-content:space-between;gap:8px;border:none;background:transparent;color:var(--ink2);text-align:left;padding:9px 12px;border-radius:8px;cursor:pointer;font-size:13px;font-family:inherit;line-height:1.4}
 .ff-field-opt:hover{background:var(--surf2);color:var(--gold)}
 .ff-field-opt.on{color:var(--gold);background:color-mix(in srgb,var(--gold) 10%,transparent)}
-.ff-primary-banner{display:flex;align-items:center;gap:8px;max-width:958px;margin:0 auto 12px;padding:10px 14px;background:color-mix(in srgb,var(--gold) 12%,var(--surf));border:1px solid color-mix(in srgb,var(--gold) 35%,transparent);border-radius:12px;font-size:13px;color:var(--ink2);line-height:1.45}
+.ff-primary-banner{display:flex;align-items:center;gap:8px;box-sizing:border-box;width:100%;margin:0 0 12px;padding:10px 14px;background:color-mix(in srgb,var(--gold) 12%,var(--surf));border:1px solid color-mix(in srgb,var(--gold) 35%,transparent);border-radius:12px;font-size:13px;color:var(--ink2);line-height:1.45}
 .ff-primary-banner svg{color:var(--gold);flex-shrink:0}
 .ff-card.ff-primary{border-color:color-mix(in srgb,var(--gold) 45%,var(--line));box-shadow:0 0 0 1px color-mix(in srgb,var(--gold) 18%,transparent)}
 .ff-enrich{font-size:12px;color:var(--ink3);margin-left:6px}
-.ff-track{max-width:958px;margin:0 auto;width:100%}
-.ff-session-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;max-width:958px;margin:0 auto 10px;padding:8px 12px;background:var(--surf2);border:1px solid var(--line);border-radius:10px;font-size:12px;color:var(--ink2);line-height:1.45}
+.ff-track{box-sizing:border-box;max-width:958px;margin:0 auto;width:100%;display:flex;flex-direction:column;align-items:stretch}
+.ff-track .lf-sources{box-sizing:border-box;width:100%;margin:0 0 14px}
+.ff-session-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;box-sizing:border-box;width:100%;margin:0 0 10px;padding:8px 12px;background:var(--surf2);border:1px solid var(--line);border-radius:10px;font-size:12px;color:var(--ink2);line-height:1.45}
 .ff-session-bar strong{font-weight:600;color:var(--ink)}
 .ff-session-h{flex:1;min-width:140px;font-size:11px;color:var(--ink4)}
 .ff-session-new{margin-left:auto;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:8px;padding:4px 10px;font-size:11.5px;cursor:pointer;font-family:inherit}
@@ -609,31 +610,33 @@ export default function FindFetch({
 
       <div className="ff-results" ref={resultsScrollRef} tabIndex={-1}>
         {submitted && (
-          <div className="ff-session-bar" role="status">
-            <span><strong>本次检索</strong> · {total} 条{sessionAge ? ` · ${sessionAge}` : ""}{loading ? " · 仍在补充…" : ""}</span>
-            <span className="ff-session-h">切换模块不会清空本次结果；要重新定位请点「新检索」。</span>
-            <button type="button" className="ff-session-new" onClick={clear}>新检索</button>
-          </div>
-        )}
-        {submitted && perSource && Object.keys(perSource).length > 0 && (
           <div className="ff-track">
-            {locateMode === "primary" && results.length > 0 && (
-              <div className="ff-primary-banner">
-                <Check size={16} />
-                <span>
-                  {primaryAmbiguous
-                    ? "找到多篇标题高度相似的文献，已置顶最可能的一篇；请核对作者或年份后手动获取全文。"
-                    : "已定位到目标文献，请点击「获取全文」下载 PDF；其它来源仍在后台核对。"}
-                </span>
-              </div>
-            )}
-            {locateMode === "disambig" && identifierError && (
-              <div className="ff-disambig">标识符解析未命中（{identifierError}）· 已回落关键词检索</div>
-            )}
-            <HitSources perSource={perSource} mergedCount={mergedCount ?? shown.length} needsKey={needsKey}
-              onRetrySource={hasBackend() ? retrySource : null} retryingSource={retryingSource} />
-            {resolvedFrom && resolvedFrom.length > 0 && (
-              <p className="ff-resolved">标识符解析自：{resolvedFrom.join(" · ")}</p>
+            <div className="ff-session-bar" role="status">
+              <span><strong>本次检索</strong> · {total} 条{sessionAge ? ` · ${sessionAge}` : ""}{loading ? " · 仍在补充…" : ""}</span>
+              <span className="ff-session-h">切换模块不会清空本次结果；要重新定位请点「新检索」。</span>
+              <button type="button" className="ff-session-new" onClick={clear}>新检索</button>
+            </div>
+            {perSource && Object.keys(perSource).length > 0 && (
+              <>
+                {locateMode === "primary" && results.length > 0 && (
+                  <div className="ff-primary-banner">
+                    <Check size={16} />
+                    <span>
+                      {primaryAmbiguous
+                        ? "找到多篇标题高度相似的文献，已置顶最可能的一篇；请核对作者或年份后手动获取全文。"
+                        : "已定位到目标文献，请点击「获取全文」下载 PDF；其它来源仍在后台核对。"}
+                    </span>
+                  </div>
+                )}
+                {locateMode === "disambig" && identifierError && (
+                  <div className="ff-disambig">标识符解析未命中（{identifierError}）· 已回落关键词检索</div>
+                )}
+                <HitSources perSource={perSource} mergedCount={mergedCount ?? shown.length} needsKey={needsKey}
+                  onRetrySource={hasBackend() ? retrySource : null} retryingSource={retryingSource} />
+                {resolvedFrom && resolvedFrom.length > 0 && (
+                  <p className="ff-resolved">标识符解析自：{resolvedFrom.join(" · ")}</p>
+                )}
+              </>
             )}
           </div>
         )}
