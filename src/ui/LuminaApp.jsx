@@ -547,9 +547,9 @@ export default function LuminaApp() {
     }
     const res = await bridge.libraryImportLocal({
       localPath: payload.localPath,
-      bytes: payload.bytes,
       title: payload.title,
       fromDocKeys: payload.fromDocKeys,
+      ...(payload.localPath ? {} : { bytes: payload.bytes }),
     });
     if (res?.ok) {
       await refreshLib();

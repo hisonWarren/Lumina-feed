@@ -23,6 +23,29 @@ function normalizeLocalPdfPayload(r) {
   return null;
 }
 
+function ipcCloneBytes(data) {
+  if (!data) return undefined;
+  if (data instanceof ArrayBuffer) return data.slice(0);
+  if (ArrayBuffer.isView(data)) {
+    return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+  }
+  return data;
+}
+
+/** 本地导入 IPC：有 localPath 时不传 bytes（避免大文件二次克隆失败） */
+function libraryImportPayload(opts = {}) {
+  const payload = {
+    title: opts.title,
+    localPath: opts.localPath,
+    fromDocKeys: opts.fromDocKeys,
+    addToLibrary: opts.addToLibrary,
+  };
+  if (opts.localPath) return payload;
+  const bytes = ipcCloneBytes(opts.bytes);
+  if (bytes) payload.bytes = bytes;
+  return payload;
+}
+
 export const hasBackend = () => !!A();
 
 /** 顶栏「订阅简报」徽标：各订阅 today 中用户未读条数之和 */
@@ -498,7 +521,10 @@ export const bridge = {
   async libraryImportLocal(opts = {}) {
     const api = A();
     if (!api || !api.libraryImportLocal) return { ok: false, error: "no_engine" };
-    try { return await api.libraryImportLocal(opts); } catch (e) { return { ok: false, error: (e && e.message) || "import_failed" }; }
+    try { return await api.libraryImportLocal(libraryImportPayload(opts)); } catch (e) {
+      const msg = (e && e.message) || "import_failed";
+      return { ok: false, error: /could not be cloned/i.test(msg) ? "pdf_too_large_for_ipc" : msg };
+    }
   },
   async libraryRemove(paperId) {
     const api = A(); if (!api || !api.libraryRemove) { const i = _libMem.findIndex((x) => x.id === paperId); if (i >= 0) _libMem.splice(i, 1); return true; }

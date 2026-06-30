@@ -21,6 +21,10 @@ const ipc = read("electron/paper-asset-ipc.ts");
 /titleFromFilename\(opts\.title/.test(ipc) && !/guessTitleFromPdf/.test(ipc)
   ? ok("paper-asset-ipc 导入不跑 PDF 题名抽取") : bad("paper-asset-ipc 仍抽取题名");
 
+const bridge = read("src/ui/lumina-bridge.js");
+/libraryImportPayload/.test(bridge) && /opts\.localPath\) return payload/.test(bridge)
+  ? ok("bridge 有 localPath 时不传 bytes") : bad("bridge 未规避 IPC 克隆失败");
+
 const reader = read("src/ui/modules/Reader.jsx");
 /source\.paperId[\s\S]{0,120}onLibraryImport\(\{ paperId: source\.paperId/.test(reader)
   ? ok("Reader 已有 paperId 时快速重新入库") : bad("Reader 重加仍走全量导入");

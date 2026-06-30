@@ -1660,7 +1660,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
         : await onLibraryImport({
           localPath: source.localPath,
           title: source.name,
-          bytes: source.data,
+          ...(source.localPath ? {} : { bytes: source.data }),
           fromDocKeys: readerDocKeyCandidates(source),
           entryKey: source.entryKey,
         });
