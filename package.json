@@ -1,6 +1,6 @@
 {
   "name": "lumina-feed",
-  "version": "0.4.54",
+  "version": "0.4.55",
   "description": "Lumina Feed · 干净基线（检索取文 + 接地总结）",
   "author": "hisonWarren",
   "main": "build/main.cjs",
@@ -71,16 +71,17 @@
   "dependencies": {
     "better-sqlite3": "^11.0.0",
     "keytar": "^7.9.0",
-    "pdfjs-dist": "^4.7.76",
-    "pdf-lib": "^1.17.1"
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^4.7.76"
   },
   "devDependencies": {
     "electron": "^31.7.7",
+    "electron-builder": "^24.13.3",
     "esbuild": "^0.24.2",
     "lucide-react": "^0.460.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "electron-builder": "^24.13.3"
+    "sharp": "^0.35.2"
   },
   "build": {
     "appId": "com.hisonwarren.luminafeed",

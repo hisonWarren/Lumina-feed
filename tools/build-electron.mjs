@@ -4,6 +4,7 @@ import * as esbuild from "esbuild";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import sharp from "sharp";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const BUILD = path.join(ROOT, "build");
@@ -29,7 +30,6 @@ async function syncIcons() {
   const brandIcon = path.join(ROOT, "icon.png");
   const iconPath = path.join(ASSETS, "icon.png");
   const trayPath = path.join(ASSETS, "tray.png");
-  const { execSync } = await import("node:child_process");
 
   if (!fs.existsSync(brandIcon)) {
     console.warn("  ! 未找到 icon.png，跳过图标同步");
@@ -38,28 +38,14 @@ async function syncIcons() {
 
   fs.copyFileSync(brandIcon, iconPath);
 
-  const resize = (src, dst, size) => {
-    const ps = [
-      "Add-Type -AssemblyName System.Drawing",
-      "Add-Type -AssemblyName System.Drawing.Drawing2D",
-      `$src = '${src.replace(/\\/g, "\\\\").replace(/'/g, "''")}'`,
-      `$dst = '${dst.replace(/\\/g, "\\\\").replace(/'/g, "''")}'`,
-      "$img = [System.Drawing.Image]::FromFile($src)",
-      `$b = New-Object System.Drawing.Bitmap ${size},${size}`,
-      "$g = [System.Drawing.Graphics]::FromImage($b)",
-      "$g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic",
-      "$g.DrawImage($img, 0, 0, ${size}, ${size})",
-      "$g.Dispose(); $img.Dispose()",
-      "$b.Save($dst, [System.Drawing.Imaging.ImageFormat]::Png)",
-      "$b.Dispose()",
-    ].join("; ");
-    execSync(`powershell -NoProfile -Command "${ps}"`, { stdio: "pipe" });
-  };
-
   try {
-    resize(brandIcon, trayPath, 32);
+    await sharp(brandIcon).resize(32, 32, { fit: "cover" }).png().toFile(trayPath);
     const traySize = fs.statSync(trayPath).size;
     if (traySize < 500) throw new Error(`tray output too small (${traySize} bytes)`);
+    const meta = await sharp(trayPath).metadata();
+    if (meta.width !== 32 || meta.height !== 32) {
+      throw new Error(`tray output wrong size (${meta.width}x${meta.height})`);
+    }
     console.log("  ✓ icon.png → assets/icon.png + tray.png(32)");
   } catch (err) {
     console.warn("  ! 托盘图标缩放失败，使用原图:", err.message);
