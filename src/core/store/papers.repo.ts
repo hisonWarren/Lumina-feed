@@ -52,6 +52,12 @@ export class PapersRepo {
     const r = this.db.prepare("SELECT * FROM papers WHERE id=?").get(id);
     return r ? hydrate(r) : undefined;
   }
+  updateTitle(id: string, title: string): boolean {
+    const t = String(title || "").trim();
+    if (!t) return false;
+    const r = this.db.prepare("UPDATE papers SET title=? WHERE id=?").run(t, id);
+    return r.changes > 0;
+  }
   count(): number { return (this.db.prepare("SELECT COUNT(*) n FROM papers").get() as any).n; }
 
   /** 检索：FTS5 + 结构化过滤 + 排序 + facet。无文本词则纯结构化。 */

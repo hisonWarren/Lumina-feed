@@ -39,8 +39,19 @@ const hub = read("src/ui/modules/ReadHub.jsx");
 /onImportLocalDone/.test(hub) && /已在文献/.test(hub) && /patchContinueAfterImport/.test(hub)
   ? ok("ReadHub 导入后状态刷新") : bad("ReadHub 导入反馈缺失");
 
+const library = read("src/ui/modules/Library.jsx");
+const engineIpc = read("electron/ipc.ts");
 const app = read("src/ui/LuminaApp.jsx");
-/onLibraryRemove/.test(app) ? ok("LuminaApp 接 onLibraryRemove") : bad("LuminaApp 未接 onLibraryRemove");
+/onRenamePaper/.test(library) && /lib-title-inp/.test(library) && /点击重命名/.test(library)
+  ? ok("Library 文献题名内联重命名") : bad("Library 缺题名重命名");
+/papersUpdateTitle/.test(bridge) && /papers:updateTitle/.test(engineIpc)
+  ? ok("引擎 papers:updateTitle IPC") : bad("缺题名更新 IPC");
+/looksLikeAutoImportTitle/.test(read("src/ui/paper-title.js"))
+  ? ok("自动导入题名识别") : bad("缺自动题名识别");
+/onPaperRename/.test(reader) && /rd-name-inp/.test(reader)
+  ? ok("Reader 顶栏题名重命名") : bad("Reader 缺顶栏重命名");
+/onRenamePaper/.test(app) && /focusRenamePaperId/.test(app)
+  ? ok("LuminaApp 乐观更新题名") : bad("LuminaApp 未接题名重命名");
 
 const subs = read("src/ui/modules/Subscriptions.jsx");
 /subsBackgroundHintDismissed/.test(subs) && /最小化到托盘/.test(subs) && !/settingsGet/.test(subs)

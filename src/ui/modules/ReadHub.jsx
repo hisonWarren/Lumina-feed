@@ -236,7 +236,7 @@ const TABS_PREF_KEY = "lumina_reader_open_tabs";
 let _tabSeq = 0;
 const tabKey = (t) => t.entryKey || (t.paperId ? "p:" + t.paperId : (t.localPath ? "l:" + t.localPath : "n:" + t.name));
 
-export default function ReaderModule({ pushToast, incoming, onIncomingHandled, readTarget, onReadTargetHandled, inLibFn, onAddToLibrary, onImportLocal, onLibraryRemove }) {
+export default function ReaderModule({ pushToast, incoming, onIncomingHandled, readTarget, onReadTargetHandled, inLibFn, onAddToLibrary, onImportLocal, onLibraryRemove, onPaperRename }) {
   const [st, setSt] = useState({ tabs: [], activeId: null });
   const tabsRestoredRef = useRef(false);
   const [continueList, setContinueList] = useState([]);
@@ -614,6 +614,7 @@ export default function ReaderModule({ pushToast, incoming, onIncomingHandled, r
               onLibraryImport={handleLibraryImport}
               onLibraryRemove={onLibraryRemove}
               onSourceUpgrade={upgradeTabSource}
+              onPaperRename={onPaperRename}
             />
           </div>
         ))}

@@ -1,6 +1,7 @@
 // Lumina Feed · 模块化壳（find_fetch 前置 · 检索取文接线）
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { bridge, hasBackend, countSubsBadge } from "./lumina-bridge.js";
+import { looksLikeAutoImportTitle } from "./paper-title.js";
 import { DEFAULT_THEME, THEME_CSS, isLight, THEMES, themeById } from "./themes.js";
 import { LOGO_DATA_URI } from "./brand-logo.js";
 import { Telescope, BookOpen, BookMarked, Rss, Settings as SettingsIcon, Palette, Check } from "lucide-react";
@@ -121,6 +122,7 @@ export default function LuminaApp() {
   const [lists, setLists] = useState([]); // 单层清单 [{id,name,ids}]
   const [toasts, setToasts] = useState([]);
   const [pdfDeleteConfirm, setPdfDeleteConfirm] = useState(null);
+  const [focusRenamePaperId, setFocusRenamePaperId] = useState(null);
   const [theme, setTheme] = useState(DEFAULT_THEME);
   const [themeOpen, setThemeOpen] = useState(false);
   const [incomingPdf, setIncomingPdf] = useState(null);
@@ -534,6 +536,13 @@ export default function LuminaApp() {
     }
   }, [lib, lists, pushToast]);
 
+  const onRenamePaper = useCallback((id, title) => {
+    const trimmed = String(title || "").trim();
+    if (!trimmed) return;
+    setLib((l) => l.map((p) => (p.id === id ? { ...p, title: trimmed } : p)));
+    void bridge.papersUpdateTitle(id, trimmed).then((ok) => { if (!ok) void refreshLib(); });
+  }, [refreshLib]);
+
   const onImportToLibrary = useCallback(async (payload) => {
     if (!payload) return { ok: false, error: "invalid" };
     if (payload.paperId && !payload.bytes?.byteLength && !payload.localPath) {
@@ -553,6 +562,10 @@ export default function LuminaApp() {
     });
     if (res?.ok) {
       await refreshLib();
+      const t = res.title || payload.title;
+      if (res.paperId && (payload.localPath || payload.bytes) && looksLikeAutoImportTitle(t, "local_import")) {
+        setFocusRenamePaperId(res.paperId);
+      }
       return res;
     }
     pushToast && pushToast("导入工作集失败");
@@ -700,10 +713,11 @@ export default function LuminaApp() {
                 onAddToLibrary={(p) => onSave(p)}
                 onImportLocal={onImportToLibrary}
                 onLibraryRemove={onLibraryRemove}
+                onPaperRename={onRenamePaper}
               />
           </div>
           <div className={"lf-pane" + (view === "library" ? "" : " is-hidden")} aria-hidden={view !== "library"}>
-              <Library lib={lib} lists={lists} onCreateList={createList} onToggleInList={toggleInList} onDeleteList={deleteList} onRenameList={renameList} onAddManyToList={addManyToList} onRemove={onRemoveLib} onRead={onReadFromLib} onFetch={onFetch} fetchedMeta={fetchedMeta} fetchingMeta={fetchingMeta} fetchTick={fetchTick} pushToast={pushToast} />
+              <Library lib={lib} lists={lists} onCreateList={createList} onToggleInList={toggleInList} onDeleteList={deleteList} onRenameList={renameList} onAddManyToList={addManyToList} onRemove={onRemoveLib} onRead={onReadFromLib} onFetch={onFetch} onRenamePaper={onRenamePaper} focusRenamePaperId={focusRenamePaperId} onFocusRenameHandled={() => setFocusRenamePaperId(null)} fetchedMeta={fetchedMeta} fetchingMeta={fetchingMeta} fetchTick={fetchTick} pushToast={pushToast} />
           </div>
         </main>
         {mode === "settings" && (

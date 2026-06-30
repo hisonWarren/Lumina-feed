@@ -87,6 +87,7 @@ contextBridge.exposeInMainWorld("luminaApi", {
   papersHydrate: () => invoke("papers:hydrate"),
   papersReconcile: () => invoke("papers:reconcile"),
   papersAsset: (paperId: string) => invoke("papers:asset", paperId),
+  papersUpdateTitle: (paperId: string, title: string) => invoke("papers:updateTitle", paperId, title),
   pdfDelete: (paperId: string, opts?: unknown) => invoke("pdf:delete", paperId, opts),
   pdfListDetached: () => invoke("pdf:listDetached"),
   pdfPruneDetached: (paperIds?: string[]) => invoke("pdf:pruneDetached", paperIds),

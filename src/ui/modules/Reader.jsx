@@ -12,6 +12,7 @@ import { captureTextSelection } from "../reader-selection.js";
 import { setReaderContextHost, shouldReaderHandleContextTarget } from "../reader-context-host.js";
 import ReaderContextMenu from "../components/ReaderContextMenu.jsx";
 import { readerDocKey, readerDocKeyCandidates } from "../reader-doc-key.js";
+import { looksLikeAutoImportTitle } from "../paper-title.js";
 
 function pdfBytesClone(bytes) {
   if (!bytes) return null;
@@ -165,6 +166,9 @@ const READER_CSS = `
 .rd-back{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:9px;padding:7px 11px;font-size:12.5px;cursor:pointer;font-family:inherit}
 .rd-back:hover{border-color:var(--gold);color:var(--gold)}
 .rd-name{flex:1;min-width:0;font-size:13.5px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rd-name-btn{cursor:pointer;border-radius:6px;padding:2px 6px;margin:-2px -6px}
+.rd-name-btn:hover{background:var(--surf2)}
+.rd-name-inp{flex:1;min-width:0;font:inherit;font-size:13.5px;font-weight:600;border:1px solid var(--gold);border-radius:6px;padding:4px 8px;background:var(--surf);color:var(--ink);outline:none}
 .rd-lib{display:inline-flex;align-items:center;gap:5px;flex-shrink:0;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer;font-family:inherit}
 .rd-lib:hover:not(:disabled){border-color:var(--gold);color:var(--gold)}
 .rd-lib.on{border-color:var(--gold);color:var(--gold);background:var(--gold-tint)}
@@ -1626,7 +1630,7 @@ function ReaderPanel({ zone, setZone, doc, source, docKey, onGoto, pushToast, ex
   );
 }
 
-export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryImport, onLibraryRemove, onSourceUpgrade }) {
+export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryImport, onLibraryRemove, onSourceUpgrade, onPaperRename }) {
   const [doc, setDoc] = useState(null);
   const [numPages, setNumPages] = useState(0);
   const [page, setPage] = useState(1);
@@ -1664,6 +1668,9 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
   const inLibrary = !!(source && source.paperId && inLibFn && inLibFn(source.paperId));
   const canImport = !!(onLibraryImport && source && ((source.data && source.data.byteLength) || source.paperId));
   const [importing, setImporting] = useState(false);
+  const [renamingTitle, setRenamingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const titleInputRef = useRef(null);
   const handleLibrary = useCallback(async () => {
     if (!source) return;
     if (source.paperId && inLibFn && inLibFn(source.paperId)) {
@@ -1706,7 +1713,8 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
         const msg = res.existed
           ? "已在工作集 · 阅读缓存已对齐"
           : (source.paperId && source.paperId === res.paperId ? "已重新加入「我的文献」" : "已加入「我的文献」");
-        pushToast && pushToast(msg);
+        const showRenameHint = looksLikeAutoImportTitle(res.title || source.name, res.existed ? "" : "local_import");
+        pushToast && pushToast(showRenameHint ? `${msg} · 点击顶部标题可重命名` : msg);
       } else {
         pushToast && pushToast((res && res.error) || "加入工作集失败");
       }
@@ -1716,6 +1724,27 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
       setImporting(false);
     }
   }, [source, onLibraryImport, onLibraryRemove, onSourceUpgrade, inLibFn, pushToast]);
+
+  const startTitleRename = useCallback(() => {
+    if (!source?.paperId || !onPaperRename) return;
+    setTitleDraft(source.name || "");
+    setRenamingTitle(true);
+    requestAnimationFrame(() => { titleInputRef.current?.focus(); titleInputRef.current?.select(); });
+  }, [source, onPaperRename]);
+
+  const cancelTitleRename = useCallback(() => {
+    setRenamingTitle(false);
+    setTitleDraft("");
+  }, []);
+
+  const commitTitleRename = useCallback(() => {
+    const trimmed = String(titleDraft || "").trim();
+    setRenamingTitle(false);
+    if (!source?.paperId || !onPaperRename || !trimmed || trimmed === source.name) return;
+    onPaperRename(source.paperId, trimmed);
+    onSourceUpgrade && onSourceUpgrade({ name: trimmed });
+    pushToast && pushToast("已更新文献名称");
+  }, [titleDraft, source, onPaperRename, onSourceUpgrade, pushToast]);
 
   useEffect(() => {
     const z = loadReaderUiPref(docKey, "zone", "assist");
@@ -2312,7 +2341,31 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
 
       <div className="rd-topbar">
         <button className="rd-back" onClick={onClose}><ArrowLeft size={15} /> 返回</button>
-        <div className="rd-name">{source.name}</div>
+        {renamingTitle && source.paperId && onPaperRename ? (
+          <input
+            ref={titleInputRef}
+            className="rd-name-inp"
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); commitTitleRename(); }
+              if (e.key === "Escape") { e.preventDefault(); cancelTitleRename(); }
+            }}
+            onBlur={commitTitleRename}
+            aria-label="文献名称"
+          />
+        ) : (
+          <div
+            className={"rd-name" + (source.paperId && onPaperRename ? " rd-name-btn" : "")}
+            title={source.paperId && onPaperRename ? "点击重命名" : undefined}
+            role={source.paperId && onPaperRename ? "button" : undefined}
+            tabIndex={source.paperId && onPaperRename ? 0 : undefined}
+            onClick={startTitleRename}
+            onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && source.paperId && onPaperRename) { e.preventDefault(); startTitleRename(); } }}
+          >
+            {source.name}
+          </div>
+        )}
         {onLibraryImport && (
           <button className={"rd-lib" + (inLibrary ? " on" : "")} type="button" disabled={importing} onClick={handleLibrary} title={inLibrary ? "点击移出文献" : "加入我的文献工作集"}>
             {importing ? <Loader size={14} className="rd-spin" /> : <BookMarked size={14} />}

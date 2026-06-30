@@ -2,7 +2,7 @@
 // 渲染层：对"你收藏/取过的那批"做 易搜(客户端) / 易引(多样式 + 导出) / 易重开。
 // FTS5 全文索引（PDF 全文 + AI 总结 + 批注）属引擎层（doc 04 §4），需 electron/ 引擎；本模块对工作集元数据做客户端检索，
 // 并提供完整的引用与 .bib/.ris/CSL 导出（纯渲染层、喂 Zotero 不锁定）。定位为工作集；支持单层自定义分组（list）——类似扁平文件夹，一篇可进多组；不做嵌套目录树 / 标签体系 / 云端账号 / Word 插件（红线/01-C）。
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { bridge } from "../lumina-bridge.js";
 import { BookMarked, Search, Copy, Download, Trash2, ChevronDown, BookOpen, Quote, Layers, FolderPlus, Check, X, Folder, Sparkles, Lightbulb, FileDown, Loader, Pencil } from "lucide-react";
 import { STYLES, formatCitation, exportBib, exportRis, exportCslJson } from "../cite.js";
@@ -55,7 +55,10 @@ const LIB_CSS = `
 .lib-group-h{font-size:11px;font-family:'Space Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);margin:14px 0 8px}
 .lib-card{border:1px solid var(--line);border-radius:13px;padding:14px 16px;margin-bottom:11px;background:var(--surf);transition:box-shadow .16s,border-color .16s}
 .lib-card:hover{box-shadow:var(--shadow);border-color:var(--line2)}
-.lib-title{font-family:'Source Serif 4',Georgia,serif;font-size:15.5px;font-weight:600;line-height:1.4;color:var(--ink)}
+.lib-title{font-family:'Source Serif 4',Georgia,serif;font-size:15.5px;font-weight:600;line-height:1.4;color:var(--ink);cursor:pointer;display:flex;align-items:flex-start;gap:6px}
+.lib-title:hover .lib-title-pen{opacity:.85}
+.lib-title-pen{flex-shrink:0;margin-top:4px;opacity:.35;color:var(--ink3)}
+.lib-title-inp{width:100%;font:inherit;font-family:'Source Serif 4',Georgia,serif;font-size:15.5px;font-weight:600;line-height:1.4;border:1px solid var(--gold);border-radius:6px;padding:3px 8px;background:var(--surf);color:var(--ink);outline:none;box-sizing:border-box}
 .lib-meta{font-size:12.5px;color:var(--ink3);margin-top:5px}
 .lib-badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .lib-b{font-size:10.5px;font-family:'Space Mono',monospace;color:var(--ink3);background:var(--surf2);border:1px solid var(--line);border-radius:6px;padding:3px 7px}
@@ -155,7 +158,7 @@ function CorpusCard({ env }) {
   );
 }
 
-export default function Library({ lib, lists, onCreateList, onToggleInList, onDeleteList, onRenameList, onAddManyToList, onRemove, onRead, onFetch, fetchedMeta, fetchingMeta = {}, fetchTick = 0, pushToast }) {
+export default function Library({ lib, lists, onCreateList, onToggleInList, onDeleteList, onRenameList, onAddManyToList, onRemove, onRead, onFetch, onRenamePaper, focusRenamePaperId, onFocusRenameHandled, fetchedMeta, fetchingMeta = {}, fetchTick = 0, pushToast }) {
   const [query, setQuery] = useState(_libPref0.query || "");
   const [fFulltext, setFFulltext] = useState(!!_libPref0.fFulltext);
   const [fPreprint, setFPreprint] = useState(!!_libPref0.fPreprint);
@@ -177,6 +180,9 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
   const topNewRef = useRef(null);
   const skipCreateBlurRef = useRef(false);
   const skipRenameBlurRef = useRef(false);
+  const [editingTitleId, setEditingTitleId] = useState(null);
+  const [editTitleVal, setEditTitleVal] = useState("");
+  const titleInputRef = useRef(null);
   const [selMode, setSelMode] = useState(!!_libPref0.selMode);
   const [sel, setSel] = useState(() => new Set(Array.isArray(_libPref0.sel) ? _libPref0.sel : []));
   const [corpusEnv, setCorpusEnv] = useState(null);
@@ -230,6 +236,34 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
   };
 
   const paperGroups = (pid) => LS.filter((L) => L.ids.includes(pid));
+
+  const startTitleEdit = useCallback((p) => {
+    if (!onRenamePaper || !p) return;
+    setEditingTitleId(p.id);
+    setEditTitleVal(p.title || "");
+    requestAnimationFrame(() => { titleInputRef.current?.focus(); titleInputRef.current?.select(); });
+  }, [onRenamePaper]);
+
+  const cancelTitleEdit = useCallback(() => {
+    setEditingTitleId(null);
+    setEditTitleVal("");
+  }, []);
+
+  const commitTitleEdit = useCallback((p) => {
+    const trimmed = String(editTitleVal || "").trim();
+    setEditingTitleId(null);
+    if (!onRenamePaper || !p) return;
+    if (!trimmed || trimmed === (p.title || "")) return;
+    onRenamePaper(p.id, trimmed);
+  }, [editTitleVal, onRenamePaper]);
+
+  useEffect(() => {
+    if (!focusRenamePaperId || !onRenamePaper) return;
+    const p = (lib || []).find((x) => x.id === focusRenamePaperId);
+    if (!p) return;
+    startTitleEdit(p);
+    onFocusRenameHandled && onFocusRenameHandled();
+  }, [focusRenamePaperId, lib, onRenamePaper, onFocusRenameHandled, startTitleEdit]);
 
   useEffect(() => {
     const qq = query.trim();
@@ -318,7 +352,25 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
     return (
     <div className={"lib-card" + (selMode && sel.has(p.id) ? " lib-card-sel" : "")} key={p.id}>
       {selMode && <button role="checkbox" aria-checked={sel.has(p.id)} className={"lib-cb" + (sel.has(p.id) ? " on" : "")} onClick={() => toggleSel(p.id)} aria-label="选择本篇做跨篇分析">{sel.has(p.id) ? <Check size={14} /> : null}</button>}
-      <div className="lib-title">{p.title || "(无标题)"}</div>
+      {editingTitleId === p.id ? (
+        <input
+          ref={titleInputRef}
+          className="lib-title-inp"
+          value={editTitleVal}
+          onChange={(e) => setEditTitleVal(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); commitTitleEdit(p); }
+            if (e.key === "Escape") { e.preventDefault(); cancelTitleEdit(); }
+          }}
+          onBlur={() => commitTitleEdit(p)}
+          aria-label="文献名称"
+        />
+      ) : (
+        <div className="lib-title" role="button" tabIndex={0} title="点击重命名" onClick={() => startTitleEdit(p)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); startTitleEdit(p); } }}>
+          <span>{p.title || "(无标题)"}</span>
+          {onRenamePaper ? <Pencil size={12} className="lib-title-pen" aria-hidden /> : null}
+        </div>
+      )}
       <div className="lib-meta">
         {formatAuthors(p.authors, 4)}
         {normalizeAuthors(p.authors).length > 4 ? " 等" : ""}

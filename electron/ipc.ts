@@ -1268,6 +1268,18 @@ export function registerIpc(deps: IpcDeps): void {
     if (!deps) return false;
     return detachFromLibrary(deps, paperId);
   });
+  ipcMain.handle("papers:updateTitle", (_e, paperId: string, title: string) => {
+    try {
+      const id = String(paperId || "").trim();
+      const t = String(title || "").trim().slice(0, 500);
+      if (!id || !t) return false;
+      if (!store.papers.updateTitle(id, t)) return false;
+      try {
+        store.db.prepare("UPDATE reading_history SET title=? WHERE paper_id=?").run(t, id);
+      } catch { /* ignore */ }
+      return true;
+    } catch { return false; }
+  });
   ipcMain.handle("lists:get", () => {
     try { ensureLib(); const r = store.db.prepare("SELECT payload FROM sources_cache WHERE key=?").get("lists:all") as { payload?: string } | undefined; return r && r.payload ? JSON.parse(r.payload) : []; } catch { return []; }
   });
