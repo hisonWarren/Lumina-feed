@@ -13,6 +13,7 @@ import { setReaderContextHost, shouldReaderHandleContextTarget } from "../reader
 import ReaderContextMenu from "../components/ReaderContextMenu.jsx";
 import { readerDocKey, readerDocKeyCandidates } from "../reader-doc-key.js";
 import { looksLikeAutoImportTitle } from "../paper-title.js";
+import { buildInsightBlocks } from "../insight-blocks.js";
 
 function pdfBytesClone(bytes) {
   if (!bytes) return null;
@@ -794,7 +795,6 @@ const READER_ZONES = ["assist", "deep", "inf", "notes"];
 class ZoneErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { err: null }; }
   static getDerivedStateFromError(err) { return { err }; }
-  componentDidCatch() {}
   componentDidUpdate(prev) {
     if (prev.resetKey !== this.props.resetKey && this.state.err) this.setState({ err: null });
   }
@@ -867,10 +867,97 @@ function ConfChip({ lvl }) {
   return <span className="conf c1"><Lightbulb size={10} /> 文中有据的推断</span>;
 }
 const EV_PAGE_LEDGER = 12;
-const EV_PAGE_CITER = 8;
-const EV_PAGE_INF = 10;
-const INF_UI_CAP = 80;
+const EV_PAGE_BLOCK = 5;
+const BLOCK_MAX_ITEMS = 80;
 const FLOW_LIST_PAGE = 12;
+function InsightBlocksView({ env, onGoto, laneText }) {
+  const [aspect, setAspect] = useState("all");
+  const [ground, setGround] = useState("all");
+  const [pageIdx, setPageIdx] = useState(0);
+  const blocks = useMemo(
+    () => buildInsightBlocks({ ...env, claims: asClaimArray(env?.claims).slice(0, BLOCK_MAX_ITEMS) }, { maxBlocks: 9, maxClaimsPerBlock: 8 }),
+    [env],
+  );
+  useEffect(() => { setAspect("all"); setGround("all"); setPageIdx(0); }, [env?.kind, env?.title, env?.banner, env?.framing]);
+  const filtered = useMemo(() => blocks.filter((b) => {
+    const byAspect = aspect === "all" ? true : b.aspect === aspect;
+    const hasRefs = Array.isArray(b.pageRefs) && b.pageRefs.length > 0;
+    const byGround = ground === "all" ? true : (ground === "grounded" ? hasRefs : !hasRefs);
+    return byAspect && byGround;
+  }), [blocks, aspect, ground]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / EV_PAGE_BLOCK));
+  const visible = useMemo(
+    () => filtered.slice(pageIdx * EV_PAGE_BLOCK, (pageIdx + 1) * EV_PAGE_BLOCK),
+    [filtered, pageIdx],
+  );
+  useEffect(() => { if (pageIdx >= totalPages) setPageIdx(Math.max(0, totalPages - 1)); }, [pageIdx, totalPages]);
+  const aspectCounts = useMemo(() => {
+    const m = { all: blocks.length };
+    for (const b of blocks) m[b.aspect] = (m[b.aspect] || 0) + 1;
+    return m;
+  }, [blocks]);
+  const groundCounts = useMemo(() => ({
+    all: blocks.length,
+    grounded: blocks.filter((b) => b.pageRefs && b.pageRefs.length > 0).length,
+    ungrounded: blocks.filter((b) => !b.pageRefs || b.pageRefs.length === 0).length,
+  }), [blocks]);
+  const aspectTabs = useMemo(() => {
+    const out = [["all", "全部方面"]];
+    for (const b of blocks) if (!out.some((x) => x[0] === b.aspect)) out.push([b.aspect, b.title]);
+    return out;
+  }, [blocks]);
+  if (!blocks.length) return <div className="ev-empty"><Info size={13} />{laneText || "暂无可组织的逻辑方面。"}</div>;
+  return (
+    <>
+      <div className="ledger-filters">
+        {aspectTabs.map(([id, label]) => (
+          <button key={id} type="button" className={"ledger-filter" + (aspect === id ? " on" : "")} onClick={() => { setAspect(id); setPageIdx(0); }}>
+            {label}{aspectCounts[id] ? ` (${aspectCounts[id]})` : ""}
+          </button>
+        ))}
+      </div>
+      <div className="ledger-filters" style={{ borderTop: 0 }}>
+        {[["all", "全部"], ["grounded", "带页码"], ["ungrounded", "未标页码"]].map(([id, label]) => (
+          <button key={id} type="button" className={"ledger-filter" + (ground === id ? " on" : "")} onClick={() => { setGround(id); setPageIdx(0); }}>
+            {label}{groundCounts[id] ? ` (${groundCounts[id]})` : ""}
+          </button>
+        ))}
+      </div>
+      {filtered.length === 0
+        ? <div className="ev-empty"><Info size={13} />当前筛选下暂无逻辑段</div>
+        : visible.map((b) => (
+          <details key={b.id} className="ledger-page-group" open>
+            <summary className="ledger-page-sum">
+              {b.title} · {b.totalClaims} 条
+              {b.confidenceBand ? <span style={{ marginLeft: 8 }}><ConfChip lvl={b.confidenceBand} /></span> : null}
+            </summary>
+            <div className="ev-claim" style={{ borderColor: "var(--amberLine)" }}>
+              <div>{b.summary}</div>
+              <div className="ev-meta"><Cites refs={b.pageRefs} onGoto={onGoto} /></div>
+            </div>
+            {b.claims.length > 0 && (
+              <details style={{ margin: "0 10px 8px" }}>
+                <summary className="ledger-page-sum">展开证据点（{b.claims.length}）</summary>
+                {b.claims.map((c, i) => (
+                  <div key={i} className="ev-claim">
+                    <div>{String(c.text || "")}</div>
+                    <div className="ev-meta">{c.confidence && <ConfChip lvl={c.confidence} />}<Cites refs={c.pageRefs} onGoto={onGoto} /></div>
+                  </div>
+                ))}
+              </details>
+            )}
+          </details>
+        ))}
+      {filtered.length > EV_PAGE_BLOCK && (
+        <div className="ledger-pager">
+          <button type="button" disabled={pageIdx <= 0} onClick={() => setPageIdx((p) => p - 1)}><ChevronUp size={13} /> 上一页</button>
+          <span>{pageIdx + 1} / {totalPages} · 本页 {visible.length} 个方面</span>
+          <button type="button" disabled={pageIdx >= totalPages - 1} onClick={() => setPageIdx((p) => p + 1)}>下一页 <ChevronDown size={13} /></button>
+        </div>
+      )}
+    </>
+  );
+}
 const LEDGER_FILTERS = [
   { id: "all", label: "全部" },
   { id: "internal_data", label: "内部数据" },
@@ -969,11 +1056,7 @@ function LedgerEvidenceCard({ env, onGoto }) {
 }
 function CiteEvidenceCard({ env, onGoto }) {
   const claims = asClaimArray(env.claims);
-  const pageSize = env.kind === "citerole" ? EV_PAGE_CITER : EV_PAGE_CITER;
-  const [shown, setShown] = useState(pageSize);
   const isCite = env.kind === "citerole";
-  const visible = claims.slice(0, shown);
-  const remaining = claims.length - visible.length;
   return (
     <div className="ev-card">
       <div className="ev-top"><Layers size={14} /> <span className="ev-title">{env.title}</span><span className="gbadge"><Shield size={9} /> 接地·带页码</span></div>
@@ -982,61 +1065,12 @@ function CiteEvidenceCard({ env, onGoto }) {
       {isCite && <div className="ev-note"><Link2 size={12} /><div>这里是<b>正文里被讨论到的关键引用</b>各起什么作用（背景 / 方法 / 数据 / 对照…），最多展示 {CITEROLE_UI_CAP} 处，<b>不是完整参考文献表</b>。全部书目 → 在「我的文献」<b>导出到 Zotero</b>。</div></div>}
       {claims.length === 0
         ? <div className="ev-empty"><Info size={13} />{env.banner || "未能从本篇正文提取到可标注页码的条目。可点「重新生成」重试，或在设置里换更强的模型。"}</div>
-        : <>
-            {visible.map((c, i) => (
-              <div key={i} className="ev-claim">
-                <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>{c.status && <StatusIcon s={c.status} />}<span>{String(c.text ?? "")}{c.flag === "needs_recheck" && <span className="evtype" style={{ marginLeft: 6, color: "var(--amberDim)", borderColor: "var(--amberLine)" }}>需核对</span>}</span></div>
-                <div className="ev-meta">{c.evidenceType && <span className="evtype">{EVTYPE[c.evidenceType] || c.evidenceType}</span>}<Cites refs={c.pageRefs} onGoto={onGoto} /></div>
-              </div>
-            ))}
-            {remaining > 0 && <button className="ev-more" onClick={() => setShown(claims.length)}><ChevronDown size={14} /> 显示其余 {remaining} 条（共 {claims.length} 条）</button>}
-            {remaining <= 0 && claims.length > pageSize && <button className="ev-more" onClick={() => setShown(pageSize)}><ChevronUp size={14} /> 收起</button>}
-          </>}
+        : <InsightBlocksView env={env} onGoto={onGoto} laneText="已按逻辑方面整理，展开可查看证据点。" />}
     </div>
   );
 }
-/** 兼容旧引用；ledger 已在 EnvelopeCard 分流 */
-function EvidenceCard(props) {
-  if (props.env?.kind === "ledger") return <LedgerEvidenceCard {...props} />;
-  return <CiteEvidenceCard {...props} />;
-}
-// 推断卡正文（车道内容：框定语 + 拒绝块 或 带把握度的 claim）——InfCard 与 InfAnalyzer 共用
+// 推断卡正文（车道内容：框定语 + 拒绝块 或 逻辑方面段落）——InfCard 与 InfAnalyzer 共用
 function InfBody({ env, onGoto }) {
-  const safeEnv = env || {};
-  const allClaims = useMemo(
-    () => asClaimArray(safeEnv.claims).filter((c) => c && String(c.text || "").trim()),
-    [safeEnv.claims],
-  );
-  const claims = useMemo(() => allClaims.slice(0, INF_UI_CAP), [allClaims]);
-  const [confFilter, setConfFilter] = useState("all");
-  const [groundFilter, setGroundFilter] = useState("all");
-  const [pageIdx, setPageIdx] = useState(0);
-  useEffect(() => { setConfFilter("all"); setGroundFilter("all"); setPageIdx(0); }, [safeEnv.title, safeEnv.kind, safeEnv.banner, safeEnv.framing]);
-  const filtered = useMemo(() => {
-    return claims.filter((c) => {
-      const okConf = confFilter === "all" ? true : (String(c.confidence || "") === confFilter);
-      const hasRefs = Array.isArray(c.pageRefs) && c.pageRefs.length > 0;
-      const okGround = groundFilter === "all" ? true : (groundFilter === "grounded" ? hasRefs : !hasRefs);
-      return okConf && okGround;
-    });
-  }, [claims, confFilter, groundFilter]);
-  const totalPages = Math.max(1, Math.ceil(filtered.length / EV_PAGE_INF));
-  const pageClaims = useMemo(
-    () => filtered.slice(pageIdx * EV_PAGE_INF, (pageIdx + 1) * EV_PAGE_INF),
-    [filtered, pageIdx],
-  );
-  useEffect(() => { if (pageIdx >= totalPages) setPageIdx(Math.max(0, totalPages - 1)); }, [pageIdx, totalPages]);
-  const confCounts = useMemo(() => ({
-    all: claims.length,
-    c1: claims.filter((c) => c.confidence === "c1").length,
-    c2: claims.filter((c) => c.confidence === "c2").length,
-    c3: claims.filter((c) => c.confidence === "c3").length,
-  }), [claims]);
-  const groundCounts = useMemo(() => ({
-    all: claims.length,
-    grounded: claims.filter((c) => Array.isArray(c.pageRefs) && c.pageRefs.length > 0).length,
-    ungrounded: claims.filter((c) => !Array.isArray(c.pageRefs) || c.pageRefs.length === 0).length,
-  }), [claims]);
   if (!env) return null;
   return (
     <>
@@ -1044,40 +1078,7 @@ function InfBody({ env, onGoto }) {
       {env.banner && <div className="ev-note"><Info size={12} /><div>{env.banner}</div></div>}
       {env.refused
         ? <div className="refuse"><Ban size={15} /><div>{env.refused.reason}</div></div>
-        : <>
-            {allClaims.length > INF_UI_CAP && (
-              <div className="ev-note"><Info size={12} /><div>推读结果较长，已为流畅体验展示前 {INF_UI_CAP} 条；可切换筛选快速定位。</div></div>
-            )}
-            <div className="ledger-filters">
-              {[["all", "全部"], ["c1", "文中有据"], ["c2", "需外部佐证"], ["c3", "仅供联想"]].map(([id, label]) => (
-                <button key={id} type="button" className={"ledger-filter" + (confFilter === id ? " on" : "")} onClick={() => { setConfFilter(id); setPageIdx(0); }}>
-                  {label}{confCounts[id] ? ` (${confCounts[id]})` : ""}
-                </button>
-              ))}
-            </div>
-            <div className="ledger-filters" style={{ borderTop: 0 }}>
-              {[["all", "全部条目"], ["grounded", "带页码"], ["ungrounded", "未标页码"]].map(([id, label]) => (
-                <button key={id} type="button" className={"ledger-filter" + (groundFilter === id ? " on" : "")} onClick={() => { setGroundFilter(id); setPageIdx(0); }}>
-                  {label}{groundCounts[id] ? ` (${groundCounts[id]})` : ""}
-                </button>
-              ))}
-            </div>
-            {filtered.length === 0
-              ? <div className="ev-empty"><Info size={13} />当前筛选下暂无条目</div>
-              : pageClaims.map((c, i) => (
-                <div key={i} className="ev-claim" style={{ borderColor: "var(--amberLine)" }}>
-                  <div>{String(c.text ?? "")}</div>
-                  <div className="ev-meta">{c.confidence && <ConfChip lvl={c.confidence} />}<Cites refs={c.pageRefs} onGoto={onGoto} /></div>
-                </div>
-              ))}
-            {filtered.length > EV_PAGE_INF && (
-              <div className="ledger-pager">
-                <button type="button" disabled={pageIdx <= 0} onClick={() => setPageIdx((p) => p - 1)}><ChevronUp size={13} /> 上一页</button>
-                <span>{pageIdx + 1} / {totalPages} · 本页 {pageClaims.length} 条</span>
-                <button type="button" disabled={pageIdx >= totalPages - 1} onClick={() => setPageIdx((p) => p + 1)}>下一页 <ChevronDown size={13} /></button>
-              </div>
-            )}
-          </>}
+        : <InsightBlocksView env={env} onGoto={onGoto} laneText="已按逻辑方面整理，展开可查看证据点与页码锚点。" />}
     </>
   );
 }
