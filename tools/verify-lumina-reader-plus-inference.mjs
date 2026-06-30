@@ -9,7 +9,7 @@ try { execSync("node --experimental-strip-types --check electron/ipc.ts", { stdi
 const rp = R("src/core/reader/reader-plus.ts");
 ok(/\n  hardcore:/.test(rp) && /\n  limitations:/.test(rp), "hardcore + limitations prompt 接入");
 ok(/spec\.lane === "inference"\) claim\.confidence/.test(rp), "推断车道 claim 把握度按 groundability 兜底（c1/c2/c3）");
-ok(/groundability === "L3"/.test(rp) && /refused:/.test(rp), "genesis 仍 L3 静态拒绝（不调 LLM，安全底）");
+ok(/kind === "genesis" && !deps\.speculative/.test(rp) && /refused:/.test(rp), "genesis 仍 L3 静态拒绝（不调 LLM，安全底）");
 ok(/function flagIntentReconstruction/.test(rp) && /env\.lane !== "evidence"\) return env/.test(rp), "整体推断度：仅对证据车道做保守 needs_recheck 标记（不静默改车道，HC-3 透明）");
 ok(/flagIntentReconstruction\(await runStructured/.test(rp), "证据车道结果套用整体推断度标记");
 const ipc = R("electron/ipc.ts");
@@ -21,7 +21,7 @@ ok(/kind === "genesis"/.test(br) && /kind === "hardcore" \|\| kind === "limitati
 const rd = R("src/ui/modules/Reader.jsx");
 ok(/function InfBody/.test(rd) && (rd.match(/<InfBody env=\{env\}/g) || []).length >= 2, "InfBody 抽取并被 InfCard 与 InfAnalyzer 共用");
 ok(/function InfAnalyzer/.test(rd), "InfAnalyzer 推断分析器卡");
-ok(/if \(nx && !env && !busy && !practice\) run\(\)/.test(rd), "练判断 gate①：limitations 展开不自动取 AI（揭示前不下发）");
+ok(/if \(nx && !env && !busy && !practice && !genesisOptIn\) run\(\)/.test(rd) || /if \(nx && !env && !busy && !practice\) run\(\)/.test(rd), "练判断 gate①：limitations 展开不自动取 AI（揭示前不下发）");
 ok(/bridge\.readerPracticeSave\(source\.paperId, kind, guess\);\s*\n?\s*setRevealed\(true\); run\(\)/.test(rd) || (/readerPracticeSave\(source\.paperId, kind, guess\)/.test(rd) && /setRevealed\(true\); run\(\)/.test(rd)), "练判断 gate②：揭示先留痕用户判断、再取 AI（不自动给答案）");
 ok(/practice && !revealed \?/.test(rd), "练判断 gate③：未揭示只渲染 guess-box，不渲染 AI 内容");
 ok(/InfAnalyzer kind="hardcore"[^]*InfAnalyzer kind="limitations"[^]*practice[^]*InfAnalyzer kind="genesis"/.test(rd), "InferencePane 实装三推断分析器（limitations 带 practice）");

@@ -5,13 +5,17 @@ import type { LlmClient } from "../summarize/types.ts";
 
 export interface ReaderPage { page: number; text: string }
 export interface ReaderCitation { page: number }
+export type ReaderSourceBasis = "fulltext" | "pages" | "abstract";
+
 export interface ReaderAnswer {
   text: string;
-  sourceBasis: "fulltext"; // 阅读器文本来自用户已打开的真实 PDF
+  sourceBasis: ReaderSourceBasis; // fulltext=全文管线；pages=仅部分页（应诚实标出）
   model: string;
   groundedRatio: number;
   banner?: string;
   citations: ReaderCitation[];
+  pageCount?: number;
+  pagesUsed?: number;
 }
 
 const CTX_CHARS = 12000;
@@ -148,31 +152,6 @@ function groundReaderAnswer(answer: string, pages: ReaderPage[], opts: { hi?: nu
   return { groundedRatio, banner };
 }
 
-/** 带页码引用的接地问答（页锚 RAG）。 */
-export async function askReader(
-  pages: ReaderPage[],
-  question: string,
-  llm: LlmClient,
-  opts: { signal?: AbortSignal } = {},
-): Promise<ReaderAnswer> {
-  const picked = selectPages(pages, question, 6);
-  const context = buildContext(picked);
-  const answer = await llm.complete(
-    [
-      { role: "system", content: SYS_BASE },
-      { role: "user", content: "问题：" + question + "\n\n— 页面文本 —\n" + context },
-    ],
-    { maxTokens: 900, temperature: 0.2, signal: opts.signal },
-  );
-  const g = groundReaderAnswer(answer, picked);
-  return { text: answer, sourceBasis: "fulltext", model: llm.model, groundedRatio: g.groundedRatio, banner: g.banner, citations: extractCitations(answer) };
-}
-
-/** 整篇结构化接地总结（带页码引用）。
- *  修复「只总结第 1 页 / 引用全标 p.1 / 接地偏低」：旧版把全文截到 12000 字符（≈ 摘要页）再一次过，
- *  模型只看得到首页摘要、于是把一切都标 p.1，后段细节（如 378 FNC 特征在 p.5）既没进上下文、也核不到 → 接地掉到 4 成。
- *  新版：小文档照旧单次过；长文档走 map-reduce——按页分片各自抽「带真实页码的要点」（并发），再汇总成五段，
- *  汇总时强制「信息在哪页就标哪页，不要一律标 p.1」。覆盖全篇 + 页码落到细节页 → 接地随之回升。红线不变：单篇、sourceBasis:fulltext、带页码、不杜撰。 */
 const ONE_PASS_CAP = 16000; // 单次直送字符上限（小文档一次过即可）
 const MAP_CHUNK = 8000;     // 每个 map 分片字符上限
 const MAX_CHUNKS = 8;       // map 分片数上限（控并发调用数）
@@ -189,6 +168,104 @@ function chunkByPages(pages: ReaderPage[], chunkCap: number, maxChunks: number):
   if (cur.length) chunks.push(cur);
   return chunks;
 }
+
+/** 预设/常见问法 → 优先检索的章节信号（用于中篇单次过时的页序加权，非替代全文）。 */
+const INTENT_HINTS: [RegExp, string[]][] = [
+  [/主要发现|核心结果|主要结果|贡献/, ["result", "finding", "discussion", "conclusion", "结果", "讨论", "结论"]],
+  [/方法|怎么做的|研究设计|procedure|method/i, ["method", "material", "participant", "方法", "材料", "被试", "样本"]],
+  [/样本|研究类型|队列|n\s*=|participants/i, ["participant", "sample", "cohort", "subject", "被试", "样本", "队列"]],
+  [/局限|限制|不足|weakness|limitation/i, ["limitation", "discussion", "future", "局限", "讨论", "不足"]],
+];
+
+function intentBoostPages(pages: ReaderPage[], question: string, k: number): ReaderPage[] {
+  const q = question || "";
+  let hints: string[] = [];
+  for (const [re, hs] of INTENT_HINTS) if (re.test(q)) hints = hints.concat(hs);
+  if (!hints.length) return selectPages(pages, question, k);
+  const scored = pages.map((p) => {
+    const t = norm(p.text).toLowerCase();
+    let s = 0;
+    for (const h of hints) if (t.includes(h.toLowerCase())) s += 3;
+    for (const tok of tokens(q)) if (t.includes(tok)) s += 1;
+    return { p, s };
+  });
+  scored.sort((a, b) => b.s - a.s);
+  const top = scored.slice(0, k).filter((x) => x.s > 0).map((x) => x.p);
+  const chosen = top.length ? top : selectPages(pages, question, k);
+  return chosen.slice().sort((a, b) => a.page - b.page);
+}
+
+const MAP_Q_SYS =
+  "你在为一篇学术论文做分段要点抽取。只依据给你的这部分页面文本，抽取与「用户问题」相关的要点；每条一行，行末用方括号标注该信息所在的真实页码（如 [p.5]）。只列要点、不写总起、不评论、不杜撰数字。若本片没有相关要点，只回复「（无）」。用简体中文。";
+
+async function mapChunkForQuestion(pages: ReaderPage[], question: string, llm: LlmClient, signal?: AbortSignal): Promise<string> {
+  const ctx = buildContext(pages, MAP_CHUNK + 2000);
+  const out = await llm.complete(
+    [
+      { role: "system", content: MAP_Q_SYS },
+      { role: "user", content: "用户问题：" + question + "\n\n— 论文片段（页面文本）—\n" + ctx },
+    ],
+    { maxTokens: 700, temperature: 0.2, signal },
+  );
+  return (out || "").trim();
+}
+
+/** 组装问答正文：小文档全文单次过；长文档 map-reduce 覆盖全篇（与总结同策略，避免只盯前 1–2 页）。 */
+async function composeAnswerText(pages: ReaderPage[], question: string, llm: LlmClient, signal?: AbortSignal): Promise<string> {
+  const qq = (question || "").trim();
+  if (totalChars(pages) <= ONE_PASS_CAP) {
+    const sys =
+      SYS_BASE +
+      "\n任务：依据下方提供的论文页面文本，直接回答用户问题；每一处论断后标注信息实际所在的页码 [p.X]（信息在哪页就标哪页，不要把所有点都标第 1 页）。若文本不足以回答，请直说「依据所给页面无法确定」。";
+    return await llm.complete(
+      [
+        { role: "system", content: sys },
+        { role: "user", content: "问题：" + qq + "\n\n— 全文页面文本 —\n" + buildContext(pages, ONE_PASS_CAP) },
+      ],
+      { maxTokens: 1000, temperature: 0.2, signal },
+    );
+  }
+  const chunks = chunkByPages(pages, MAP_CHUNK, MAX_CHUNKS);
+  const mapped = await Promise.all(chunks.map((c) => mapChunkForQuestion(c, qq, llm, signal).catch(() => "")));
+  const notes = mapped.map((m) => (m && m !== "（无）" ? m : "")).filter(Boolean).join("\n");
+  const reduceSys =
+    SYS_BASE +
+    "\n下面是从全文各部分抽取的、与用户问题相关的要点清单（带页码）。请据此直接回答问题；每处论断保留并标注它所依据的真实页码 [p.X]（沿用要点里的页码，不要一律标第 1 页）；只用要点中的信息，不杜撰数字、不引入要点之外的内容。若要点不足以回答，请直说「依据所给页面无法确定」。";
+  return await llm.complete(
+    [
+      { role: "system", content: reduceSys },
+      { role: "user", content: "问题：" + qq + "\n\n— 全文各部分要点（带页码）—\n" + (notes || "（未抽出要点）") },
+    ],
+    { maxTokens: 1100, temperature: 0.2, signal },
+  );
+}
+
+/** 带页码引用的接地问答（全文 map-reduce / 小文档全文；接地对全篇核验）。 */
+export async function askReader(
+  pages: ReaderPage[],
+  question: string,
+  llm: LlmClient,
+  opts: { signal?: AbortSignal } = {},
+): Promise<ReaderAnswer> {
+  const answer = await composeAnswerText(pages, question, llm, opts.signal);
+  const g = groundReaderAnswer(answer, pages);
+  return {
+    text: answer,
+    sourceBasis: "fulltext",
+    model: llm.model,
+    groundedRatio: g.groundedRatio,
+    banner: g.banner,
+    citations: extractCitations(answer),
+    pageCount: pages.length,
+    pagesUsed: pages.length,
+  };
+}
+
+/** 整篇结构化接地总结（带页码引用）。
+ *  修复「只总结第 1 页 / 引用全标 p.1 / 接地偏低」：旧版把全文截到 12000 字符（≈ 摘要页）再一次过，
+ *  模型只看得到首页摘要、于是把一切都标 p.1，后段细节（如 378 FNC 特征在 p.5）既没进上下文、也核不到 → 接地掉到 4 成。
+ *  新版：小文档照旧单次过；长文档走 map-reduce——按页分片各自抽「带真实页码的要点」（并发），再汇总成五段，
+ *  汇总时强制「信息在哪页就标哪页，不要一律标 p.1」。覆盖全篇 + 页码落到细节页 → 接地随之回升。红线不变：单篇、sourceBasis:fulltext、带页码、不杜撰。 */
 const MAP_SYS = "你在为一篇学术论文做分段要点抽取。只依据给你的这部分页面文本，抽取与『研究问题 / 方法 / 数据 / 主要结果 / 结论 / 局限』相关的要点；每条一行，行末用方括号标注该信息所在页码（如 [p.5]，用文本里给出的真实页码）。只列要点、不写总起、不评论、不杜撰数字。若本片没有相关要点，只回复「（无）」。用简体中文。";
 
 async function mapChunk(pages: ReaderPage[], llm: LlmClient, signal?: AbortSignal): Promise<string> {
@@ -228,5 +305,5 @@ export async function summarizeReader(
 ): Promise<ReaderAnswer> {
   const answer = await composeSummaryText(pages, llm, opts.signal);
   const g = groundReaderAnswer(answer, pages);
-  return { text: answer, sourceBasis: "fulltext", model: llm.model, groundedRatio: g.groundedRatio, banner: g.banner, citations: extractCitations(answer) };
+  return { text: answer, sourceBasis: "fulltext", model: llm.model, groundedRatio: g.groundedRatio, banner: g.banner, citations: extractCitations(answer), pageCount: pages.length, pagesUsed: pages.length };
 }

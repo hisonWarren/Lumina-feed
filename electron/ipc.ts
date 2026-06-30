@@ -893,9 +893,9 @@ export function registerIpc(deps: IpcDeps): void {
   });
 
   // ── reader_plus：统一分析派发（信封；lane 由引擎注册表决定）+ 分析缓存（本地优先，红线7）──
-  ipcMain.handle("reader:analyze", async (_e, payload: { kind?: string; pages?: ReaderPage[]; text?: string; page?: number }) => {
+  ipcMain.handle("reader:analyze", async (_e, payload: { kind?: string; pages?: ReaderPage[]; text?: string; page?: number; speculative?: boolean }) => {
     const kind = (payload && payload.kind) || "outline";
-    try { const llm = await makeLlm(); return await analyzeReader(kind, (payload && payload.pages) || [], { llm, text: payload && payload.text, page: payload && payload.page }); }
+    try { const llm = await makeLlm(); return await analyzeReader(kind, (payload && payload.pages) || [], { llm, text: payload && payload.text, page: payload && payload.page, speculative: !!(payload && payload.speculative) }); }
     catch (e) { console.error("reader:analyze 失败", e); return analysisError(kind, e); }
   });
   // ── reader_plus·写作 swipe file（带出处；本地优先，红线7）──

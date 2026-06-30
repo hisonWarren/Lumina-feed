@@ -16,7 +16,7 @@ const READER_CSS = `
 /* ── reader_plus 双车道（证据=gold/已四主题派生；推断=amber 此处派生明/暗） ── */
 .rd{--amber:#BE7A18;--amberDim:#9A5F12;--amberTint:rgba(190,122,24,.10);--amberLine:rgba(190,122,24,.34)}
 .lf:not(.day) .rd{--amber:#E0A75C;--amberDim:#C98A3C;--amberTint:rgba(224,167,92,.16);--amberLine:rgba(224,167,92,.42)}
-.rd-zones{display:flex;gap:4px;position:sticky;top:-12px;background:var(--surf);z-index:2;padding:6px 0;margin:-2px 0 4px;border-bottom:1px solid var(--line)}
+.rd-zones{display:flex;gap:4px;flex-shrink:0;background:var(--surf);z-index:2;padding:10px 10px 8px 12px;border-bottom:1px solid var(--line)}
 .rd-zone{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;border:1px solid transparent;background:transparent;color:var(--ink3);border-radius:8px;padding:6px 4px;font-size:11.5px;cursor:pointer;font-family:inherit}
 .rd-zone:hover{background:var(--surf2);color:var(--ink)}
 .rd-zone.on{background:var(--gold);color:#fff}
@@ -38,6 +38,9 @@ const READER_CSS = `
 .rd-gcard{border:1px solid var(--line);border-radius:12px;background:var(--surf);padding:11px;overflow:hidden}
 .rd-gcard.inf{border-left:4px solid var(--amber)}
 .rd-gframing{font-size:11.5px;color:var(--ink3);line-height:1.6;background:var(--amberTint);border-radius:8px;padding:8px 10px;margin:8px 0}
+.rd-graph-scroll{max-height:min(340px,52vh);overflow:auto;border-radius:8px;margin:4px 0}
+.rd-flist{display:flex;flex-direction:column;gap:6px;margin:6px 0}
+.rd-flrow{display:flex;align-items:flex-start;gap:8px;justify-content:space-between;border:1px solid var(--line2);border-radius:8px;padding:7px 9px;font-size:12px;line-height:1.5;color:var(--ink);background:var(--surf)}
 .rd-graph{display:block;max-width:100%;margin:4px auto;overflow:visible}
 .rd-graph .rd-gnode rect{stroke-width:1.6;transition:stroke-width .12s}
 .rd-graph .rd-gnode:hover rect{stroke-width:2.6}
@@ -217,7 +220,20 @@ const READER_CSS = `
 .rd-right{position:relative;flex-shrink:0;min-width:0;border-left:1px solid var(--line);background:var(--surf);display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box}
 .rd-resize-left{left:0;right:auto}
 .rd-right-body{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden}
-.rd-ai{width:100%;max-width:100%;flex:1;min-height:0;min-width:0;border-left:none;overflow-x:hidden;overflow-y:auto;display:flex;flex-direction:column;gap:16px;padding:12px 10px 14px 12px;scrollbar-gutter:stable}
+.rd-ai{width:100%;max-width:100%;flex:1;min-height:0;min-width:0;border-left:none;overflow:hidden;display:flex;flex-direction:column;gap:0;padding:0;scrollbar-gutter:stable}
+.rd-zonepane{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.rd-zonepane > .rd-zonebody{flex:1;min-height:0;overflow-y:auto;padding:12px 10px 14px 12px}
+.rd-zonepane.assist > .rd-assist-scroll{flex:1;min-height:0;overflow-y:auto;padding:12px 10px 8px 12px;scrollbar-gutter:stable}
+.rd-assist-foot{flex-shrink:0;padding:8px 10px 10px 12px;border-top:1px solid var(--line);background:var(--surf);display:flex;flex-direction:column;gap:8px}
+.rd-asec{border:1px solid var(--line);border-radius:11px;background:var(--surf2);overflow:hidden}
+.rd-asec-h{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:8px 10px}
+.rd-asec-toggle{display:inline-flex;align-items:center;gap:6px;border:none;background:transparent;color:var(--ink);font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit;padding:0;flex:1;min-width:0;text-align:left}
+.rd-asec-toggle svg{color:var(--gold);flex-shrink:0}
+.rd-asec-toggle .chev{margin-left:auto;color:var(--ink3);transition:transform .15s;flex-shrink:0}
+.rd-asec.open .rd-asec-toggle .chev{transform:rotate(180deg)}
+.rd-asec-prev{flex:1 1 100%;font-size:11.5px;color:var(--ink3);line-height:1.5;padding:0 2px 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rd-asec-b{padding:0 10px 10px;display:flex;flex-direction:column;gap:8px}
+.rd-asec-act{flex-shrink:0}
 .rd-ai-h{display:flex;align-items:center;gap:7px;font-family:'Source Serif 4',Georgia,serif;font-size:15px;font-weight:600;color:var(--ink)}
 .rd-ai-h svg{color:var(--gold)}
 .rd-ai-sec{display:flex;flex-direction:column;gap:10px}
@@ -228,6 +244,7 @@ const READER_CSS = `
 .rd-ai-meta{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
 .rd-basis{font-size:10.5px;font-family:'Space Mono',monospace;color:var(--ink3);background:var(--surf);border:1px solid var(--line);border-radius:6px;padding:2px 7px}
 .rd-basis.ft{color:var(--gold);border-color:rgba(14,124,111,.3);background:rgba(14,124,111,.08)}
+.rd-basis.pg{color:var(--ink2);border-color:var(--line2);background:var(--surf)}
 .rd-gr{font-size:10.5px;font-family:'Space Mono',monospace;color:var(--ink3)}
 .rd-ai-banner{font-size:11.5px;color:#9a6b2e;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:7px;padding:6px 9px;margin-bottom:6px;line-height:1.5}
 .rd-ai-body{font-size:13px;line-height:1.7;color:var(--ink)}
@@ -248,7 +265,7 @@ const READER_CSS = `
 .rd-ai-q{font-size:12.5px;font-weight:600;color:var(--ink);background:var(--surf2);border-radius:8px;padding:7px 10px}
 .rd-ai-a{font-size:13px;line-height:1.7;color:var(--ink);padding:2px 2px 0}
 .rd-ai-load{display:inline-flex;align-items:center;gap:6px;color:var(--ink3);font-size:12.5px}
-.rd-ai-input{display:flex;gap:8px;align-items:center;width:100%;max-width:100%;position:sticky;bottom:0;background:var(--surf);padding:8px 0 2px;margin:0;z-index:2;box-sizing:border-box}
+.rd-ai-input{display:flex;gap:8px;align-items:center;width:100%;max-width:100%;background:var(--surf);padding:0;margin:0;box-sizing:border-box}
 .rd-ai-input input{flex:1;min-width:0;width:0;border:1px solid var(--line2);border-radius:9px;padding:8px 10px;font-size:12.5px;font-family:inherit;background:var(--surf);color:var(--ink);outline:none}
 .rd-ai-input input:focus{border-color:var(--gold)}
 .rd-ai-send{flex:0 0 36px;width:36px;height:36px;border:none;background:var(--gold);color:#fff;border-radius:9px;padding:0;cursor:pointer;display:grid;place-items:center}
@@ -549,6 +566,37 @@ function CiteText({ text, onGoto }) {
 
 const PRESET_Q = ["这篇的主要发现是什么？", "用了什么研究方法？", "样本量与研究类型？", "结论有哪些局限？"];
 
+function summaryPreview(text) {
+  const t = String(text || "").replace(/\*\*/g, "").replace(/\[p\.\d+\]/g, "").trim();
+  return t.length > 72 ? t.slice(0, 72) + "…" : t;
+}
+
+function BasisBadge({ basis, pagesUsed, pageCount }) {
+  let label = "● 基于摘要";
+  let cls = "rd-basis";
+  if (basis === "fulltext") { label = "● 基于全文"; cls += " ft"; }
+  else if (basis === "pages") {
+    cls += " pg";
+    label = pagesUsed && pageCount && pagesUsed < pageCount ? `● 基于 ${pagesUsed}/${pageCount} 页` : "● 基于相关页";
+  }
+  return <span className={cls}>{label}</span>;
+}
+
+function AssistSection({ title, icon: Icon, open, onToggle, preview, action, children }) {
+  return (
+    <div className={"rd-asec" + (open ? " open" : "")}>
+      <div className="rd-asec-h">
+        <button type="button" className="rd-asec-toggle" onClick={onToggle} aria-expanded={open}>
+          {Icon && <Icon size={14} />}{title}<ChevronDown size={15} className="chev" />
+        </button>
+        {!open && preview ? <div className="rd-asec-prev">{preview}</div> : null}
+        {action ? <span className="rd-asec-act">{action}</span> : null}
+      </div>
+      {open ? <div className="rd-asec-b">{children}</div> : null}
+    </div>
+  );
+}
+
 // ── reader_plus 渲染原语：信封只按 lane 路由（HC-1），无手选颜色路径 ──
 const EVTYPE = { internal_data: "内部数据", cites_others: "引用他人", author_inference: "作者推断" };
 const PURPOSE_REC = { replicate: ["recipe", "repro"], cite: ["citerole", "cars"], critique: ["ledger", "falsify"], borrow: ["recipe"] };
@@ -577,9 +625,12 @@ function saveCachedAnalysis(source, env) {
   const key = analysisDocKey(source);
   if (key && env) bridge.readerAnalysisSave(key, env);
 }
-function notifyAnalysisEnv(env, pushToast, fallback) {
+function notifyAnalysisEnv(env, pushToast, fallback, opts) {
   if (!env) { pushToast && pushToast(fallback || "分析失败，请重试"); return false; }
-  if (env.refused && env.refused.reason) { pushToast && pushToast(env.refused.reason); return false; }
+  if (env.refused && env.refused.reason) {
+    if (!(opts && opts.silentRefuse)) pushToast && pushToast(env.refused.reason);
+    return !!(opts && opts.allowRefused);
+  }
   return true;
 }
 const READER_ZONES = ["assist", "deep", "inf", "notes"];
@@ -689,37 +740,45 @@ function InfCard({ env, onGoto, defaultOpen }) {
 }
 const INF_TITLES = { hardcore: "硬核 / 保护带分解", limitations: "作者未言明的局限", genesis: "作者真实的发现过程", stats: "统计一致性扫描" };
 const INF_CONF = { hardcore: "c1", limitations: "c2", genesis: "c3", stats: "c3" };
-// 推断分析器卡：展开即运行（hardcore/genesis）；limitations 走练判断 gate——先写判断、揭示前不取/不渲染 AI 内容、揭示留痕（ADR-I4）。
-function InfAnalyzer({ kind, ensurePages, source, onGoto, pushToast, practice }) {
+// 推断分析器卡：展开即运行（hardcore）；limitations 走练判断 gate；genesis 默认只展示拒绝说明，需 opt-in 推测。
+function InfAnalyzer({ kind, ensurePages, source, onGoto, pushToast, practice, genesisOptIn }) {
   const [env, setEnv] = useState(null);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
   const [guess, setGuess] = useState("");
   const [revealed, setRevealed] = useState(false);
+  const [specRequested, setSpecRequested] = useState(false);
   useEffect(() => {
     let alive = true;
     setEnv(null);
+    setSpecRequested(false);
     if (practice) setRevealed(false);
     loadCachedAnalysis(source, kind).then((e) => {
       if (!alive || !e) return;
       setEnv(e);
+      if (e.speculative) setSpecRequested(true);
       if (practice) setRevealed(true);
     });
     return () => { alive = false; };
   }, [source, kind, practice]);
-  const run = useCallback(async () => {
+  const run = useCallback(async (opts) => {
     setBusy(true);
     try {
       const pages = await ensurePages();
-      const e = await bridge.readerAnalyze(kind, pages);
+      const e = await bridge.readerAnalyze(kind, pages, opts);
       setEnv(e || null);
-      if (!notifyAnalysisEnv(e, pushToast, "分析失败，请重试")) return;
-      if (e && kind !== "genesis") saveCachedAnalysis(source, e);
+      const allowRefused = kind === "genesis" && !(opts && opts.speculative);
+      if (!notifyAnalysisEnv(e, pushToast, "分析失败，请重试", { allowRefused, silentRefuse: allowRefused })) return;
+      if (e && (kind !== "genesis" || (opts && opts.speculative))) saveCachedAnalysis(source, e);
     } catch (err) { pushToast && pushToast("分析失败"); }
     finally { setBusy(false); }
   }, [kind, ensurePages, source, pushToast]);
-  const onHeader = () => { const nx = !open; setOpen(nx); if (nx && !env && !busy && !practice) run(); };
+  const onHeader = () => {
+    const nx = !open; setOpen(nx);
+    if (nx && !env && !busy && !practice && !genesisOptIn) run();
+  };
   const reveal = () => { if (source && source.paperId) bridge.readerPracticeSave(source.paperId, kind, guess); setRevealed(true); run(); };
+  const runSpeculative = () => { setSpecRequested(true); run({ speculative: true }); };
   return (
     <div className={"inf-card" + (open ? " open" : "")}>
       <div className="inf-h" role="button" tabIndex={0} aria-expanded={open} onClick={onHeader} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onHeader(); } }}><Lightbulb size={14} className="t" /> <span className="inf-title">{INF_TITLES[kind]}</span><span className="inf-right"><span className="ibadge">推断·非事实</span><ConfChip lvl={INF_CONF[kind]} /><span className="chev"><ChevronDown size={15} /></span></span></div>
@@ -731,6 +790,11 @@ function InfAnalyzer({ kind, ensurePages, source, onGoto, pushToast, practice })
             <textarea value={guess} onChange={(e) => setGuess(e.target.value)} placeholder="写下你的判断…" />
             <button className="reveal-btn" onClick={reveal} disabled={busy}>{busy ? "分析中…" : "展开 AI 的补充"} <ChevronDown size={12} /></button>
           </div>
+        ) : genesisOptIn && !specRequested && !busy ? (
+          <>
+            <InfBody env={env || { framing: "单篇论文无法还原作者真实发现过程；Introduction 是事后论证，不是发现记录。", refused: { reason: "默认不提供「作者怎么想到的」式断言——会严重误导。" }, claims: [] }} onGoto={onGoto} />
+            <button className="reveal-btn" onClick={runSpeculative} disabled={busy}><Eye size={13} /> 生成标注推测（非事实，仅供联想）</button>
+          </>
         ) : busy ? <div className="rd-scaffold"><Loader size={13} className="rd-spin" /> 分析中…（推断车道，需回原文核对）</div>
           : <InfBody env={env} onGoto={onGoto} />}
       </div>
@@ -769,9 +833,12 @@ function StructureMap({ env, onGoto }) {
 // 逻辑流程图(Layer2)：确定性分层布局（最长路径排秩，环安全），渲染引擎产出的 nodes+edges。
 // 节点点击跳首个页码；无页码节点标灰（虚线+暗）；模型只产 JSON、不画 SVG。
 function wrapLabel(s, per, maxLines) {
-  s = String(s || ""); const out = [];
-  for (let i = 0; i < s.length && out.length < maxLines; i += per) out.push(s.slice(i, i + per));
-  if (out.length === maxLines && s.length > maxLines * per) out[maxLines - 1] = out[maxLines - 1].slice(0, per - 1) + "…";
+  s = String(s || "");
+  const hasCjk = /[\u3400-\u9FFF]/.test(s);
+  const step = hasCjk ? Math.max(5, per - 2) : per;
+  const out = [];
+  for (let i = 0; i < s.length && out.length < maxLines; i += step) out.push(s.slice(i, i + step));
+  if (out.length === maxLines && s.length > maxLines * step) out[maxLines - 1] = out[maxLines - 1].slice(0, step - 1) + "…";
   return out.length ? out : [""];
 }
 function layoutGraph(nodes, edges) {
@@ -804,9 +871,9 @@ function FlowGraph({ graph, onGoto, svgRef }) {
   const edges = (graph && graph.edges) || [];
   if (!nodes.length) return <div className="rd-scaffold">（未能从正文重建出流程图，请重试或换更强的模型）</div>;
   const { rows, idx } = layoutGraph(nodes, edges);
-  const wrapped = nodes.map((n) => wrapLabel(n.label, 9, 3));
+  const wrapped = nodes.map((n) => wrapLabel(n.label, 8, 2));
   const maxLines = Math.max(1, Math.max.apply(null, wrapped.map((w) => w.length)));
-  const NW = 150, LH = 15, NH = 30 + maxLines * LH, RG = NH + 56, CG = 30, PAD = 16;
+  const NW = 128, LH = 14, NH = 26 + maxLines * LH, RG = NH + 36, CG = 22, PAD = 12;
   const maxCols = Math.max(1, Math.max.apply(null, rows.map((r) => r.length)));
   const svgW = Math.max(300, maxCols * NW + (maxCols - 1) * CG + PAD * 2);
   const svgH = PAD * 2 + (rows.length - 1) * RG + NH;
@@ -817,6 +884,7 @@ function FlowGraph({ graph, onGoto, svgRef }) {
     row.forEach((ni, c) => { pos[ni] = { x: startX + c * (NW + CG), y: PAD + r * RG }; });
   });
   return (
+    <div className="rd-graph-scroll">
     <svg ref={svgRef} className="rd-graph" viewBox={"0 0 " + svgW + " " + svgH} width="100%" style={{ height: svgH }} xmlns="http://www.w3.org/2000/svg">
       <defs><marker id="rdarrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--ink4)" /></marker></defs>
       {edges.map((e, i) => {
@@ -847,11 +915,27 @@ function FlowGraph({ graph, onGoto, svgRef }) {
         );
       })}
     </svg>
+    </div>
+  );
+}
+function FlowList({ graph, onGoto }) {
+  const nodes = (graph && graph.nodes) || [];
+  if (!nodes.length) return null;
+  return (
+    <div className="rd-flist">
+      {nodes.map((n, i) => (
+        <div key={n.id || i} className="rd-flrow">
+          <span>{n.label}</span>
+          <Cites refs={n.pageRefs} onGoto={onGoto} />
+        </div>
+      ))}
+    </div>
   );
 }
 // 图解卡：lane 仍据 env.lane（HC-1，流程图为推断车道=琥珀）+ 框定语 + banner + 导出 SVG。
 function GraphCard({ env, onGoto }) {
   const svgRef = useRef(null);
+  const [view, setView] = useState("list");
   const inf = env.lane === "inference";
   const exportSvg = () => {
     try {
@@ -867,8 +951,12 @@ function GraphCard({ env, onGoto }) {
       <div className={"rd-lane" + (inf ? " inf" : "")}>{inf ? <Lightbulb size={11} /> : <Shield size={11} />} {inf ? "推断车道 · AI 解读，非原文事实" : "证据车道 · 可回原文核对"}</div>
       {env.framing && <div className="rd-gframing">{env.framing}</div>}
       {env.banner && <div className="rd-ai-banner">{env.banner}</div>}
-      <FlowGraph graph={env.graph} onGoto={onGoto} svgRef={svgRef} />
-      <button className="rd-gexport" onClick={exportSvg}><Download size={13} /> 导出 SVG</button>
+      <div className="rd-vtoggle" role="tablist" aria-label="流程图视图">
+        <button role="tab" aria-selected={view === "list"} className={"rd-vtab" + (view === "list" ? " on" : "")} onClick={() => setView("list")}><List size={13} /> 步骤列表</button>
+        <button role="tab" aria-selected={view === "graph"} className={"rd-vtab" + (view === "graph" ? " on" : "")} onClick={() => setView("graph")}><Workflow size={13} /> 结构图</button>
+      </div>
+      {view === "list" ? <FlowList graph={env.graph} onGoto={onGoto} /> : <FlowGraph graph={env.graph} onGoto={onGoto} svgRef={svgRef} />}
+      {view === "graph" && <button className="rd-gexport" onClick={exportSvg}><Download size={13} /> 导出 SVG</button>}
     </div>
   );
 }
@@ -962,10 +1050,11 @@ function EvidencePane({ ensurePages, source, onGoto, pushToast, purpose, moveReq
 function FlowmapTool({ ensurePages, source, onGoto, pushToast }) {
   const [env, setEnv] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
   useEffect(() => {
     let alive = true;
     setEnv(null);
-    loadCachedAnalysis(source, "flowmap").then((e) => { if (alive && e) setEnv(e); });
+    loadCachedAnalysis(source, "flowmap").then((e) => { if (alive && e) { setEnv(e); setOpen(false); } });
     return () => { alive = false; };
   }, [source]);
   const run = useCallback(async () => {
@@ -975,7 +1064,7 @@ function FlowmapTool({ ensurePages, source, onGoto, pushToast }) {
       const e = await bridge.readerAnalyze("flowmap", pages);
       setEnv(e || null);
       if (!notifyAnalysisEnv(e, pushToast, "流程图生成失败，请重试")) return;
-      if (e) saveCachedAnalysis(source, e);
+      if (e) { saveCachedAnalysis(source, e); setOpen(true); }
     } catch (err) { pushToast && pushToast("流程图生成失败"); }
     finally { setBusy(false); }
   }, [ensurePages, source, pushToast]);
@@ -984,7 +1073,11 @@ function FlowmapTool({ ensurePages, source, onGoto, pushToast }) {
       <button className="rd-ai-act" onClick={run} disabled={busy}>
         {busy ? <><Loader size={14} className="rd-spin" /> 生成中…（重建方法 / 逻辑流程）</> : <><Workflow size={14} /> {env ? "重新生成流程图" : "逻辑流程图（实验）"}</>}
       </button>
-      {env && <EnvelopeCard env={env} onGoto={onGoto} />}
+      {env && (
+        <AssistSection title="方法 / 逻辑流程图" icon={Workflow} open={open} onToggle={() => setOpen((v) => !v)} preview={(env.graph && env.graph.nodes && env.graph.nodes[0] && env.graph.nodes[0].label) || "已生成，点击展开"}>
+          <EnvelopeCard env={env} onGoto={onGoto} />
+        </AssistSection>
+      )}
     </div>
   );
 }
@@ -999,7 +1092,7 @@ function InferencePane({ ensurePages, source, onGoto, pushToast, figureEnv, figu
         {!figuring && figureEnv && <InfCard env={figureEnv} onGoto={onGoto} defaultOpen />}
         <InfAnalyzer kind="hardcore" ensurePages={ensurePages} source={source} onGoto={onGoto} pushToast={pushToast} />
         <InfAnalyzer kind="limitations" ensurePages={ensurePages} source={source} onGoto={onGoto} pushToast={pushToast} practice />
-        <InfAnalyzer kind="genesis" ensurePages={ensurePages} source={source} onGoto={onGoto} pushToast={pushToast} />
+        <InfAnalyzer kind="genesis" ensurePages={ensurePages} source={source} onGoto={onGoto} pushToast={pushToast} genesisOptIn />
         <InfAnalyzer kind="stats" ensurePages={ensurePages} source={source} onGoto={onGoto} pushToast={pushToast} />
         <FlowmapTool ensurePages={ensurePages} source={source} onGoto={onGoto} pushToast={pushToast} />
       </div>
@@ -1011,22 +1104,27 @@ function InferencePane({ ensurePages, source, onGoto, pushToast, figureEnv, figu
 function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, purpose, setPurpose }) {
   const [summary, setSummary] = useState(null);
   const [summarizing, setSummarizing] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
   const [qa, setQa] = useState([]);
   const [q, setQ] = useState("");
   const [asking, setAsking] = useState(false);
   const [outlineEnv, setOutlineEnv] = useState(null);
   const [outlining, setOutlining] = useState(false);
+  const [outlineOpen, setOutlineOpen] = useState(false);
   const [outlineView, setOutlineView] = useState("map");
+  const qaEndRef = useRef(null);
 
   useEffect(() => {
     let alive = true;
     setOutlineEnv(null);
     setSummary(null);
+    setSummaryOpen(false);
+    setOutlineOpen(false);
     (async () => {
       const ol = await loadCachedAnalysis(source, "outline");
       if (alive && ol) setOutlineEnv(ol);
       const sm = await loadCachedAnalysis(source, "summary");
-      if (alive && sm && sm.text) setSummary({ text: sm.text, sourceBasis: sm.sourceBasis, groundedRatio: sm.groundedRatio, banner: sm.banner });
+      if (alive && sm && sm.text) setSummary({ text: sm.text, sourceBasis: sm.sourceBasis, groundedRatio: sm.groundedRatio, banner: sm.banner, pageCount: sm.pageCount, pagesUsed: sm.pagesUsed });
       const qaCached = await loadCachedAnalysis(source, "qa");
       if (alive && qaCached && Array.isArray(qaCached.messages) && qaCached.messages.length) setQa(qaCached.messages);
     })();
@@ -1035,11 +1133,12 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
 
   const doSummary = useCallback(async () => {
     setSummarizing(true);
+    setSummaryOpen(true);
     try {
       const pages = await ensurePages();
       const r = await bridge.readerSummarize(pages);
       setSummary(r || null);
-      if (r) saveCachedAnalysis(source, { kind: "summary", lane: "evidence", model: r.model || "", title: "整篇接地总结", claims: [], text: r.text, sourceBasis: r.sourceBasis, groundedRatio: r.groundedRatio, banner: r.banner });
+      if (r) saveCachedAnalysis(source, { kind: "summary", lane: "evidence", model: r.model || "", title: "整篇接地总结", claims: [], text: r.text, sourceBasis: r.sourceBasis, groundedRatio: r.groundedRatio, banner: r.banner, pageCount: r.pageCount, pagesUsed: r.pagesUsed });
     }
     catch (e) { pushToast && pushToast("总结失败"); }
     finally { setSummarizing(false); }
@@ -1047,6 +1146,7 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
 
   const doOutline = useCallback(async () => {
     setOutlining(true);
+    setOutlineOpen(true);
     try {
       const pages = await ensurePages();
       const env = await bridge.readerAnalyze("outline", pages);
@@ -1067,7 +1167,7 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
       const r = await bridge.readerAsk(pages, qq);
       setQa((list) => {
         const next = list.map((x, i) => (i === list.length - 1
-          ? { q: qq, a: r ? r.text : "（无回答）", sourceBasis: r && r.sourceBasis, groundedRatio: r && r.groundedRatio, banner: r && r.banner, loading: false }
+          ? { q: qq, a: r ? r.text : "（无回答）", sourceBasis: r && r.sourceBasis, groundedRatio: r && r.groundedRatio, banner: r && r.banner, pageCount: r && r.pageCount, pagesUsed: r && r.pagesUsed, loading: false }
           : x));
         const key = analysisDocKey(source);
         if (key && next.length) saveCachedAnalysis(source, { kind: "qa", lane: "evidence", model: (r && r.model) || "", title: "接地问答", claims: [], messages: next });
@@ -1082,74 +1182,97 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
     if (explainReq && explainReq.text) doAsk("请在本文语境中解释这段：" + explainReq.text);
   }, [explainReq && explainReq.id]); // eslint-disable-line
 
-  const Meta = ({ basis, ratio }) => (
+  useEffect(() => {
+    if (qa.length && qaEndRef.current) qaEndRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [qa.length, asking]);
+
+  const AnswerMeta = ({ basis, ratio, pagesUsed, pageCount }) => (
     <div className="rd-ai-meta">
-      <span className={"rd-basis" + (basis === "fulltext" ? " ft" : "")}>{basis === "fulltext" ? "● 基于全文" : "● 基于摘要"}</span>
+      <BasisBadge basis={basis} pagesUsed={pagesUsed} pageCount={pageCount} />
       {typeof ratio === "number" && <span className="rd-gr">接地 {Math.round(ratio * 100)}%</span>}
     </div>
   );
 
+  const outlinePreview = outlineEnv && (outlineEnv.claims && outlineEnv.claims[0] ? summaryPreview(outlineEnv.claims[0].text) : "已提取，点击展开");
+
   return (
-    <div className="rd-zonebody">
-
-      <div className="rd-ai-sec">
-        <div className="rd-ai-label">我这次为什么读？（据此推荐深读工具）</div>
-        <div className="rd-purpose">
-          {[["replicate", "复现/设计"], ["cite", "引为背景"], ["critique", "批判性评估"], ["borrow", "借方法/写法"]].map((pp) => (
-            <button key={pp[0]} aria-pressed={purpose === pp[0]} className={"rd-pchip" + (purpose === pp[0] ? " on" : "")} onClick={() => setPurpose(purpose === pp[0] ? null : pp[0])}>{pp[1]}</button>
-          ))}
-        </div>
-        {purpose && <div className="rd-phint">{PURPOSE_HINT[purpose]}</div>}
-      </div>
-
-      <div className="rd-ai-sec">
-        <button className="rd-ai-act" onClick={doSummary} disabled={summarizing}>
-          {summarizing ? <><Loader size={14} className="rd-spin" /> 总结中…</> : <><Sparkles size={14} /> 整篇接地总结</>}
-        </button>
-        {summary && (
-          <div className="rd-ai-card">
-            <Meta basis={summary.sourceBasis} ratio={summary.groundedRatio} />
-            {summary.banner && <div className="rd-ai-banner">{summary.banner}</div>}
-            <div className="rd-ai-body"><CiteText text={summary.text} onGoto={onGoto} /></div>
+    <div className="rd-zonepane assist">
+      <div className="rd-assist-scroll">
+        <div className="rd-ai-sec">
+          <div className="rd-ai-label">我这次为什么读？（据此推荐深读工具）</div>
+          <div className="rd-purpose">
+            {[["replicate", "复现/设计"], ["cite", "引为背景"], ["critique", "批判性评估"], ["borrow", "借方法/写法"]].map((pp) => (
+              <button key={pp[0]} aria-pressed={purpose === pp[0]} className={"rd-pchip" + (purpose === pp[0] ? " on" : "")} onClick={() => setPurpose(purpose === pp[0] ? null : pp[0])}>{pp[1]}</button>
+            ))}
           </div>
-        )}
-      </div>
+          {purpose && <div className="rd-phint">{PURPOSE_HINT[purpose]}</div>}
+        </div>
 
-      <div className="rd-ai-sec">
-        <button className="rd-ai-act" onClick={doOutline} disabled={outlining}>
-          {outlining ? <><Loader size={14} className="rd-spin" /> 提取中…</> : <><Layers size={14} /> 逻辑大纲</>}
-        </button>
-        {outlineEnv && (outlineEnv.refused
-          ? <EnvelopeCard env={outlineEnv} onGoto={onGoto} />
-          : <>
-              <div className="rd-vtoggle" role="tablist" aria-label="大纲视图">
-                <button role="tab" aria-selected={outlineView === "map"} className={"rd-vtab" + (outlineView === "map" ? " on" : "")} onClick={() => setOutlineView("map")}><Map size={13} /> 结构图</button>
-                <button role="tab" aria-selected={outlineView === "list"} className={"rd-vtab" + (outlineView === "list" ? " on" : "")} onClick={() => setOutlineView("list")}><List size={13} /> 列表</button>
+        <div className="rd-ai-sec">
+          {!summary ? (
+            <button className="rd-ai-act" onClick={doSummary} disabled={summarizing}>
+              {summarizing ? <><Loader size={14} className="rd-spin" /> 总结中…</> : <><Sparkles size={14} /> 整篇接地总结</>}
+            </button>
+          ) : (
+            <AssistSection title="整篇接地总结" icon={Sparkles} open={summaryOpen} onToggle={() => setSummaryOpen((v) => !v)} preview={summaryPreview(summary.text)}
+              action={<button type="button" className="rd-rerun" onClick={(e) => { e.stopPropagation(); doSummary(); }} disabled={summarizing}><RefreshCw size={12} /> 重生成</button>}>
+              <AnswerMeta basis={summary.sourceBasis} ratio={summary.groundedRatio} pagesUsed={summary.pagesUsed} pageCount={summary.pageCount} />
+              {summary.banner && <div className="rd-ai-banner">{summary.banner}</div>}
+              <div className="rd-ai-body"><CiteText text={summary.text} onGoto={onGoto} /></div>
+            </AssistSection>
+          )}
+          {summarizing && !summary && <div className="rd-scaffold"><Loader size={13} className="rd-spin" /> 正在通读全文并生成总结…</div>}
+        </div>
+
+        <div className="rd-ai-sec">
+          {!outlineEnv ? (
+            <button className="rd-ai-act" onClick={doOutline} disabled={outlining}>
+              {outlining ? <><Loader size={14} className="rd-spin" /> 提取中…</> : <><Layers size={14} /> 逻辑大纲</>}
+            </button>
+          ) : (
+            <AssistSection title="逻辑大纲" icon={Layers} open={outlineOpen} onToggle={() => setOutlineOpen((v) => !v)} preview={outlinePreview}
+              action={<button type="button" className="rd-rerun" onClick={(e) => { e.stopPropagation(); doOutline(); }} disabled={outlining}><RefreshCw size={12} /> 重提取</button>}>
+              {outlineEnv.refused ? <EnvelopeCard env={outlineEnv} onGoto={onGoto} /> : (
+                <>
+                  <div className="rd-vtoggle" role="tablist" aria-label="大纲视图">
+                    <button role="tab" aria-selected={outlineView === "map"} className={"rd-vtab" + (outlineView === "map" ? " on" : "")} onClick={() => setOutlineView("map")}><Map size={13} /> 结构图</button>
+                    <button role="tab" aria-selected={outlineView === "list"} className={"rd-vtab" + (outlineView === "list" ? " on" : "")} onClick={() => setOutlineView("list")}><List size={13} /> 列表</button>
+                  </div>
+                  {outlineView === "map" ? <StructureMap env={outlineEnv} onGoto={onGoto} /> : <EnvelopeCard env={outlineEnv} onGoto={onGoto} />}
+                </>
+              )}
+            </AssistSection>
+          )}
+          {outlining && !outlineEnv && <div className="rd-scaffold"><Loader size={13} className="rd-spin" /> 正在提取逻辑大纲…</div>}
+        </div>
+
+        <div className="rd-ai-sec">
+          <div className="rd-ai-label">问答记录（全文检索 · 回答带页码，点击跳页）</div>
+          <div className="rd-ai-flow">
+            {qa.length === 0 && <div className="rd-scaffold">在下方选预设问题或输入自定义问题；将通读全文后作答。</div>}
+            {qa.map((item, i) => (
+              <div key={i} className="rd-ai-qa">
+                <div className="rd-ai-q">{item.q}</div>
+                <div className="rd-ai-a">
+                  {item.loading ? <span className="rd-ai-load"><Loader size={13} className="rd-spin" /> 通读全文中…</span> : (
+                    <>
+                      <AnswerMeta basis={item.sourceBasis} ratio={item.groundedRatio} pagesUsed={item.pagesUsed} pageCount={item.pageCount} />
+                      {item.banner && <div className="rd-ai-banner">{item.banner}</div>}
+                      <CiteText text={item.a} onGoto={onGoto} />
+                    </>
+                  )}
+                </div>
               </div>
-              {outlineView === "map" ? <StructureMap env={outlineEnv} onGoto={onGoto} /> : <EnvelopeCard env={outlineEnv} onGoto={onGoto} />}
-            </>)}
+            ))}
+            <div ref={qaEndRef} />
+          </div>
+        </div>
       </div>
 
-      <div className="rd-ai-sec">
-        <div className="rd-ai-label">问这一篇（回答带页码引用，点击跳页）</div>
+      <div className="rd-assist-foot">
+        <div className="rd-ai-label">问这一篇</div>
         <div className="rd-ai-presets">
           {PRESET_Q.map((pq, i) => <button key={i} className="rd-ai-chip" onClick={() => doAsk(pq)} disabled={asking}>{pq}</button>)}
-        </div>
-        <div className="rd-ai-flow">
-          {qa.map((item, i) => (
-            <div key={i} className="rd-ai-qa">
-              <div className="rd-ai-q">{item.q}</div>
-              <div className="rd-ai-a">
-                {item.loading ? <span className="rd-ai-load"><Loader size={13} className="rd-spin" /> 思考中…</span> : (
-                  <>
-                    <Meta basis={item.sourceBasis} ratio={item.groundedRatio} />
-                    {item.banner && <div className="rd-ai-banner">{item.banner}</div>}
-                    <CiteText text={item.a} onGoto={onGoto} />
-                  </>
-                )}
-              </div>
-            </div>
-          ))}
         </div>
         <div className="rd-ai-input">
           <input value={q} placeholder="输入问题，回车提问…" onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") doAsk(q); }} />
@@ -1435,10 +1558,10 @@ function ReaderPanel({ zone, setZone, doc, source, docKey, onGoto, pushToast, ex
           <button key={tb[0]} role="tab" aria-selected={zone === tb[0]} className={"rd-zone" + (tb[3] ? " inf" : "") + (zone === tb[0] ? " on" : "")} onClick={() => setZone(tb[0])}>{React.createElement(tb[2], { size: 13 })} {tb[1]}</button>
         ))}
       </div>
-      <div style={{ display: zone === "assist" ? "block" : "none" }}><AssistantPanel ensurePages={ensurePages} source={source} onGoto={onGoto} pushToast={pushToast} explainReq={explainReq} purpose={purpose} setPurpose={setPurpose} /></div>
-      <div style={{ display: zone === "deep" ? "block" : "none" }}><EvidencePane ensurePages={ensurePages} source={source} onGoto={onGoto} pushToast={pushToast} purpose={purpose} moveReq={moveReq} /></div>
-      <div style={{ display: zone === "inf" ? "block" : "none" }}><InferencePane ensurePages={ensurePages} source={source} onGoto={onGoto} pushToast={pushToast} figureEnv={figureEnv} figuring={figuring} /></div>
-      <div style={{ display: zone === "notes" ? "block" : "none" }}><AnnoPanel annos={annos} onGoto={onGoto} onUpdate={onUpdate} onRemove={onRemove} onExportPdf={onExportPdf} onExportMd={onExportMd} /></div>
+      <div className="rd-zonepane" style={{ display: zone === "assist" ? "flex" : "none" }}><AssistantPanel ensurePages={ensurePages} source={source} onGoto={onGoto} pushToast={pushToast} explainReq={explainReq} purpose={purpose} setPurpose={setPurpose} /></div>
+      <div className="rd-zonepane" style={{ display: zone === "deep" ? "flex" : "none" }}><EvidencePane ensurePages={ensurePages} source={source} onGoto={onGoto} pushToast={pushToast} purpose={purpose} moveReq={moveReq} /></div>
+      <div className="rd-zonepane" style={{ display: zone === "inf" ? "flex" : "none" }}><InferencePane ensurePages={ensurePages} source={source} onGoto={onGoto} pushToast={pushToast} figureEnv={figureEnv} figuring={figuring} /></div>
+      <div className="rd-zonepane" style={{ display: zone === "notes" ? "flex" : "none" }}><AnnoPanel annos={annos} onGoto={onGoto} onUpdate={onUpdate} onRemove={onRemove} onExportPdf={onExportPdf} onExportMd={onExportMd} /></div>
     </div>
   );
 }

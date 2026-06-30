@@ -32,6 +32,7 @@ export interface AnalysisEnvelope {
   graph?: { nodes: { id: string; label: string; pageRefs: number[] }[]; edges: { from: string; to: string; label?: string }[] }; // 逻辑流程图：节点（带页码）+ 边（AI 解读的依赖）；见 flowmap
   claims: AnalysisClaim[];
   practice?: boolean;         // 是否走练判断 gate
+  speculative?: boolean;      // genesis opt-in 推测
 }
 
 export interface KindSpec { lane: Lane; groundability: Groundability; title: string; framing?: string; practice?: boolean }
@@ -218,8 +219,8 @@ const PROMPTS: Record<string, string> = {
   hardcore: "把本研究依赖的假设分为两层：硬核（被否证则整篇结论要重做的承重假设）与保护带（可调整而不动核心的辅助假设）。这是基于研究纲领方法论（Lakatos）的推断分层，作者通常并不如此区分。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text（可带「硬核 H1：」或「保护带 P1：」前缀）与 pageRefs（若文中有据，整数数组，可为空）。只输出该 JSON。",
   limitations: "指出作者未明确陈述、但从其方法与数据可合理推断的潜在局限；每条都应能与正文方法交叉核对。这是 AI 的推测、需外部佐证、可能误判。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text 与 pageRefs（若与某页方法相关，整数数组，可为空）。只输出该 JSON。",
   stats: "扫描本文的统计报告，找出看起来可能不一致、值得复核的地方，例如：报告的 p 值与检验统计量及自由度看起来对不上、百分比与分子分母或样本量看起来对不上、置信区间与 p 值的显著性方向看起来矛盾、自由度与样本量看起来不一致、数字四舍五入后看起来不自洽等。这只是提示、不是判定出错：你无法可靠核验算术，每条都必须表述为「看起来……建议复核」，并提醒用户手动重算或用 statcheck/GRIM 等工具确认。不要断言任何数字是错的，不要编造文中没有的数字。输出一个 JSON 对象，含字段 claims（数组）；每个元素含 text（一处「看起来需复核」的描述）、pageRefs（页码整数数组）、confidence 取值 c3、flag 取值 needs_recheck。只输出该 JSON。",
-  outline: "提取这篇论文的逻辑大纲（如：背景 → 研究空白 → 研究问题 → 方法 → 结果 → 讨论/局限 → 结论）。逻辑结构来自正文章节标题与主题句。输出一个 JSON 对象，含字段 claims（数组）；claims 的每个元素含两个字段：text（一句话条目，可带「背景：」这类前缀）与 pageRefs（该条依据的页码，整数数组）。只输出该 JSON 对象。",
-  flowmap: "把这篇论文的研究/方法逻辑抽成一张有向流程图，严格按正文真实描述的步骤与先后依赖来组织——它的形状应当反映这篇论文本身的结构：可能是线性流水线，也可能有分支（如多个数据集/多条实验线分别处理后再汇合）、并行步骤、或评测与建模之间的回路；只画正文写明的环节，不要补充论文未描述的步骤，也不要把相关关系画成因果。输出一个 JSON 对象，含两个字段：nodes（数组，每个元素含 id 短字符串、label 该步骤的简短名称不超过 14 个字、pageRefs 该步骤依据的页码整数数组）与 edges（数组，每个元素含 from 与 to 为节点 id、可选 label 关系简述不超过 8 个字）。节点数控制在 5 到 14 个，分支与汇合用多条边表达。只输出该 JSON。",
+  outline: "提取这篇论文的逻辑大纲（如：背景 → 研究空白 → 研究问题 → 方法 → 结果 → 讨论/局限 → 结论）。逻辑结构来自正文章节标题与主题句。用简体中文写每条 text（一句概括）；若原文关键术语为英文，在中文后用括号保留英文专名（如「弥散加权成像（DWI）」）。输出一个 JSON 对象，含字段 claims（数组）；claims 的每个元素含两个字段：text（一句话条目，可带「背景：」这类前缀）与 pageRefs（该条依据的页码，整数数组）。只输出该 JSON 对象。",
+  flowmap: "把这篇论文的研究/方法逻辑抽成一张有向流程图，严格按正文真实描述的步骤与先后依赖来组织——可能是线性流水线，也可能有分支、并行或回路；只画正文写明的环节，不要补充论文未描述的步骤。节点 label 用简体中文（≤10 字），必要时括号保留英文缩写。输出一个 JSON 对象，含两个字段：nodes（数组，每个元素含 id 短字符串、label 步骤简称、pageRefs 该步骤依据的页码整数数组）与 edges（数组，每个元素含 from 与 to 为节点 id、可选 label 关系简述不超过 6 个中文字）。节点数控制在 5 到 10 个，分支与汇合用多条边表达。只输出该 JSON。",
 };
 
 async function runStructured(kind: string, pages: ReaderPage[], spec: KindSpec, llm: LlmClient, opts: { signal?: AbortSignal } = {}): Promise<AnalysisEnvelope> {
@@ -356,7 +357,34 @@ async function runFlowmap(kind: string, pages: ReaderPage[], spec: KindSpec, llm
   return { kind, lane: spec.lane, groundability: spec.groundability, sourceBasis: "fulltext", model: llm.model, title: spec.title, framing: spec.framing, graph: { nodes, edges }, claims: [] };
 }
 
-/** 分析器族单一派发口（ADR-I2）。L3 静态拒绝不调用 LLM（ADR-I3 安全底）。实现全部分析器族（含 flowmap 逻辑流程图）。 */
+const GENESIS_SPEC_PROMPT =
+  "这不是还原作者真实发现过程（单篇论文不可能），而是基于本篇 Introduction/方法/结果的事后叙事链，推测作者「可能」的研究路径。" +
+  "每条 text 必须以「推测：」开头；说明依据哪段正文；不得写成确定事实；不得引入正文之外的知识。" +
+  "输出 JSON 对象，含字段 claims（数组）；每个元素含 text 与 pageRefs（整数数组，可为空）。只输出该 JSON。";
+
+/** genesis·标注推测（L3 opt-in）：用户显式请求后才调用；全程 c3、推断车道。 */
+async function runGenesisSpeculative(pages: ReaderPage[], spec: KindSpec, llm: LlmClient, opts: { signal?: AbortSignal } = {}): Promise<AnalysisEnvelope> {
+  const valid = new Set<number>(pages.map((p) => p.page));
+  const raw = await llm.complete(
+    [ { role: "system", content: SYS }, { role: "user", content: GENESIS_SPEC_PROMPT + "\n\n正文：\n" + pagesText(pages, 24000) } ],
+    { maxTokens: 1400, temperature: 0.25, signal: opts.signal },
+  );
+  const parsed = extractJson(raw);
+  const arr = pickClaimsArray(parsed) || [];
+  const claims = mapClaimsFromArray(arr, "genesis", spec, valid).map((c) => ({
+    ...c,
+    confidence: "c3" as const,
+    flag: "needs_recheck" as const,
+    text: c.text.startsWith("推测") ? c.text : "推测：" + c.text,
+  }));
+  return {
+    kind: "genesis", lane: spec.lane, groundability: "L3", sourceBasis: "fulltext", model: llm.model, title: spec.title,
+    framing: "以下为 AI 基于正文叙事链的标注推测，不是作者真实发现过程，不可引用为事实。请回原文核对后再采信。",
+    speculative: true, claims,
+  };
+}
+
+/** 分析器族单一派发口（ADR-I2）。L3 默认静态拒绝；genesis 可 opt-in 推测。实现全部分析器族（含 flowmap 逻辑流程图）。 */
 // 整体推断度（保守·透明）：证据车道结论里若出现"作者真实发现过程/私下动机"式断言（≠论证逻辑），标 needs_recheck 提示人核对。
 // 不静默改车道——可靠的车道级降级分类器是真机 spike（HC-3）；此处只加"需核对"标，只更保守、不洗白。
 const INTENT_MARKERS = ["作者真的", "作者其实", "作者私下", "作者最初", "作者当初", "作者本来想", "灵感来自", "之所以想到", "动机是"];
@@ -368,18 +396,21 @@ function flagIntentReconstruction(env: AnalysisEnvelope): AnalysisEnvelope {
   return env;
 }
 
-export async function analyzeReader(kind: string, pages: ReaderPage[], deps: { llm: LlmClient; signal?: AbortSignal; text?: string; page?: number }): Promise<AnalysisEnvelope> {
+export async function analyzeReader(kind: string, pages: ReaderPage[], deps: { llm: LlmClient; signal?: AbortSignal; text?: string; page?: number; speculative?: boolean }): Promise<AnalysisEnvelope> {
   const spec = KIND_REGISTRY[kind];
   if (!spec) throw new Error("analyzeReader: 未知 kind：" + kind);
   if (kind === "move") return runMove(String(deps.text || ""), deps.page || 0, deps.llm, deps);
   if (kind === "flowmap") return runFlowmap(kind, pages, spec, deps.llm, deps);
-  if (spec.groundability === "L3") {
+  if (kind === "genesis" && !deps.speculative) {
     return {
       kind, lane: spec.lane, groundability: "L3", sourceBasis: "external", model: "(none)", title: spec.title,
       refused: { reason: "单篇已发表论文无法还原作者真实的发现过程；论文 Introduction 是事后整理的论证逻辑，不是发现的记录——把它当作「作者怎么想到的」会严重误导。" },
-      framing: "如需逼近，只能基于被引脉络 / 该课题组其他论文 / 预印本版本差异做推测，且全程标「推测」（需接入外部数据源）。",
+      framing: "如需逼近，只能基于被引脉络 / 该课题组其他论文 / 预印本版本差异做推测，且全程标「推测」（需接入外部数据源）。你也可以在下方显式请求「标注推测」——仅作联想，不可当作事实。",
       claims: [], practice: spec.practice,
     };
+  }
+  if (kind === "genesis" && deps.speculative) {
+    return runGenesisSpeculative(pages, spec, deps.llm, deps);
   }
   return flagIntentReconstruction(await runStructured(kind, pages, spec, deps.llm, deps));
 }

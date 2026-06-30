@@ -143,7 +143,7 @@ contextBridge.exposeInMainWorld("luminaReader", {
   summarize: (payload: unknown) => invoke("reader:summarize", payload),
   ask: (payload: unknown) => invoke("reader:ask", payload),
   translate: (payload: unknown) => invoke("reader:translate", payload),
-  analyze: (kind, pages, opts) => invoke("reader:analyze", { kind, pages, text: opts && opts.text, page: opts && opts.page }),
+  analyze: (kind, pages, opts) => invoke("reader:analyze", { kind, pages, text: opts && opts.text, page: opts && opts.page, speculative: !!(opts && opts.speculative) }),
   swipeGet: () => invoke("swipe:get"),
   swipeSave: (item) => invoke("swipe:save", item),
   swipeRemove: (id) => invoke("swipe:remove", id),
