@@ -52,6 +52,11 @@ export const crossrefAdapter: SourceAdapter = {
     p.set("rows", String(opts.limit ?? 25));
     const { email } = getPoliteIdentity();
     if (email) p.set("mailto", email);
+    if (opts.since) {
+      const sinceFilter = `from-pub-date:${opts.since.slice(0, 10)}`;
+      const prev = p.get("filter");
+      p.set("filter", prev ? `${prev},${sinceFilter}` : sinceFilter);
+    }
     const json = await getJson(`${API}?${p}`, opts);
     return parseCrossref(json);
   },

@@ -83,13 +83,18 @@ export function emptyDigestReport(dateKey: string, scope: "all" | string): Diges
 export function collectDigestReportInputs(
   subs: Record<string, unknown>[],
   scopeSubId: "all" | string = "all",
+  dateKey?: string,
 ): { inputs: DigestReportPaperInput[]; subCount: number; unreadCount: number } {
   const enabled = (Array.isArray(subs) ? subs : [])
     .map((s) => normalizeSubscription(s))
     .filter((s) => s.enabled !== false);
-  const scoped = scopeSubId === "all"
+  const scopedRaw = scopeSubId === "all"
     ? enabled
     : enabled.filter((s) => String(s.id) === scopeSubId);
+  // 确保「当日」：只纳入 todayDateKey === 报告日 的订阅，避免昨天未运行的 today[] 混进今天的报告
+  const scoped = dateKey
+    ? scopedRaw.filter((s) => String(s.todayDateKey || "") === dateKey)
+    : scopedRaw;
   const entries: Array<{ subId: string; subLabel: string; paper: Paper }> = [];
   for (const sub of scoped) {
     const read = subscriptionReadIds(sub);
@@ -285,7 +290,7 @@ export async function runDigestReportGeneration(
   scope: "all" | string = "all",
   dateKey = dateKeyOf(),
 ): Promise<DigestReport> {
-  const { inputs, subCount, unreadCount } = collectDigestReportInputs(subs, scope);
+  const { inputs, subCount, unreadCount } = collectDigestReportInputs(subs, scope, dateKey);
   const base = emptyDigestReport(dateKey, scope);
   if (!inputs.length) {
     const skipped: DigestReport = {

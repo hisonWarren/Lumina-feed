@@ -9,6 +9,7 @@ import FetchBadges from "../FetchBadges.jsx";
 import DigestMatchWhy from "../components/DigestMatchWhy.jsx";
 import DigestAbstract from "../components/DigestAbstract.jsx";
 import DigestReportHero, { DigestReportReader } from "../components/DigestReportHero.jsx";
+import DigestRetro from "../components/DigestRetro.jsx";
 import DigestSourceLine from "../components/DigestSourceLine.jsx";
 import { dedupeDigestEntries, DIGEST_PAGE } from "../lib/digest-ui.js";
 import { unreadTodayCount } from "../lib/subs-unread.js";
@@ -639,19 +640,20 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
               <button type="button" className="dg-markall" onClick={() => void markAllRead()}><Check size={14} /> 全部标为已读</button>
             )}
           </div>
-          <p className="brief-lead">今日共有 <b>{total} 篇</b> 待读（本日新命中 + 今日已收录未读）。每条标了证据来源，可取全文或 AI 总结——<b>是否纳入研究由你判断</b>。</p>
+          <p className="brief-lead">今日共有 <b>{total} 篇</b> 待读（本日时间窗内<strong>新发表</strong>且未读）。每条标了证据来源，可取全文或 AI 总结——<b>是否纳入研究由你判断</b>。</p>
           {total > 0 && (
             <div className="dg-tldr">
               <span>待读 <b>{total}</b> 篇</span>
               {preprintCount > 0 && <span className="dg-tldr-pill">预印本 {preprintCount}</span>}
-              <span className="dg-tldr-hi">今日窗口 · 按相关度</span>
-              <span title="每日 0 点重置简报列表；检索在发表时间窗内取候选，再与历史命中去重">仅收录时间窗内新发表 · 跨日不累积</span>
+              <span className="dg-tldr-hi">今日发表窗 · 按时间</span>
+              <span title="每日 0 点重置列表；仅收录发表日在时间窗内的文献，高相关旧文不会混入">仅今日新发表 · 跨日不累积</span>
             </div>
           )}
           {total > 0 && (
             <div className="dg-view-seg" role="tablist" aria-label="简报视图">
               <button type="button" role="tab" aria-selected={viewMode === "scan"} className={viewMode === "scan" ? "on" : ""} onClick={() => setViewMode("scan")}>扫描列表</button>
               <button type="button" role="tab" aria-selected={viewMode === "report"} className={viewMode === "report" ? "on" : ""} onClick={() => setViewMode("report")}>今日报告</button>
+              <button type="button" role="tab" aria-selected={viewMode === "retro"} className={viewMode === "retro" ? "on" : ""} onClick={() => setViewMode("retro")}>回顾</button>
             </div>
           )}
           {runProgress && (
@@ -679,8 +681,16 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
             <div className="dg-empty"><Loader size={22} className="dg-spin" /><p>读取订阅…</p></div>
           ) : subs.length === 0 ? (
             <div className="dg-empty"><Rss size={28} strokeWidth={1.6} /><h2>还没有订阅</h2><p>新建主题订阅（关键词 + 频率 + 成本闸），新发表汇成证据简报，可批量取全文或 AI 总结。</p></div>
+          ) : viewMode === "retro" ? (
+            <DigestRetro
+              scope={reportScope}
+              scopeLabel={scopeLabel}
+              onJumpPaper={jumpToPaper}
+              onBackToScan={() => setViewMode("scan")}
+              onOpenSettings={() => onOpenSettings && onOpenSettings("general")}
+            />
           ) : total === 0 ? (
-            <div className="dg-empty"><Inbox size={28} strokeWidth={1.6} /><h2>今日没有待读</h2><p>有符合订阅的新发表时会出现在这里，可点「取全文」或 AI 总结。{!backend ? "（需引擎调度真实检索）" : ""}</p></div>
+            <div className="dg-empty"><Inbox size={28} strokeWidth={1.6} /><h2>今日没有待读</h2><p>有符合订阅的新发表时会出现在这里，可点「取全文」或 AI 总结。{!backend ? "（需引擎调度真实检索）" : ""}</p><button type="button" className="dg-retro-entry" onClick={() => setViewMode("retro")}>看历史回顾 →</button></div>
           ) : viewMode === "report" ? (
             <DigestReportReader
               report={digestReport}

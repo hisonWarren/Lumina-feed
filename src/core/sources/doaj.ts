@@ -14,6 +14,13 @@ export function parseDoaj(json: any): SearchHit[] {
     const b = r.bibjson ?? {};
     const doiId = (b.identifier ?? []).find((i: any) => String(i.type).toLowerCase() === "doi")?.id;
     const ftUrl = (b.link ?? []).find((l: any) => String(l.type).toLowerCase() === "fulltext")?.url;
+    const year = b.year ? Number(b.year) : undefined;
+    const month = b.month ? Number(b.month) : undefined;
+    let pubDate: string | undefined;
+    if (year && month) {
+      const day = b.day ? Number(b.day) : new Date(year, month, 0).getDate();
+      pubDate = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
     return {
       source: "doaj",
       doi: doiId ? String(doiId).toLowerCase().replace(/^https?:\/\/doi\.org\//, "") : undefined,
@@ -21,7 +28,8 @@ export function parseDoaj(json: any): SearchHit[] {
       abstract: b.abstract || undefined,
       authors: (b.author ?? []).map((a: any) => a?.name).filter(Boolean),
       journal: b.journal?.title,
-      year: b.year ? Number(b.year) : undefined,
+      year,
+      pubDate,
       isPreprint: false,
       peerReviewed: true,
       oaStatus: "gold",
@@ -40,6 +48,11 @@ export const doajAdapter: SourceAdapter = {
     const url = `${API}/${encodeURIComponent(built.path)}?${p}`;
     const res = await fetchWithRetry("doaj", url, { headers: { accept: "application/json" }, signal: opts.signal }, f);
     if (!res.ok) throw new Error(`HTTP ${res.status} @ doaj.org`);
-    return parseDoaj(await res.json());
+    let hits = parseDoaj(await res.json());
+    if (opts.since) {
+      const s = new Date(opts.since).getTime();
+      hits = hits.filter((h) => h.pubDate && new Date(h.pubDate).getTime() >= s);
+    }
+    return hits;
   },
 };

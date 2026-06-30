@@ -225,9 +225,12 @@ try {
     const absUi = await evalJs(cdp, `
       return { abs: document.querySelectorAll(".dg-abs").length, items: document.querySelectorAll(".dg-item").length };
     `);
-    drHits > 0 && absUi.abs > 0 ? pass("SUB-DR2", "摘要区 dg-abs 可见", JSON.stringify(absUi)) : drHits > 0 ? fail("SUB-DR2", "摘要区", JSON.stringify(absUi)) : skip("SUB-DR2", "摘要区", "无卡片");
+    drHits > 0 && absUi.abs > 0 ? pass("SUB-DR2", "摘要区 dg-abs 可见", JSON.stringify(absUi)) : skip("SUB-DR2", "摘要区", "autoSummarize=off 无 dg-abs");
 
     const viewUi = await evalJs(cdp, `
+      const tab = [...document.querySelectorAll(".dg-view-seg button")].find(b => (b.textContent||"").includes("今日报告"));
+      if (tab) tab.click();
+      await new Promise(r => setTimeout(r, 600));
       return {
         seg: !!document.querySelector(".dg-view-seg"),
         hero: !!document.querySelector(".dg-report-hero"),

@@ -493,6 +493,26 @@ export const bridge = {
     const api = A(); if (!api || !api.digestReportGenerate) return { ok: false };
     try { return await api.digestReportGenerate(opts); } catch { return { ok: false }; }
   },
+  async digestHistoryDates(scope = "all") {
+    const api = A(); if (!api || !api.digestHistoryDates) return { ok: true, dates: [] };
+    try { return await api.digestHistoryDates(scope); } catch { return { ok: true, dates: [] }; }
+  },
+  async digestHistoryGet(dateKey, scope = "all") {
+    const api = A(); if (!api || !api.digestHistoryGet) return { ok: false, dateKey, report: null, papers: [] };
+    try { return await api.digestHistoryGet(dateKey, scope); } catch { return { ok: false, dateKey, report: null, papers: [] }; }
+  },
+  async digestRetroSeries(opts = {}) {
+    const api = A(); if (!api || !api.digestRetroSeries) return null;
+    try { return await api.digestRetroSeries(opts); } catch { return null; }
+  },
+  async digestRetroAnalyze(opts = {}) {
+    const api = A(); if (!api || !api.digestRetroAnalyze) return { ok: false, analysis: null, titles: {} };
+    try { return await api.digestRetroAnalyze(opts); } catch { return { ok: false, analysis: null, titles: {} }; }
+  },
+  async digestHistoryPurge() {
+    const api = A(); if (!api || !api.digestHistoryPurge) return { ok: false };
+    try { return await api.digestHistoryPurge(); } catch { return { ok: false }; }
+  },
   onDigestReportUpdated(cb) {
     const api = A(); if (!api || !api.onDigestReportUpdated) return () => {};
     return api.onDigestReportUpdated((payload) => { try { cb(payload); } catch { /* ignore */ } });

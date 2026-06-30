@@ -5,7 +5,11 @@ const ROOT=process.cwd(); let fail=0,warn=0;
 const ok=(m)=>console.log("  \x1b[32m✓\x1b[0m "+m); const bad=(m)=>{console.log("  \x1b[31m✗ "+m+"\x1b[0m");fail++;}; const wn=(m)=>{console.log("  \x1b[33m! "+m+"\x1b[0m");warn++;};
 const read=(p)=>fs.readFileSync(path.join(ROOT,p),"utf8"); const exists=(p)=>fs.existsSync(path.join(ROOT,p));
 function strip(s){return s.replace(/\/\*[\s\S]*?\*\//g," ").replace(/"(?:\\.|[^"\\])*"/g,'""').replace(/'(?:\\.|[^'\\])*'/g,"''").replace(/`(?:\\.|[^`\\])*`/g,"``").replace(/\/\/[^\n]*/g," ");}
-function balance(p){const s=strip(read(p));for(const[o,c]of[["{","}"],["(",")"],["[","]"]]){const a=s.split(o).length-1,b=s.split(c).length-1;if(a!==b){bad(`${p}: ${o}${c} 不平衡 (${a}/${b})`);return false;}}return true;}
+function balance(p){const s=strip(read(p));let okAll=true;
+  for(const[o,c]of[["{","}"],["[","]"]]){const a=s.split(o).length-1,b=s.split(c).length-1;if(a!==b){bad(`${p}: ${o}${c} 不平衡 (${a}/${b})`);okAll=false;}}
+  // () 裸计数对含正则字面量 / 模板串 / JSX 文本的文件不可靠（LuminaApp 误报源）；降级为提示，语法真值以 build:electron(esbuild) 为准
+  for(const[o,c]of[["(",")"]]){const a=s.split(o).length-1,b=s.split(c).length-1;if(a!==b)wn(`${p}: () 可能不平衡 (${a}/${b}) —— 裸计数对 JSX/正则不可靠，以 build:electron 为准`);}
+  return okAll;}
 function nodeCheck(p){try{execSync(`node --check "${path.join(ROOT,p)}"`,{stdio:"pipe"});return true;}catch(e){bad(`${p}: node --check 失败 — ${String(e.stderr||e).split("\n")[0]}`);return false;}}
 
 console.log("\n— 1. 前置（library_lists 已应用）—");

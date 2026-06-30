@@ -27,6 +27,8 @@ export interface AppSettings {
   digestNotifyTier?: "calm" | "regular" | "power";
   /** 检索完成后自动生成「今日简报总报告」（默认开） */
   digestReportAuto?: boolean;
+  /** 简报历史保留天数（snapshots + 每日报告缓存）；<=0 或省略=永久保留。papers / 工作集永不受此清理 */
+  digestHistoryRetentionDays?: number;
   /** 关窗最小化到托盘 + 开机自启（Settings 通用页） */
   app?: { minimizeToTray?: boolean; openAtLogin?: boolean };
   prompts?: {
@@ -55,6 +57,7 @@ const DEFAULTS: AppSettings = {
   searchDepth: "standard",
   digestNotifyTier: "regular",
   digestReportAuto: true,
+  digestHistoryRetentionDays: 365,
   autoIngestOnFetch: true,
   prefetchOnIdentifier: false,
   prefetchOaResults: false,

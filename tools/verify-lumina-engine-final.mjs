@@ -54,7 +54,7 @@ if(exists("electron/ipc.ts")){ const s=read("electron/ipc.ts");
   /const ftsPrep = \(text: string\): string =>/.test(s)?ok("ftsPrep 预处理函数"):bad("缺 ftsPrep");
   /0x3400 && c <= 0x9fff/.test(s)?ok("CJK 码段判定（含扩展区/兼容区）"):wn("CJK 码段判定未见");
   /run\[k\] \+ run\[k \+ 1\]/.test(s)?ok("连续 CJK 段→重叠 bigram"):bad("未生成 bigram");
-  /\.run\(paperId, ftsPrep\(String\(text\)\.slice\(0, 2000000\)\)\)/.test(s)?ok("入库存 ftsPrep(body)"):bad("入库未用 ftsPrep");
+  (/const raw = String\(text\)\.slice\(0, 2000000\);/.test(s) && /\.run\(paperId, ftsPrep\(raw\)\)/.test(s))?ok("入库存 ftsPrep(body)"):bad("入库未用 ftsPrep");
   /const prepped = ftsPrep\(q\)/.test(s)?ok("查询同样 ftsPrep（与索引一致）"):bad("查询未 ftsPrep");
 }
 console.log("\n— 7. 红线/范围 —");

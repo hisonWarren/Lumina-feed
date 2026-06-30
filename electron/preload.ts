@@ -51,6 +51,11 @@ contextBridge.exposeInMainWorld("luminaApi", {
   subsPreview: (draft: unknown) => invoke("subs:preview", draft),
   digestReportGet: (scope?: string) => invoke("digestReport:get", scope),
   digestReportGenerate: (opts?: unknown) => invoke("digestReport:generate", opts),
+  digestHistoryDates: (scope?: string) => invoke("digestHistory:dates", scope),
+  digestHistoryGet: (dateKey: string, scope?: string) => invoke("digestHistory:get", dateKey, scope),
+  digestRetroSeries: (opts?: unknown) => invoke("digestRetro:series", opts),
+  digestRetroAnalyze: (opts?: unknown) => invoke("digestRetro:analyze", opts),
+  digestHistoryPurge: () => invoke("digestHistory:purge"),
   onDigestReportUpdated: (cb: (p: unknown) => void) => {
     const handler = (_e: unknown, payload: unknown) => cb(payload);
     ipcRenderer.on("digest:reportUpdated", handler);

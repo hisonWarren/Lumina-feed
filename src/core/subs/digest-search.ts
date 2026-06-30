@@ -1,8 +1,9 @@
 // 订阅简报检索：与 FindFetch 对齐 keys/depth/disabledSources，但用 Digest Profile 排除 scrape 源。
 import type { QuerySpec } from "../querySpec.ts";
-import { rawToSpec } from "../querySpec.ts";
+import { rawToSpec, specToRaw } from "../querySpec.ts";
 import type { Paper } from "../model.ts";
 import type { SearchOpts } from "../sources/adapter.ts";
+import { tokenize } from "../rank/bm25.ts";
 
 /** 定时简报永不纳入的源（非开放 API / 慢 scrape） */
 export const DIGEST_EXCLUDE_SOURCES = ["libgen", "annas", "scihub"] as const;
@@ -26,8 +27,28 @@ export function applyDigestSearchOpts(base: SearchOpts, preview = false): Search
   };
 }
 
-export function buildDigestSpec(sub: Record<string, unknown> | null | undefined): QuerySpec | null {
+/** 简报检索式附加过滤：按时间窗排序 + yearFrom（与 since 双闸） */
+export function digestSpecFilters(freq: string, now = new Date(), lastRunAt?: string, sameDay = false) {
+  const sinceMs = digestRecencyStartMs(freq, now, lastRunAt, sameDay);
+  const sinceDate = new Date(sinceMs);
+  return {
+    sort: "recent" as const,
+    yearFrom: sinceDate.getFullYear(),
+    yearTo: now.getFullYear() + 1,
+    sources: [...JOURNAL_DIGEST_SOURCES],
+  };
+}
+
+export function digestSinceIso(freq: string, now = new Date(), lastRunAt?: string, sameDay = false): string {
+  return digestRecencySinceIso(freq, now, lastRunAt, sameDay);
+}
+
+export function buildDigestSpec(sub: Record<string, unknown> | null | undefined, now = new Date()): QuerySpec | null {
   if (!sub) return null;
+  const freq = String(sub.freq || "daily");
+  const dateKey = digestDateKey(now);
+  const sameDay = String(sub.todayDateKey || "") === dateKey;
+  const filters = digestSpecFilters(freq, now, sub.lastRunAt as string | undefined, sameDay);
   const kind = (sub.kind as string) || "keyword";
   if (kind === "journal") {
     const j = (sub.journal as { issn?: string; name?: string }) || {};
@@ -35,12 +56,15 @@ export function buildDigestSpec(sub: Record<string, unknown> | null | undefined)
     if (!value) return null;
     return {
       groups: [{ op: "AND", terms: [{ field: "journal", value }] }],
-      filters: { sources: [...JOURNAL_DIGEST_SOURCES] },
+      filters,
     };
   }
   const spec = rawToSpec(String(sub.q || ""), {});
   if (!spec.groups.length) return null;
-  return spec;
+  return {
+    ...spec,
+    filters: { ...spec.filters, ...filters },
+  };
 }
 
 /** ISSUE-011 · 脏 payload 容错 + schemaVersion */
@@ -69,13 +93,73 @@ export function digestWindowStartMs(freq: string, now = new Date(), lastRunAt?: 
   return d.getTime();
 }
 
-/** 按发表日期收窄候选；无 pubDate 的条目保留（部分源不返回日期） */
-export function filterDigestRecency(papers: Paper[], freq: string, now = new Date(), lastRunAt?: string): Paper[] {
-  const since = digestWindowStartMs(freq, now, lastRunAt);
+/** 发表窗起点：同日 daily 再跑时从 lastRunAt 起（仅增量），否则走 freq 默认窗 */
+export function digestRecencyStartMs(
+  freq: string,
+  now = new Date(),
+  lastRunAt?: string,
+  sameDay = false,
+): number {
+  if (sameDay && lastRunAt && freq === "daily") {
+    const last = new Date(lastRunAt).getTime();
+    if (Number.isFinite(last)) return last;
+  }
+  return digestWindowStartMs(freq, now, lastRunAt);
+}
+
+export function digestRecencySinceIso(
+  freq: string,
+  now = new Date(),
+  lastRunAt?: string,
+  sameDay = false,
+): string {
+  return new Date(digestRecencyStartMs(freq, now, lastRunAt, sameDay)).toISOString().slice(0, 10);
+}
+
+/** 按发表日期收窄候选；缺 pubDate 的条目不保留（避免高相关旧文混入每日简报） */
+export function filterDigestRecency(
+  papers: Paper[],
+  freq: string,
+  now = new Date(),
+  lastRunAt?: string,
+  sameDay = false,
+): Paper[] {
+  const since = digestRecencyStartMs(freq, now, lastRunAt, sameDay);
   return papers.filter((p) => {
-    if (!p.pubDate) return true;
+    if (!p.pubDate) return false;
     const t = new Date(p.pubDate).getTime();
     return Number.isFinite(t) && t >= since;
+  });
+}
+
+/**
+ * 简报质量闸（确定性）：去掉撤稿、无有效信息、关键词订阅里标题对不上检索式的薄条目。
+ * 放在发表窗之后、seen 去重之前。
+ */
+export function filterDigestQuality(
+  papers: Paper[],
+  sub: Record<string, unknown> | null | undefined,
+  spec: QuerySpec | null,
+): Paper[] {
+  const kind = String(sub?.kind || "keyword");
+  const qTerms = kind === "keyword" && spec
+    ? tokenize(specToRaw(spec)).filter((t) => t.length >= 3)
+    : [];
+  return papers.filter((p) => {
+    if (p.retracted) return false;
+    const title = String(p.title || "").trim();
+    if (title.length < 8 || /^(untitled|no title|\(无标题\))/i.test(title)) return false;
+    const abs = String(p.abstract || "").trim();
+    const hasBody = abs.length >= 40;
+    const hasIds = !!(p.doi || p.pmid);
+    const hasMeta = !!String(p.journal || "").trim() && Array.isArray(p.authors) && p.authors.length > 0;
+    if (!hasBody && !hasIds && !hasMeta) return false;
+    // 关键词订阅：仅有标题壳子时，标题须命中检索词之一
+    if (kind === "keyword" && qTerms.length > 0 && !hasBody && !hasIds) {
+      const t = title.toLowerCase();
+      if (!qTerms.some((w) => t.includes(w))) return false;
+    }
+    return true;
   });
 }
 
@@ -138,12 +222,22 @@ export interface DigestRunMeta {
   durationMs: number;
   mergedCount: number;
   preview?: boolean;
+  qualityDropped?: number;
   ai?: import("./digest-ai.ts").DigestAiMeta;
 }
 
-export function freshHits(all: Paper[], seenIds: string[]): Paper[] {
+export function freshHits(all: Paper[], seenIds: string[], extra?: { ids?: string[]; dois?: string[] }): Paper[] {
   const seen = new Set(seenIds);
-  return all.filter((p) => !seen.has(p.id));
+  for (const id of extra?.ids ?? []) {
+    if (id) seen.add(id);
+  }
+  const seenDois = new Set((extra?.dois ?? []).map((d) => String(d).toLowerCase()).filter(Boolean));
+  return all.filter((p) => {
+    if (seen.has(p.id)) return false;
+    const doi = p.doi ? String(p.doi).toLowerCase() : "";
+    if (doi && seenDois.has(doi)) return false;
+    return true;
+  });
 }
 
 /** 跨订阅 DOI 去重（「今日全部」视图） */

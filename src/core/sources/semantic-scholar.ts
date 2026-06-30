@@ -50,6 +50,11 @@ export const semanticScholarAdapter: SourceAdapter = {
     const f = opts.fetchImpl ?? fetch;
     const res = await fetchWithRetry("semanticscholar", `${API}?${p}`, { headers, signal: opts.signal }, f);
     if (!res.ok) throw new Error(`HTTP ${res.status} @ api.semanticscholar.org`);
-    return parseSemanticScholar(await res.json());
+    let hits = parseSemanticScholar(await res.json());
+    if (opts.since) {
+      const s = new Date(opts.since).getTime();
+      hits = hits.filter((h) => h.pubDate && new Date(h.pubDate).getTime() >= s);
+    }
+    return hits;
   },
 };

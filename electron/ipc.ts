@@ -47,7 +47,7 @@ import { setPoliteIdentity } from "../src/core/sources/adapter.ts";
 import type { SearchOpts } from "../src/core/sources/adapter.ts";
 import { shouldSignalMissingEmail, maybeMissingEmailReason } from "../src/core/oa/oa-extended.ts";
 import {
-  applyDigestSearchOpts, buildDigestSpec, normalizeSubscription, freshHits, digestDateKey, filterDigestRecency, type DigestRunMeta,
+  applyDigestSearchOpts, buildDigestSpec, normalizeSubscription, freshHits, digestDateKey, digestSinceIso, digestRecencySinceIso, filterDigestRecency, filterDigestQuality, type DigestRunMeta,
   withPaperMarkedRead, todayPaperList, subscriptionReadIds,
 } from "../src/core/subs/digest-search.ts";
 import {
@@ -86,6 +86,10 @@ import {
 import {
   dateKeyOf, loadDigestReport, runDigestReportGeneration, type DigestReport,
 } from "../src/core/subs/digest-report.ts";
+import {
+  recordDigestSnapshot, pruneDigestHistory, listSnapshotDates, loadSnapshot,
+} from "../src/core/subs/digest-archive.ts";
+import { buildRetroSeries, generateRetroAnalysis } from "../src/core/subs/digest-retro.ts";
 
 export interface IpcDeps {
   store: Store;
@@ -156,6 +160,8 @@ export function registerIpc(deps: IpcDeps): void {
   const hasLlmSecret = async (k: string) => isValidSecretValue(await secrets.get(k));
   /** 升级后钥匙串有 key、DB 缺 llm 时尽早补写，避免各 IPC 路径各自漏调 hydrate */
   void hydrateLlmSettings(store, hasLlmSecret).catch(() => {});
+  // 启动时按保留策略清理简报历史（snapshots + 每日报告缓存）；papers / 工作集永不受此影响
+  void (async () => { try { const s0 = await loadAppSettings(store); pruneDigestHistory(store, s0.digestHistoryRetentionDays); } catch { /* ignore */ } })();
   registerCiteExport();
 
   async function buildSearchOpts(): Promise<SearchOpts> {
@@ -1311,6 +1317,87 @@ export function registerIpc(deps: IpcDeps): void {
       return { ok: false, error: (e && (e as Error).message) || "failed" };
     }
   });
+  // ── digest_retro：历史日期 / 某日详情 / 确定性序列 / AI 回顾 / 手动清理 ──
+  ipcMain.handle("digestHistory:dates", (_e, scope?: string) => {
+    try {
+      const sc = scope && scope !== "all" ? String(scope) : "all";
+      const subId = sc === "all" ? undefined : sc;
+      const dates = listSnapshotDates(store, subId);
+      return {
+        ok: true,
+        dates: dates.map((d) => {
+          let hasReport = false;
+          try { hasReport = loadDigestReport(store, d.dateKey, "all").status === "ready"; } catch { /* ignore */ }
+          return { dateKey: d.dateKey, paperCount: d.paperCount, subIds: d.subIds, hasReport };
+        }),
+      };
+    } catch (e) {
+      return { ok: false, error: (e && (e as Error).message) || "failed", dates: [] };
+    }
+  });
+  ipcMain.handle("digestHistory:get", (_e, dateKey?: string, scope?: string) => {
+    try {
+      const dk = String(dateKey || "");
+      if (!dk) return { ok: false, dateKey: "", report: null, papers: [] };
+      const sc = scope && scope !== "all" ? String(scope) : "all";
+      const subId = sc === "all" ? undefined : sc;
+      const report = loadDigestReport(store, dk, "all");
+      const snap = loadSnapshot(store, dk, subId);
+      const papers = snap.paperIds.map((id) => {
+        const p = store.papers.getById(id);
+        return { id, title: p?.title || "(无标题)", year: p?.year, preprint: !!p?.isPreprint };
+      });
+      return { ok: true, dateKey: dk, report, papers };
+    } catch (e) {
+      return { ok: false, error: (e && (e as Error).message) || "failed", dateKey: String(dateKey || ""), report: null, papers: [] };
+    }
+  });
+  ipcMain.handle("digestRetro:series", (_e, opts?: { scope?: string; granularity?: string; sinceDays?: number; topN?: number }) => {
+    try {
+      const scope = opts?.scope && opts.scope !== "all" ? String(opts.scope) : "all";
+      const granularity = (opts?.granularity === "day" || opts?.granularity === "month") ? opts.granularity : "week";
+      return buildRetroSeries(store, { scope, granularity, sinceDays: Number(opts?.sinceDays) || 0, topN: opts?.topN });
+    } catch (e) {
+      return { scope: "all", granularity: "week", framing: "", span: null, totalPapers: 0, bucketsWithData: 0, volume: [], topicSeries: { topics: [], buckets: [] }, topicDim: "topic", error: (e && (e as Error).message) || "failed" };
+    }
+  });
+  ipcMain.handle("digestRetro:analyze", async (_e, opts?: { scope?: string; sinceDays?: number }) => {
+    try {
+      const scope = opts?.scope && opts.scope !== "all" ? String(opts.scope) : "all";
+      const sinceDays = Number(opts?.sinceDays) || 0;
+      const settings = await hydrateLlmSettings(store, async (k) => !!(await secrets.get(k)));
+      if (!settings.llm) {
+        return { ok: false, analysis: { scope, status: "skipped", skippedReason: "llm_not_configured", framing: "", rangeLabel: "", windows: [], shifts: [], caveats: [], paperCount: 0, windowCount: 0 }, titles: {} };
+      }
+      let llm: Awaited<ReturnType<typeof llmFromConfig>>;
+      try {
+        llm = await llmFromConfig(settings.llm, () => secrets.get(`${settings.llm!.provider}_key`));
+      } catch {
+        return { ok: false, analysis: { scope, status: "failed", error: "llm_init_failed", framing: "", rangeLabel: "", windows: [], shifts: [], caveats: [], paperCount: 0, windowCount: 0 }, titles: {} };
+      }
+      const analysis = await generateRetroAnalysis(store, llm, { scope, sinceDays });
+      const ids = new Set<string>();
+      for (const w of analysis.windows) for (const id of w.paperRefs) ids.add(id);
+      for (const sh of analysis.shifts) for (const id of sh.paperRefs) ids.add(id);
+      const titles: Record<string, string> = {};
+      for (const id of ids) {
+        const p = store.papers.getById(id);
+        if (p) titles[id] = p.title || "(无标题)";
+      }
+      return { ok: true, analysis, titles };
+    } catch (e) {
+      return { ok: false, error: (e && (e as Error).message) || "failed", analysis: null, titles: {} };
+    }
+  });
+  ipcMain.handle("digestHistory:purge", async () => {
+    try {
+      const s = await loadAppSettings(store);
+      const r = pruneDigestHistory(store, s.digestHistoryRetentionDays);
+      return { ok: true, prunedDates: r.prunedDates };
+    } catch (e) {
+      return { ok: false, error: (e && (e as Error).message) || "failed" };
+    }
+  });
 
   // ── library（工作集持久化）+ lists（单层清单持久化）+ 富集（有全文/有总结/总结正文）──
   // 注：批注按"文件名:字节数"为 docKey（见 Reader），与 paperId 不一一对应，故"有批注/批注数"留后续（需 paperId↔docKey 映射）。
@@ -1666,10 +1753,15 @@ async function persistSubscriptionToday(
   meta: DigestRunMeta,
   dateKey: string,
   sameDay: boolean,
+  recencyPool: Paper[],
+  searchPapers: Paper[] = [],
 ): Promise<void> {
   ensureSubsTable(store.db);
   const deliveredFresh = fresh.filter((p) => todayMerged.some((t) => t.id === p.id)).map((p) => p.id);
-  const newSeen = [...seen, ...deliveredFresh].slice(-500);
+  // 本轮检索命中的 fresh 全部记入 seenIds，避免 today 50 条上限截断后二次 run 重复报 new
+  const newSeen = [...seen, ...fresh.map((p) => p.id)].slice(-500);
+  const poolIds = [...new Set([...recencyPool, ...searchPapers].map((p) => p.id).filter(Boolean))];
+  const poolDois = [...new Set([...recencyPool, ...searchPapers].map((p) => (p.doi ? String(p.doi).toLowerCase() : "")).filter(Boolean))];
   const next = {
     ...norm,
     today: todayMerged,
@@ -1678,9 +1770,17 @@ async function persistSubscriptionToday(
     lastRunAt: new Date().toISOString(),
     seenIds: newSeen,
     lastRunMeta: meta,
+    lastPoolIds: [...new Set([...(Array.isArray(norm.lastPoolIds) ? (norm.lastPoolIds as string[]) : []), ...poolIds])].slice(-1200),
+    lastPoolDois: [...new Set([...(Array.isArray(norm.lastPoolDois) ? (norm.lastPoolDois as string[]) : []), ...poolDois])].slice(-600),
+    lastSearchIds: [...new Set([
+      ...(Array.isArray(norm.lastSearchIds) ? (norm.lastSearchIds as string[]) : []),
+      ...searchPapers.map((p) => p.id).filter(Boolean),
+    ])].slice(-2000),
   };
   store.db.prepare("INSERT INTO subscriptions(id,payload,updated_at) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload, updated_at=excluded.updated_at")
     .run(String(norm.id ?? ""), JSON.stringify(next), next.lastRunAt as string);
+  // digest_retro：归档「你的 feed 当天确实收到的 fresh 论文」（确保当日；union-merge 幂等，多次 run 累积）
+  try { recordDigestSnapshot(store, dateKey, String(norm.id ?? ""), deliveredFresh); } catch { /* 归档失败不阻断订阅主流程 */ }
 }
 
 async function runSubscriptionNow(
@@ -1695,25 +1795,70 @@ async function runSubscriptionNow(
   const sender = flags.sender;
   const t0 = Date.now();
   try {
-    const norm = normalizeSubscription(sub) as Record<string, unknown>;
+    let subPayload = sub;
+    const norm0 = normalizeSubscription(sub) as Record<string, unknown>;
+    const subId0 = String(norm0.id || "");
+    if (!preview && subId0) {
+      try {
+        ensureSubsTable(store.db);
+        const row = store.db.prepare("SELECT payload FROM subscriptions WHERE id=?").get(subId0) as { payload?: string } | undefined;
+        if (row?.payload) subPayload = JSON.parse(row.payload);
+      } catch { /* 用调用方传入的 sub */ }
+    }
+    const norm = normalizeSubscription(subPayload) as Record<string, unknown>;
     const subId = String(norm.id || "preview");
-    const spec = buildDigestSpec(norm);
+    const now = new Date();
+    const freq = String(norm.freq || "daily");
+    const dateKey = digestDateKey(now);
+    const sameDay = String(norm.todayDateKey || "") === dateKey;
+    if (!preview && sameDay && norm.lastRunAt) {
+      const msSince = now.getTime() - new Date(String(norm.lastRunAt)).getTime();
+      if (Number.isFinite(msSince) && msSince < 180_000) {
+        const cached = todayPaperList(norm);
+        return {
+          ok: true,
+          hits: cached,
+          newCount: 0,
+          perSource: (norm.lastRunMeta as DigestRunMeta | undefined)?.perSource,
+          meta: (norm.lastRunMeta as DigestRunMeta | undefined) ?? { perSource: {}, durationMs: 0, mergedCount: 0 },
+          preview: false,
+        };
+      }
+    }
+    const spec = buildDigestSpec(norm, now);
     if (!spec) return { ok: false, hits: [], preview };
     const getOpts = optsFactory ?? digestSearchOptsFactory;
-    const searchOpts = await getOpts(preview);
+    const searchOpts = {
+      ...(await getOpts(preview)),
+      ...(preview ? {} : { since: digestRecencySinceIso(freq, now, norm.lastRunAt as string | undefined, sameDay) }),
+    };
     emitSubsProgress(sender, subId, { phase: "search", mode: "off", current: 0, total: 1, label: "检索中…" });
     const agg = await aggregateSearch(spec, searchOpts);
     if (!preview) store.papers.upsertMany(agg.papers);
-    const now = new Date();
-    const dateKey = digestDateKey(now);
-    const freq = String(norm.freq || "daily");
-    const sameDay = String(norm.todayDateKey || "") === dateKey;
-    const seen = new Set<string>(Array.isArray(norm.seenIds) ? (norm.seenIds as string[]) : []);
+    const seenIds = Array.isArray(norm.seenIds) ? (norm.seenIds as string[]) : [];
+    const seen = new Set<string>(seenIds);
     const prevToday = sameDay ? todayPaperList(norm) : [];
+    const seenDois: string[] = [];
+    for (const id of seenIds) {
+      const p = store.papers.getById(id);
+      if (p?.doi) seenDois.push(String(p.doi).toLowerCase());
+    }
+    for (const p of prevToday) {
+      if (p?.doi) seenDois.push(String(p.doi).toLowerCase());
+    }
+    const lastPoolIds = sameDay && Array.isArray(norm.lastPoolIds) ? (norm.lastPoolIds as string[]) : [];
+    const lastPoolDois = sameDay && Array.isArray(norm.lastPoolDois) ? (norm.lastPoolDois as string[]) : [];
+    const searchPoolIds = sameDay && Array.isArray(norm.lastSearchIds) ? (norm.lastSearchIds as string[]) : [];
     const recencyPool = preview
       ? agg.papers.slice(0, 5)
-      : filterDigestRecency(agg.papers, freq, now, norm.lastRunAt as string | undefined);
-    const fresh = preview ? recencyPool : freshHits(recencyPool, [...seen]);
+      : filterDigestRecency(agg.papers, freq, now, norm.lastRunAt as string | undefined, sameDay);
+    const qualityPool = preview ? recencyPool : filterDigestQuality(recencyPool, norm, spec);
+    const fresh = preview
+      ? qualityPool
+      : freshHits(qualityPool, seenIds, {
+          ids: [...prevToday.map((p) => p.id).filter(Boolean), ...lastPoolIds, ...searchPoolIds],
+          dois: [...seenDois, ...lastPoolDois],
+        });
     let todayMerged = preview
       ? fresh
       : (() => {
@@ -1727,6 +1872,7 @@ async function runSubscriptionNow(
       durationMs: Date.now() - t0,
       mergedCount: agg.mergedCount ?? agg.papers.length,
       preview,
+      qualityDropped: preview ? 0 : Math.max(0, recencyPool.length - qualityPool.length),
     };
 
     const onProgress: DigestAiProgressFn = (p) => emitSubsProgress(sender, subId, p);
@@ -1735,7 +1881,7 @@ async function runSubscriptionNow(
       if (asyncAi && !preview) {
         meta.ai = { status: "queued", mode, processed: 0, total: 0, blurbs: 0, summaries: 0 };
         if (!preview) {
-          await persistSubscriptionToday(store, norm, todayMerged, seen, fresh, meta, dateKey, sameDay);
+          await persistSubscriptionToday(store, norm, todayMerged, seen, fresh, meta, dateKey, sameDay, recencyPool, agg.papers);
         }
         void (async () => {
           try {
@@ -1743,7 +1889,7 @@ async function runSubscriptionNow(
             todayMerged = mergeAiOntoToday(todayMerged, patchById);
             meta.ai = aiMeta;
             meta.durationMs = Date.now() - t0;
-            await persistSubscriptionToday(store, norm, todayMerged, seen, fresh, meta, dateKey, sameDay);
+            await persistSubscriptionToday(store, norm, todayMerged, seen, fresh, meta, dateKey, sameDay, recencyPool, agg.papers);
             emitSubsProgress(sender, subId, { phase: "ai", mode: mode as "blurb", current: aiMeta.processed, total: aiMeta.total, label: "AI 完成" });
             if (sender && !sender.isDestroyed()) sender.send("subs:updated", { subId, ai: aiMeta });
             scheduleDigestReport(store, secrets, "all");
@@ -1763,7 +1909,7 @@ async function runSubscriptionNow(
     meta.durationMs = Date.now() - t0;
     if (!preview) {
       try {
-        await persistSubscriptionToday(store, norm, todayMerged, seen, fresh, meta, dateKey, sameDay);
+        await persistSubscriptionToday(store, norm, todayMerged, seen, fresh, meta, dateKey, sameDay, recencyPool, agg.papers);
       } catch { /* 持久化失败不阻断 */ }
       scheduleDigestReport(store, secrets, "all");
     }
