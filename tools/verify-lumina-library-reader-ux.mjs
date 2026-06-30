@@ -18,8 +18,8 @@ const localImport = read("src/core/store/local-import.ts");
   ? ok("local-import 题名启发式（跳过页眉）") : bad("local-import 题名启发式缺失");
 
 const ipc = read("electron/paper-asset-ipc.ts");
-/resolveImportTitle/.test(ipc) && /titleQualityScore/.test(ipc)
-  ? ok("paper-asset-ipc 使用 resolveImportTitle") : bad("paper-asset-ipc 未接题名启发式");
+/async function guessTitleFromPdf[\s\S]{0,120}resolveImportTitle/.test(ipc) && !/async function guessTitleFromPdf[\s\S]{0,200}extractText/.test(ipc)
+  ? ok("paper-asset-ipc 快速题名（无全文抽取）") : bad("paper-asset-ipc 导入仍跑全文抽取");
 
 const reader = read("src/ui/modules/Reader.jsx");
 /onLibraryRemove/.test(reader) && /scrollItemInContainer\(container, el\)/.test(reader) && /点击移出文献/.test(reader)
@@ -40,7 +40,9 @@ const settings = read("electron/settings.ts");
 /subsBackgroundHintDismissed/.test(settings) ? ok("settings prompts 键") : bad("settings 缺 subsBackgroundHintDismissed");
 
 try {
-  const { isJournalMastheadLine, titleFromFilename, pickTitleFromExtractedText, titleQualityScore } = await import("../src/core/store/local-import.ts");
+  const { isJournalMastheadLine, isGarbledTitle, titleFromFilename, pickTitleFromExtractedText, titleQualityScore, titleFromPdfInfo } = await import("../src/core/store/local-import.ts");
+  isGarbledTitle("þÿR o b u s t estimation") ? ok("乱码题名识别") : bad("乱码未识别");
+  !isGarbledTitle("Robust estimation of cortical networks") ? ok("正常题名不误判乱码") : bad("正常题名误判");
   isJournalMastheadLine("Nature Neuroscience | Volume 26 | August 2023") ? ok("页眉行识别") : bad("页眉行未识别");
   !isJournalMastheadLine("Robust estimation of individual-level brain connectivity") ? ok("真实题名不误判") : bad("真实题名被误判为页眉");
   const fromFile = titleFromFilename("Smith_2024_neural_dynamics.pdf");
@@ -48,6 +50,9 @@ try {
   const picked = pickTitleFromExtractedText("Nature Neuroscience | Volume 26\nRobust estimation of individual-level brain connectivity\nAbstract\n", fromFile);
   picked.includes("Robust estimation") ? ok("正文选题名优于页眉") : bad("正文选题名失败");
   titleQualityScore(picked) > titleQualityScore("Nature Neuroscience | Volume 26") ? ok("题名质量分") : bad("题名质量分异常");
+  const fakePdf = new TextEncoder().encode("%PDF-1.4\n/Title<FEFF0052006F006200750073007400200065007300740069006D006100740069006F006E>\n");
+  const utfTitle = titleFromPdfInfo(fakePdf);
+  utfTitle && utfTitle.startsWith("Robust") ? ok("UTF-16BE PDF Title 解码") : bad("UTF-16BE 解码: " + utfTitle);
 } catch (e) {
   bad("local-import 运行时: " + (e && e.message));
 }

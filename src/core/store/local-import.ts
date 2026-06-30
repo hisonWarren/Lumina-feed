@@ -35,6 +35,7 @@ export function isJournalMastheadLine(line: string): boolean {
 export function titleQualityScore(title: string): number {
   const s = String(title || "").trim();
   if (!s) return 0;
+  if (isGarbledTitle(s)) return 0;
   if (s.startsWith("import-")) return 1;
   if (/\.pdf$/i.test(s)) return 2;
   if (isJournalMastheadLine(s)) return 3;
@@ -44,38 +45,92 @@ export function titleQualityScore(title: string): number {
   return 5;
 }
 
-/** 从 PDF 二进制 Info 字典读取 /Title（不依赖 pdfjs） */
+/** PDF /Title 被当成 Latin-1 读出的 UTF-16 乱码（þÿ、□、字母间空格） */
+export function isGarbledTitle(title: string): boolean {
+  const s = String(title || "");
+  if (!s) return true;
+  if (s.charCodeAt(0) === 0xfe && s.charCodeAt(1) === 0xff) return true;
+  if (/^þÿ/.test(s) || /\uFEFF/.test(s)) return true;
+  if (/[\uFFFD□]/.test(s)) return true;
+  if (s.length > 16) {
+    const spaces = (s.match(/ /g) || []).length;
+    if (spaces / s.length > 0.22 && /[A-Za-z]/.test(s)) return true;
+  }
+  return false;
+}
+
+function decodePdfTitleBytes(raw: Buffer): string {
+  if (raw.length >= 2 && raw[0] === 0xfe && raw[1] === 0xff) {
+    return new TextDecoder("utf-16be").decode(raw.subarray(2));
+  }
+  if (raw.length >= 2 && raw[0] === 0xff && raw[1] === 0xfe) {
+    return new TextDecoder("utf-16le").decode(raw.subarray(2));
+  }
+  if (raw.length >= 4 && raw.length % 2 === 0 && raw[0] === 0 && raw[2] === 0) {
+    return new TextDecoder("utf-16be").decode(raw);
+  }
+  let out = "";
+  for (let i = 0; i < raw.length; i++) {
+    const b = raw[i];
+    if (b === 0x5c && i + 1 < raw.length) {
+      const esc = raw[++i];
+      if (esc === 0x6e) out += "\n";
+      else if (esc === 0x72) out += "\r";
+      else if (esc === 0x74) out += "\t";
+      else if (esc === 0x62) out += "\b";
+      else if (esc === 0x66) out += "\f";
+      else out += String.fromCharCode(esc);
+    } else if (b >= 0x20 && b !== 0x7f) {
+      out += String.fromCharCode(b);
+    }
+  }
+  return out;
+}
+
+function readPdfParenPayload(buf: Buffer, openIdx: number): Buffer | null {
+  if (buf[openIdx] !== 0x28) return null;
+  const bytes: number[] = [];
+  let i = openIdx + 1;
+  let depth = 1;
+  while (i < buf.length && depth > 0) {
+    const b = buf[i];
+    if (b === 0x28) { depth++; bytes.push(b); i++; continue; }
+    if (b === 0x29) { depth--; if (depth === 0) break; bytes.push(b); i++; continue; }
+    if (b === 0x5c && i + 1 < buf.length) { bytes.push(b, buf[i + 1]); i += 2; continue; }
+    bytes.push(b);
+    i++;
+  }
+  return Buffer.from(bytes);
+}
+
+function normalizeTitleCandidate(t: string | null): string | null {
+  const s = String(t || "").replace(/\s+/g, " ").trim();
+  if (s.length < 3 || s.length > 280 || isGarbledTitle(s) || isJournalMastheadLine(s)) return null;
+  return s;
+}
+
+/** 从 PDF 二进制 Info 字典读取 /Title（不跑全文抽取） */
 export function titleFromPdfInfo(bytes: Uint8Array): string | null {
   try {
-    const latin = Buffer.from(bytes).toString("latin1");
-    const m = latin.match(/\/Title\s*\((?:\\.|[^\\)])*\)/) || latin.match(/\/Title\s*<([0-9A-Fa-f\s]+)>/);
-    if (!m) return null;
-    let raw = m[0];
-    if (raw.includes("(")) {
-      raw = raw.replace(/^\/Title\s*\(/, "").replace(/\)\s*$/, "");
-      raw = raw.replace(/\\([nrtbf()\\]|[0-7]{1,3})/g, (_x, g: string) => {
-        if (g === "n") return "\n";
-        if (g === "r") return "\r";
-        if (g === "t") return "\t";
-        if (g === "b") return "\b";
-        if (g === "f") return "\f";
-        if (g === "(") return "(";
-        if (g === ")") return ")";
-        if (g === "\\") return "\\";
-        return String.fromCharCode(parseInt(g, 8));
-      });
-    } else {
-      const hex = m[1].replace(/\s/g, "");
-      const chars: string[] = [];
-      for (let i = 0; i + 3 < hex.length; i += 4) {
-        const code = parseInt(hex.slice(i, i + 4), 16);
-        if (!Number.isNaN(code)) chars.push(String.fromCharCode(code));
+    const buf = Buffer.from(bytes);
+    const latin = buf.toString("latin1");
+    const idx = latin.indexOf("/Title");
+    if (idx < 0) return null;
+    const tail = latin.slice(idx);
+    const hexM = tail.match(/^\/Title\s*<([0-9A-Fa-f\s]+)>/);
+    if (hexM) {
+      const hex = hexM[1].replace(/\s/g, "");
+      if (hex.length >= 4 && hex.length % 2 === 0) {
+        return normalizeTitleCandidate(decodePdfTitleBytes(Buffer.from(hex, "hex")));
       }
-      raw = chars.join("");
     }
-    const t = raw.replace(/\s+/g, " ").trim();
-    if (t.length < 8 || t.length > 280 || isJournalMastheadLine(t)) return null;
-    return t;
+    const parenM = tail.match(/^\/Title\s*\(/);
+    if (parenM) {
+      const openIdx = idx + parenM[0].length - 1;
+      const payload = readPdfParenPayload(buf, openIdx);
+      if (payload?.length) return normalizeTitleCandidate(decodePdfTitleBytes(payload));
+    }
+    return null;
   } catch {
     return null;
   }
@@ -94,11 +149,11 @@ export function pickTitleFromExtractedText(text: string, fallback: string): stri
   return best;
 }
 
-/** 综合：文件名 → PDF Info Title → 正文启发式 */
-export function resolveImportTitle(bytes: Uint8Array, filenameFallback: string, extractedText?: string): string {
+/** 综合：文件名 → PDF Info Title（导入路径不做全文抽取，保持响应快） */
+export function resolveImportTitle(bytes: Uint8Array, filenameFallback: string): string {
   const fromFile = titleFromFilename(filenameFallback);
   const fromInfo = titleFromPdfInfo(bytes);
-  const candidates = [fromFile, fromInfo, extractedText ? pickTitleFromExtractedText(extractedText, fromFile) : null].filter(Boolean) as string[];
+  const candidates = [fromFile, fromInfo].filter(Boolean) as string[];
   let best = fromFile;
   let bestScore = 0;
   for (const c of candidates) {

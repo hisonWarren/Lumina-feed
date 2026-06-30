@@ -29,6 +29,7 @@ import {
   importMapPathKey,
   resolveImportTitle,
   titleQualityScore,
+  isGarbledTitle,
 } from "../src/core/store/local-import.ts";
 import { migrateDocKeys } from "../src/core/store/doc-migrate.ts";
 import { normalizeLocalPath, recordReadingOpen } from "../src/core/reader/reading-history.ts";
@@ -327,10 +328,6 @@ export function lookupImportedPaperId(
 }
 
 async function guessTitleFromPdf(bytes: Uint8Array, filenameFallback: string): Promise<string> {
-  try {
-    const text = await extractText(bytes);
-    return resolveImportTitle(bytes, filenameFallback, text);
-  } catch { /* ignore */ }
   return resolveImportTitle(bytes, filenameFallback);
 }
 
@@ -364,7 +361,7 @@ export async function importLocalPdfToLibrary(
     if (existing) {
       const curScore = titleQualityScore(existing.title);
       const newScore = titleQualityScore(title);
-      if (newScore > curScore && title !== existing.title) {
+      if (!isGarbledTitle(title) && (isGarbledTitle(existing.title) || (newScore > curScore && title !== existing.title))) {
         deps.store.papers.upsert({ ...existing, title });
       }
     }

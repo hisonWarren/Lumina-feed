@@ -103,7 +103,7 @@ try {
 
   const { isJournalMastheadLine, resolveImportTitle } = await import("../src/core/store/local-import.ts");
   const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]);
-  const title = resolveImportTitle(bytes, "Neural_Dynamics_Review.pdf", "Nature Neuroscience | Volume 26\nIndividual differences in functional connectivity\n");
+  const title = resolveImportTitle(bytes, "Neural_Dynamics_Review.pdf");
   title.includes("Individual differences") ? pass("IPC 层题名启发式", title.slice(0, 48)) : fail("题名启发式", title);
 
   const boot = await evalJs(cdp, `return { rootChildren: document.getElementById('root')?.childElementCount ?? 0 };`);
