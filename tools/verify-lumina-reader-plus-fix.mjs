@@ -43,7 +43,8 @@ ok(!/\.rd-ai-body\{[^}]*pre-wrap/.test(rd) && !/\.rd-ai-a\{[^}]*pre-wrap/.test(r
 ok(/\.inf-title\s*\{/.test(rd) && /\.inf-h\{[^}]*flex-wrap/.test(rd), "推读卡头 .inf-h 改 flex-wrap，标题 .inf-title 可占整行（修竖排）");
 ok((rd.match(/className="inf-title"/g) || []).length >= 3, "三处推读卡标题均包入 .inf-title（InfCard / InfAnalyzer / 图表分析）");
 ok(/citerole:[^]*被讨论到/.test(rp) && (/CITEROLE_MAX_CLAIMS/.test(rp) || /最多 20 条/.test(rp)), "引文角色 A1+：in-text 讨论 + 硬上限 20（非完整书目）");
-ok(/zone === "assist"/.test(rd) && /zone === "deep"/.test(rd) && /LedgerClaimsView/.test(rd), "AI 分区懒挂载：仅渲染当前 zone（助手不再连带挂载深读账本）");
+ok(/normalizeCachedEnv/.test(rd) && /asClaimArray/.test(rd) && /LEDGER_CACHE_CAP/.test(rd), "深读缓存自愈：旧版 300+ 条 ledger / 非数组 claims 加载时归一化");
+ok(/ZoneErrorBoundary/.test(rd), "深读/推读 ErrorBoundary：渲染异常不拖垮整窗白屏");
 ok(/EV_PAGE_LEDGER/.test(rd) && /ledger-pager/.test(rd) && /ledger-filter/.test(rd), "账本：类型筛选 + 按页分组 + 分页");
 ok(/setShown\(/.test(rd) && /className="ev-more"/.test(rd), "引文角色等证据卡仍保留展开收起");
 ok(/className="ev-empty"/.test(rd) && /未.*提取到可标注页码的条目/.test(rd), "证据卡空态提示（账本/引文角色为空时不再白屏）");

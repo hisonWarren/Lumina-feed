@@ -1134,7 +1134,14 @@ export function registerIpc(deps: IpcDeps): void {
   };
 
   ipcMain.handle("reader:analysisGet", (_e, paperId: string, kind: string) => {
-    try { ensureReaderAnalysis(); const r: any = store.db.prepare("SELECT payload FROM reader_analysis WHERE paper_id=? AND kind=?").get(paperId, kind); return r && r.payload ? JSON.parse(r.payload) : null; } catch { return null; }
+    try {
+      ensureReaderAnalysis();
+      const r: any = store.db.prepare("SELECT payload FROM reader_analysis WHERE paper_id=? AND kind=?").get(paperId, kind);
+      if (!r?.payload) return null;
+      const env = JSON.parse(r.payload) as AnalysisEnvelope;
+      if (env && kind && !env.kind) env.kind = kind as AnalysisEnvelope["kind"];
+      return env;
+    } catch { return null; }
   });
   ipcMain.handle("reader:analysisSave", (_e, paperId: string, env: AnalysisEnvelope) => {
     try {
