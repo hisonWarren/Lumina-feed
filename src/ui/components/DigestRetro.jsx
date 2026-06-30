@@ -263,6 +263,14 @@ export default function DigestRetro({ scope = "all", scopeLabel = "全部订阅"
             <div className="rt-card-h"><span className="rt-card-t">你的 feed 体量</span><span className="rt-card-s">每{gran === "day" ? "天" : gran === "week" ? "周" : "月"}进入你订阅的论文数</span></div>
             {seriesBusy ? (
               <div className="rt-chart-empty"><Loader size={18} className="dg-spin" /> 计算中…</div>
+            ) : series && series.volume && series.volume.length < 2 ? (
+              <div className="rt-chart-sparse">
+                <p>
+                  目前只有 <b>{series.volume[0]?.count ?? 0}</b> 篇进入你的 feed
+                  {series.volume[0]?.label ? <>（{series.volume[0].label}）</> : null}
+                  。体量趋势图需要至少 2 个时间窗；继续让订阅运行几天后再看更有意义。
+                </p>
+              </div>
             ) : (
               <RetroVolumeChart buckets={series ? series.volume : []} />
             )}
@@ -275,6 +283,14 @@ export default function DigestRetro({ scope = "all", scopeLabel = "全部订阅"
             </div>
             {seriesBusy ? (
               <div className="rt-chart-empty"><Loader size={18} className="dg-spin" /> 计算中…</div>
+            ) : series && series.topicSeries && series.topicSeries.buckets.length < 2 ? (
+              <div className="rt-chart-sparse">
+                <p>
+                  主题构成图需要至少 2 个时间窗才能看出变化。当前范围内
+                  {series.volume?.[0] ? <>在 <b>{series.volume[0].label}</b> 收到 <b>{series.volume[0].count}</b> 篇</> : "数据尚少"}
+                  ，可先使用下方「AI 回顾」或「历史每日」。
+                </p>
+              </div>
             ) : (
               <>
                 <RetroTopicChart topicSeries={series ? series.topicSeries : null} />

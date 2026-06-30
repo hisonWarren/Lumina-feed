@@ -247,13 +247,17 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
   const [loading, setLoading] = useState(true);
   const [loadMore, setLoadMore] = useState({});
   const [runProgress, setRunProgress] = useState(null);
-  const [digestReport, setDigestReport] = useState(null);
+  const [digestReportsByScope, setDigestReportsByScope] = useState({});
+  const [reportScopeLoading, setReportScopeLoading] = useState(false);
   const [reportGenerating, setReportGenerating] = useState(false);
   const [viewMode, setViewMode] = useState(() => {
     try { return localStorage.getItem("lumina_subs_view") || "scan"; } catch { return "scan"; }
   });
   const [reportCollapsed, setReportCollapsed] = useState(() => {
-    try { return localStorage.getItem("lumina_digest_report_collapsed") === "1"; } catch { return false; }
+    try {
+      const v = localStorage.getItem("lumina_digest_report_collapsed");
+      return v === null ? true : v === "1";
+    } catch { return true; }
   });
   const [subsBgHintDismissed, setSubsBgHintDismissed] = useState(true);
   const backend = hasBackend();
@@ -263,6 +267,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
     ? "今日全部简报"
     : (() => { const s = subs.find((x) => x.id === activeSub); return s ? String(subLabel(s)).slice(0, 40) : "订阅"; })();
   const reportRetryRef = useRef({});
+  const digestReport = digestReportsByScope[reportScope] ?? null;
 
   useEffect(() => {
     try { localStorage.setItem("lumina_subs_active", activeSub); } catch { /* ignore */ }
@@ -312,21 +317,23 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
     });
   }, [backend, pushToast, onSubsChange]);
 
-  const loadReport = useCallback(async () => {
+  const loadReport = useCallback(async (scope = reportScope) => {
     if (!backend) return null;
-    const r = await bridge.digestReportGet(reportScope);
-    if (r) setDigestReport(r);
-    return r;
+    setReportScopeLoading(true);
+    try {
+      const r = await bridge.digestReportGet(scope);
+      if (r) setDigestReportsByScope((prev) => ({ ...prev, [scope]: r }));
+      return r;
+    } finally {
+      setReportScopeLoading(false);
+    }
   }, [backend, reportScope]);
 
   const reportScopeRef = useRef(reportScope);
   useEffect(() => {
     if (!backend) return;
-    if (reportScopeRef.current !== reportScope) {
-      reportScopeRef.current = reportScope;
-      setDigestReport(null);
-    }
-    void loadReport();
+    reportScopeRef.current = reportScope;
+    void loadReport(reportScope);
   }, [backend, loadReport, reportScope]);
 
   const generateReport = useCallback(async (force = true) => {
@@ -337,7 +344,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
     setReportGenerating(true);
     try {
       const r = await bridge.digestReportGenerate({ scope: reportScope, force });
-      if (r?.report) setDigestReport(r.report);
+      if (r?.report) setDigestReportsByScope((prev) => ({ ...prev, [reportScope]: r.report }));
       if (!force && r?.report?.skippedReason === "auto_off") return;
       if (r?.ok && r.report?.status === "ready") {
         reportRetryRef.current[reportScope] = 0;
@@ -573,16 +580,6 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
   const visibleLimit = (gid) => loadMore[gid] || DIGEST_PAGE;
   const bumpLoad = (gid, totalN) => setLoadMore((m) => ({ ...m, [gid]: Math.min(totalN, (m[gid] || DIGEST_PAGE) + DIGEST_PAGE) }));
 
-  const reportBusyRef = useRef(false);
-  useEffect(() => {
-    const busy = !!(reportGenerating || digestReport?.status === "generating");
-    if (busy && !reportBusyRef.current && viewMode === "scan") {
-      setReportCollapsed(false);
-      try { localStorage.setItem("lumina_digest_report_collapsed", "0"); } catch { /* ignore */ }
-    }
-    reportBusyRef.current = busy;
-  }, [reportGenerating, digestReport?.status, viewMode]);
-
   useEffect(() => {
     if (!onActivityChange) return;
     const busy = !!(reportGenerating || runProgress || digestReport?.status === "generating");
@@ -599,7 +596,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
   }, [backend, loadReport, reportScope]);
 
   useEffect(() => {
-    if (!backend || total <= 0) return;
+    if (!backend || total <= 0 || reportScopeLoading) return;
     if (reportGenerating || digestReport?.status === "generating") return;
     if (digestReport?.skippedReason === "auto_off" || digestReport?.skippedReason === "llm_not_configured") return;
     // 失败的报告不再被「卡死」：按 scope 自动重试一次（持续失败时不死循环；成功后计数清零）。
@@ -612,7 +609,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
       || (digestReport.status === "ready" && digestReport.unreadCount !== total);
     if (!stale) return;
     void generateReport(false);
-  }, [backend, total, reportScope, digestReport?.status, digestReport?.unreadCount, digestReport?.skippedReason, reportGenerating, generateReport]);
+  }, [backend, total, reportScope, digestReport?.status, digestReport?.unreadCount, digestReport?.skippedReason, reportGenerating, reportScopeLoading, generateReport]);
 
   return (
     <div className="subs">
@@ -725,6 +722,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
               {viewMode === "scan" && (
                 <DigestReportHero
                   report={digestReport}
+                  scopeLoading={reportScopeLoading}
                   collapsed={reportCollapsed}
                   onToggleCollapse={toggleReportCollapsed}
                   onGenerate={generateReport}

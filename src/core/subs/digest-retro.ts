@@ -34,14 +34,32 @@ function bucketKeyOf(dateKey: string, g: RetroGranularity): { key: string; label
   if (g === "month") return { key: `${y}-${m}`, label: `${y}-${m}` };
   if (g === "week") {
     const ws = new Date(startOfWeekMs(ms));
+    const we = new Date(ws.getTime());
+    we.setDate(we.getDate() + 6);
     const wm = String(ws.getMonth() + 1).padStart(2, "0");
     const wd = String(ws.getDate()).padStart(2, "0");
-    return { key: `${ws.getFullYear()}-W${wm}${wd}`, label: `${wm}/${wd} 周` };
+    const weM = String(we.getMonth() + 1).padStart(2, "0");
+    const weD = String(we.getDate()).padStart(2, "0");
+    return { key: `${ws.getFullYear()}-W${wm}${wd}`, label: `${wm}/${wd}–${weM}/${weD}` };
   }
   return { key: `${y}-${m}-${day}`, label: `${m}/${day}` };
 }
 
-// ── 论文元数据批量取（study types / keywords / mesh / pubDate） ──
+const STUDY_TYPE_LABEL: Record<string, string> = {
+  other: "其他类型",
+  preprint: "预印本",
+  review: "综述",
+  editorial: "社论",
+  meta: "荟萃分析",
+  trial: "临床试验",
+  observational: "观察性研究",
+  basic: "基础研究",
+};
+
+function displayTopicLabel(token: string, raw: string, topicDim: "topic" | "studyType"): string {
+  if (topicDim === "studyType") return STUDY_TYPE_LABEL[token.toLowerCase()] || raw;
+  return raw;
+}
 
 interface PaperMeta {
   id: string;
@@ -198,7 +216,7 @@ export function buildRetroSeries(store: Store, opts: RetroSeriesOpts = {}): Retr
       if (topTokens.includes(low) && !topLabelByLower.has(low)) topLabelByLower.set(low, tk);
     }
   }
-  const topics = topTokens.map((t) => topLabelByLower.get(t) || t);
+  const topics = topTokens.map((t) => displayTopicLabel(t, topLabelByLower.get(t) || t, topicDim));
 
   // 按桶聚合
   const volMap = new Map<string, { label: string; count: number }>();

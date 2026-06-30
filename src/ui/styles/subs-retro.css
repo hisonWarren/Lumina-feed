@@ -51,6 +51,9 @@
 .rt-axis-lbl { font-family:var(--mono); font-size:10px; fill:var(--ink4); }
 .rt-chart-empty { display:flex; align-items:center; justify-content:center; gap:8px; min-height:80px; color:var(--ink4);
   font-size:12px; padding:18px; text-align:center; }
+.rt-chart-sparse { font-size:12.5px; line-height:1.62; color:var(--ink3); padding:14px 16px; border:1px dashed var(--line2);
+  border-radius:10px; background:var(--surf2); }
+.rt-chart-sparse b { color:var(--ink); font-family:var(--mono); font-size:11px; }
 
 /* 图例 */
 .rt-legend { display:flex; flex-wrap:wrap; gap:8px 14px; margin-top:10px; }

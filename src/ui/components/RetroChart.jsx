@@ -112,7 +112,7 @@ export function RetroTopicChart({ topicSeries }) {
           const yTop = padT + innerH - (innerH * (acc + b.other)) / maxTotal;
           segs.push(
             <rect key="other" x={xb} y={yTop} width={bw} height={Math.max(0.5, h)} fill={OTHER_COLOR} rx="1.5">
-              <title>{b.label} · 其他：{b.other} 篇</title>
+              <title>{b.label} · 未入榜主题：{b.other} 篇</title>
             </rect>,
           );
         }
@@ -142,7 +142,7 @@ export function RetroTopicLegend({ topicSeries }) {
         </span>
       ))}
       <span className="rt-legend-item">
-        <span className="rt-legend-dot" style={{ background: OTHER_COLOR }} />其他
+        <span className="rt-legend-dot" style={{ background: OTHER_COLOR }} />未入榜主题
       </span>
     </div>
   );
