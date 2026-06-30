@@ -45,6 +45,7 @@ const HUB_CSS = `
 .rh-row-x:hover{color:var(--danger);background:var(--surf2)}
 .rh-addlib{flex-shrink:0;border:1px solid var(--line2);background:var(--surf2);color:var(--gold);border-radius:7px;padding:4px 8px;font-size:11px;cursor:pointer;font-family:inherit}
 .rh-addlib:hover{border-color:var(--gold);background:var(--gold-tint)}
+.rh-addlib.on{border-color:var(--gold);color:var(--gold);background:var(--gold-tint);cursor:default;pointer-events:none}
 .rh-empty{font-size:12.5px;color:var(--ink3);border:1px dashed var(--line2);border-radius:10px;padding:13px 15px;line-height:1.6}
 .rh-spin{animation:rhspin .8s linear infinite;vertical-align:-2px}
 @keyframes rhspin{to{transform:rotate(360deg)}}
@@ -82,7 +83,7 @@ function formatRelativeTime(iso) {
 function ReadHub({
   continueList, loadingContinue, onOpenContinue, onRemoveContinue,
   downloaded, loadingDl, onOpenDownloaded, showAllDl, onToggleAllDl,
-  inLibFn, onAddToLibrary, onImportLocal, pushToast, onOpenFile,
+  inLibFn, onAddToLibrary, onImportLocal, onImportLocalDone, pushToast, onOpenFile,
 }) {
   const [drag, setDrag] = useState(false);
   const inputRef = useRef(null);
@@ -160,9 +161,14 @@ function ReadHub({
                     <button type="button" className="rh-addlib" title="导入到我的文献工作集" onClick={async (e) => {
                       e.stopPropagation();
                       const res = await onImportLocal({ localPath: it.localPath, title: it.title });
-                      if (res?.ok) pushToast && pushToast(res.existed ? "已在工作集" : "已加入「我的文献」");
-                      else pushToast && pushToast("导入失败");
+                      if (res?.ok) {
+                        onImportLocalDone && onImportLocalDone(it.entryKey, { paperId: res.paperId, title: res.title || it.title, kind: "paper" });
+                        pushToast && pushToast(res.existed ? "已在工作集" : "已加入「我的文献」");
+                      } else pushToast && pushToast("导入失败");
                     }}>＋文献</button>
+                  )}
+                  {!it.missing && ((it.kind === "local" && it.paperId && inLibFn && inLibFn(it.paperId)) || (it.kind === "paper" && it.paperId && inLibFn && inLibFn(it.paperId))) && (
+                    <span className="rh-addlib on" title="已在文献工作集">已在文献</span>
                   )}
                   {!it.missing && it.kind === "paper" && it.paperId && inLibFn && !inLibFn(it.paperId) && onAddToLibrary && (
                     <button type="button" className="rh-addlib" title="加入我的文献工作集" onClick={(e) => {
@@ -211,6 +217,9 @@ function ReadHub({
                       pushToast && pushToast("已加入工作集 · 可在「我的文献 → 分组」整理");
                     }}>＋工作集</button>
                   )}
+                  {inLibFn && it.paperId && inLibFn(it.paperId) && (
+                    <span className="rh-addlib on" title="已在文献工作集">已在文献</span>
+                  )}
                   <BookOpen size={15} />
                 </div>
               ))
@@ -227,7 +236,7 @@ const TABS_PREF_KEY = "lumina_reader_open_tabs";
 let _tabSeq = 0;
 const tabKey = (t) => t.entryKey || (t.paperId ? "p:" + t.paperId : (t.localPath ? "l:" + t.localPath : "n:" + t.name));
 
-export default function ReaderModule({ pushToast, incoming, onIncomingHandled, readTarget, onReadTargetHandled, inLibFn, onAddToLibrary, onImportLocal }) {
+export default function ReaderModule({ pushToast, incoming, onIncomingHandled, readTarget, onReadTargetHandled, inLibFn, onAddToLibrary, onImportLocal, onLibraryRemove }) {
   const [st, setSt] = useState({ tabs: [], activeId: null });
   const tabsRestoredRef = useRef(false);
   const [continueList, setContinueList] = useState([]);
@@ -536,10 +545,29 @@ export default function ReaderModule({ pushToast, incoming, onIncomingHandled, r
     });
   }, []);
 
+  const patchContinueAfterImport = useCallback((entryKey, patch) => {
+    if (!entryKey || !patch) return;
+    setContinueList((list) => list.map((it) => {
+      if (it.entryKey !== entryKey) return it;
+      const next = { ...it, ...patch };
+      if (patch.paperId) next.entryKey = "paper:" + patch.paperId;
+      return next;
+    }));
+  }, []);
+
   const handleLibraryImport = useCallback(async (payload) => {
     if (!onImportLocal) return { ok: false };
-    return onImportLocal(payload);
-  }, [onImportLocal]);
+    const res = await onImportLocal(payload);
+    if (res?.ok && res.paperId) {
+      const fromKeys = payload.fromDocKeys || [];
+      const entryKey = payload.entryKey || (payload.localPath ? "local:" + payload.localPath : fromKeys[0]);
+      if (entryKey) {
+        patchContinueAfterImport(entryKey, { paperId: res.paperId, title: res.title || payload.title, kind: "paper" });
+      }
+      void refreshContinue();
+    }
+    return res;
+  }, [onImportLocal, patchContinueAfterImport, refreshContinue]);
 
   const showHub = st.activeId === null;
   return (
@@ -571,6 +599,7 @@ export default function ReaderModule({ pushToast, incoming, onIncomingHandled, r
             inLibFn={inLibFn}
             onAddToLibrary={onAddToLibrary}
             onImportLocal={onImportLocal}
+            onImportLocalDone={patchContinueAfterImport}
             pushToast={pushToast}
             onOpenFile={openFromFile}
           />
@@ -583,6 +612,7 @@ export default function ReaderModule({ pushToast, incoming, onIncomingHandled, r
               pushToast={pushToast}
               inLibFn={inLibFn}
               onLibraryImport={handleLibraryImport}
+              onLibraryRemove={onLibraryRemove}
               onSourceUpgrade={upgradeTabSource}
             />
           </div>

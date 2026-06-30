@@ -27,6 +27,8 @@ import {
   IMPORT_PROVENANCE,
   importMapHashKey,
   importMapPathKey,
+  resolveImportTitle,
+  titleQualityScore,
 } from "../src/core/store/local-import.ts";
 import { migrateDocKeys } from "../src/core/store/doc-migrate.ts";
 import { normalizeLocalPath, recordReadingOpen } from "../src/core/reader/reading-history.ts";
@@ -324,13 +326,12 @@ export function lookupImportedPaperId(
   return null;
 }
 
-async function guessTitleFromPdf(bytes: Uint8Array, fallback: string): Promise<string> {
+async function guessTitleFromPdf(bytes: Uint8Array, filenameFallback: string): Promise<string> {
   try {
     const text = await extractText(bytes);
-    const line = String(text || "").split(/\n/).map((s) => s.trim()).find((s) => s.length > 12);
-    if (line && line.length <= 240) return line;
+    return resolveImportTitle(bytes, filenameFallback, text);
   } catch { /* ignore */ }
-  return fallback;
+  return resolveImportTitle(bytes, filenameFallback);
 }
 
 /** 本地 PDF 复制进应用目录、建 paper 条目、入库，并合并阅读缓存。 */
@@ -360,8 +361,12 @@ export async function importLocalPdfToLibrary(
     const title = await guessTitleFromPdf(bytes, fallbackTitle);
     ensureStubPaper(deps, paperId, title);
     const existing = deps.store.papers.getById(paperId);
-    if (existing && existing.title === paperId && title !== paperId) {
-      deps.store.papers.upsert({ ...existing, title });
+    if (existing) {
+      const curScore = titleQualityScore(existing.title);
+      const newScore = titleQualityScore(title);
+      if (newScore > curScore && title !== existing.title) {
+        deps.store.papers.upsert({ ...existing, title });
+      }
     }
     if (!getFetchLog(deps.store.db, paperId)) {
       recordFetchLog(deps.store.db, paperId, "import", { channel: "import", provenance: IMPORT_PROVENANCE });

@@ -34,6 +34,8 @@ export interface AppSettings {
     fetchEmailShown?: boolean;
     /** 一次性：v0.4.14 将旧版默认开启的预取开关重置为关 */
     prefetchManualOnlyV0414?: boolean;
+    /** 首次创建订阅后：后台运行说明横幅 */
+    subsBackgroundHintDismissed?: boolean;
   };
   llm?: LlmConfig;
   theme?: string;

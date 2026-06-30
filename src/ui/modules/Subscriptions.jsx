@@ -13,6 +13,7 @@ import DigestSourceLine from "../components/DigestSourceLine.jsx";
 import { dedupeDigestEntries, DIGEST_PAGE } from "../lib/digest-ui.js";
 import { unreadTodayCount } from "../lib/subs-unread.js";
 import { isFetched, fetchProgressUi } from "../fetch-meta.js";
+import { persistSettings } from "../settings-persist.js";
 
 const FREQ = { daily: "每日", weekly: "每周", hourly: "每小时" };
 const subKind = (s) => s.kind || "keyword";
@@ -50,6 +51,8 @@ const SUBS_CSS = `
 .dg-markall:hover{border-color:var(--gold);color:var(--gold)}
 .dg-note{display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:1.55;color:#9a6b2e;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:10px;padding:10px 13px;margin:12px 0 0}
 .dg-note svg{flex-shrink:0;margin-top:1px}
+.dg-bg-link{border:none;background:none;color:var(--gold);cursor:pointer;font:inherit;font-weight:600;text-decoration:underline;padding:0 2px}
+.dg-bg-dismiss{margin-left:8px;border:1px solid rgba(245,158,11,.45);background:transparent;color:#9a6b2e;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;font-family:inherit}
 .dg-list{flex:1;min-height:0;overflow-y:auto;padding:14px 26px 28px;display:flex;flex-direction:column;gap:12px}
 .dg-grp-h{display:flex;align-items:center;gap:9px;margin:8px 0 4px}
 .dg-grp-h h4{font-family:'Source Serif 4',Georgia,serif;font-size:15px;margin:0;color:var(--ink)}
@@ -251,6 +254,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
   const [reportCollapsed, setReportCollapsed] = useState(() => {
     try { return localStorage.getItem("lumina_digest_report_collapsed") === "1"; } catch { return false; }
   });
+  const [subsBgHintDismissed, setSubsBgHintDismissed] = useState(true);
   const backend = hasBackend();
   const reportScope = activeSub === "all" ? "all" : activeSub;
   const scopeMode = activeSub === "all" ? "all" : "single";
@@ -270,6 +274,11 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
     let alive = true; setLoading(true);
     bridge.subsList().then((list) => { if (alive) setSubs(Array.isArray(list) ? list : []); }).catch(() => {}).finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
+  }, []);
+  useEffect(() => {
+    bridge.settingsGet().then((s) => {
+      setSubsBgHintDismissed(!!s?.prompts?.subsBackgroundHintDismissed);
+    }).catch(() => {});
   }, []);
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape" && dlgOpen) { setDlgOpen(false); setEditSub(null); } };
@@ -402,6 +411,14 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
     }
     tabWasActiveRef.current = tabActive;
   }, [tabActive, backend, refreshSubs, loadReport]);
+
+  const dismissSubsBgHint = useCallback(async () => {
+    setSubsBgHintDismissed(true);
+    await persistSettings((cur) => ({
+      ...cur,
+      prompts: { ...(cur.prompts || {}), subsBackgroundHintDismissed: true },
+    }));
+  }, []);
 
   const persist = useCallback(async (sub) => { await bridge.subsSave(sub); }, []);
   const subPatch = useCallback((id, patch) => { setSubs((s) => s.map((x) => { if (x.id !== id) return x; const u = { ...x, ...patch }; persist(u); return u; })); }, [persist]);
@@ -645,6 +662,17 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
             </div>
           )}
           {!backend && <div className="dg-note"><Info size={15} /> 原型模式：订阅（含按期刊）可建/编辑/管理，但「今日命中」需引擎按计划真实检索——关键词按检索式、期刊按 ISSN/刊名匹配各源（PubMed/Crossref/OpenAlex）。接入 Electron 引擎后，每日新发表会自动出现在这里。</div>}
+          {backend && subs.length > 0 && !subsBgHintDismissed && (
+            <div className="dg-note">
+              <Info size={15} />
+              <span>
+                <b>每日简报在应用打开时自动检查。</b>关闭窗口后默认不再后台检索；若希望关窗后仍按计划推送，请打开
+                <button type="button" className="dg-bg-link" onClick={() => onOpenSettings && onOpenSettings("general")}>设置 → 后台运行</button>
+                开启「最小化到托盘」。
+                <button type="button" className="dg-bg-dismiss" onClick={() => void dismissSubsBgHint()}>知道了</button>
+              </span>
+            </div>
+          )}
         </div>
         <div className="dg-list">
           {loading ? (

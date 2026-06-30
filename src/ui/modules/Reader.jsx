@@ -1597,7 +1597,7 @@ function ReaderPanel({ zone, setZone, doc, source, docKey, onGoto, pushToast, ex
   );
 }
 
-export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryImport, onSourceUpgrade }) {
+export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryImport, onLibraryRemove, onSourceUpgrade }) {
   const [doc, setDoc] = useState(null);
   const [numPages, setNumPages] = useState(0);
   const [page, setPage] = useState(1);
@@ -1636,11 +1636,23 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
   const canImport = !!(onLibraryImport && source && ((source.data && source.data.byteLength) || source.paperId));
   const [importing, setImporting] = useState(false);
   const handleLibrary = useCallback(async () => {
-    if (!onLibraryImport || !source) return;
+    if (!source) return;
     if (source.paperId && inLibFn && inLibFn(source.paperId)) {
-      pushToast && pushToast("已在「我的文献」中");
+      if (!onLibraryRemove) {
+        pushToast && pushToast("已在「我的文献」中");
+        return;
+      }
+      setImporting(true);
+      try {
+        await onLibraryRemove(source.paperId);
+      } catch {
+        pushToast && pushToast("移出文献失败");
+      } finally {
+        setImporting(false);
+      }
       return;
     }
+    if (!onLibraryImport) return;
     setImporting(true);
     try {
       const res = await onLibraryImport({
@@ -1649,6 +1661,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
         title: source.name,
         bytes: source.data,
         fromDocKeys: readerDocKeyCandidates(source),
+        entryKey: source.entryKey,
       });
       if (res && res.ok && res.paperId) {
         onSourceUpgrade && onSourceUpgrade({
@@ -1669,7 +1682,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
     } finally {
       setImporting(false);
     }
-  }, [source, onLibraryImport, onSourceUpgrade, inLibFn, pushToast]);
+  }, [source, onLibraryImport, onLibraryRemove, onSourceUpgrade, inLibFn, pushToast]);
 
   useEffect(() => {
     const z = loadReaderUiPref(docKey, "zone", "assist");
@@ -1905,8 +1918,9 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
   useEffect(() => {
     if (view !== "continuous") return;
     if (suppressPageScroll.current) { suppressPageScroll.current = false; return; } // 本次 page 变化由滚动联动触发 → 不再回滚
+    const container = viewRef.current;
     const el = document.getElementById("rd-pg-" + page);
-    if (el && el.scrollIntoView) el.scrollIntoView({ block: "start", behavior: "smooth" });
+    if (container && el) scrollItemInContainer(container, el);
   }, [page, view]);
 
   // 侧栏缩略图/书签：当前页超出可视区时在 .rd-sidebody 内滚入视区（不用 scrollIntoView）
@@ -2264,7 +2278,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
         <button className="rd-back" onClick={onClose}><ArrowLeft size={15} /> 返回</button>
         <div className="rd-name">{source.name}</div>
         {onLibraryImport && (
-          <button className={"rd-lib" + (inLibrary ? " on" : "")} type="button" disabled={importing || (inLibrary && !canImport)} onClick={handleLibrary} title={inLibrary ? "已在工作集" : "加入我的文献工作集"}>
+          <button className={"rd-lib" + (inLibrary ? " on" : "")} type="button" disabled={importing} onClick={handleLibrary} title={inLibrary ? "点击移出文献" : "加入我的文献工作集"}>
             {importing ? <Loader size={14} className="rd-spin" /> : <BookMarked size={14} />}
             {inLibrary ? "已收藏" : "加入文献"}
           </button>

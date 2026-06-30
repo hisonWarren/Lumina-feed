@@ -581,6 +581,10 @@ export default function LuminaApp() {
     setLists(next); bridge.listsSave(next);
     pushToast("已删除本地 PDF");
   }, [pdfDeleteConfirm, lists, pushToast]);
+  const onLibraryRemove = useCallback(async (id) => {
+    await onRemoveLib(id, { deletePdf: false });
+  }, [onRemoveLib]);
+
   const onReadFromLib = useCallback((p) => { if (p) onReadPaper(p); else setMode("read"); }, [onReadPaper]);
   const createList = useCallback((name, firstId) => {
     const id = "L" + Date.now();
@@ -694,6 +698,7 @@ export default function LuminaApp() {
                 inLibFn={inLibFn}
                 onAddToLibrary={(p) => onSave(p)}
                 onImportLocal={onImportToLibrary}
+                onLibraryRemove={onLibraryRemove}
               />
           </div>
           <div className={"lf-pane" + (view === "library" ? "" : " is-hidden")} aria-hidden={view !== "library"}>
