@@ -278,7 +278,7 @@ const READER_CSS = `
 .rd-deep-foot{flex-shrink:0;padding:10px 12px 12px;border-top:1px solid var(--line);background:var(--surf);box-shadow:0 -8px 24px color-mix(in srgb,var(--ink) 5%,transparent);display:flex;flex-direction:column;gap:8px}
 .rd-deep-foot .rd-rerun{margin-top:0;width:100%;padding:8px 10px}
 .rd-deep-foot .rd-swipe-save{margin-top:0}
-.rd-zonepane.assist{flex:1;min-height:0;overflow-x:hidden;overflow-y:auto;scrollbar-gutter:stable;display:flex;flex-direction:column}
+.rd-zonepane.assist,.rd-assist-root{flex:1;min-height:0;overflow-x:hidden;overflow-y:auto;scrollbar-gutter:stable;display:flex;flex-direction:column}
 .rd-assist-main{flex:1 0 auto;display:flex;flex-direction:column;gap:14px;padding:12px 12px 6px;width:100%}
 .rd-assist-block{display:flex;flex-direction:column;gap:8px;width:100%}
 .rd-assist-block-h{font-size:11.5px;font-weight:600;color:var(--ink3);line-height:1.45}
@@ -776,10 +776,11 @@ function LedgerClaimRow({ c, onGoto }) {
 function LedgerClaimsView({ claims, onGoto }) {
   const [filter, setFilter] = useState("all");
   const [pageIdx, setPageIdx] = useState(0);
+  const safe = useMemo(() => (claims || []).filter((c) => c && String(c.text || "").trim()), [claims]);
   const filtered = useMemo(() => {
-    if (filter === "all") return claims;
-    return claims.filter((c) => c.evidenceType === filter);
-  }, [claims, filter]);
+    if (filter === "all") return safe;
+    return safe.filter((c) => c.evidenceType === filter);
+  }, [safe, filter]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / EV_PAGE_LEDGER));
   const pageClaims = useMemo(
     () => filtered.slice(pageIdx * EV_PAGE_LEDGER, (pageIdx + 1) * EV_PAGE_LEDGER),
@@ -799,7 +800,7 @@ function LedgerClaimsView({ claims, onGoto }) {
     <>
       <div className="ledger-filters">
         {LEDGER_FILTERS.map((f) => {
-          const n = f.id === "all" ? claims.length : claims.filter((c) => c.evidenceType === f.id).length;
+          const n = f.id === "all" ? safe.length : safe.filter((c) => c.evidenceType === f.id).length;
           return (
             <button key={f.id} type="button" className={"ledger-filter" + (filter === f.id ? " on" : "")} onClick={() => { setFilter(f.id); setPageIdx(0); }}>
               {f.label}{n ? ` (${n})` : ""}
@@ -841,8 +842,7 @@ function LedgerEvidenceCard({ env, onGoto }) {
     </div>
   );
 }
-function EvidenceCard({ env, onGoto }) {
-  if (env.kind === "ledger") return <LedgerEvidenceCard env={env} onGoto={onGoto} />;
+function CiteEvidenceCard({ env, onGoto }) {
   const claims = env.claims || [];
   const pageSize = env.kind === "citerole" ? EV_PAGE_CITER : EV_PAGE_CITER;
   const [shown, setShown] = useState(pageSize);
@@ -869,6 +869,11 @@ function EvidenceCard({ env, onGoto }) {
           </>}
     </div>
   );
+}
+/** 兼容旧引用；ledger 已在 EnvelopeCard 分流 */
+function EvidenceCard(props) {
+  if (props.env?.kind === "ledger") return <LedgerEvidenceCard {...props} />;
+  return <CiteEvidenceCard {...props} />;
 }
 // 推断卡正文（车道内容：框定语 + 拒绝块 或 带把握度的 claim）——InfCard 与 InfAnalyzer 共用
 function InfBody({ env, onGoto }) {
@@ -1123,7 +1128,8 @@ function EnvelopeCard({ env, onGoto, defaultOpen }) {
   if (!env) return null;
   if (env.graph) return <GraphCard env={env} onGoto={onGoto} />;
   if (env.lane === "inference" || env.refused) return <InfCard env={env} onGoto={onGoto} defaultOpen={defaultOpen} />;
-  return <EvidenceCard env={env} onGoto={onGoto} />;
+  if (env.kind === "ledger") return <LedgerEvidenceCard env={env} onGoto={onGoto} />;
+  return <CiteEvidenceCard env={env} onGoto={onGoto} />;
 }
 function EvidencePane({ ensurePages, source, onGoto, pushToast, purpose, moveReq }) {
   const [byKind, setByKind] = useState({});
@@ -1366,7 +1372,7 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
   const outlinePreview = outlineEnv && (outlineEnv.claims && outlineEnv.claims[0] ? summaryPreview(outlineEnv.claims[0].text) : "已提取，点击展开");
 
   return (
-    <div className="rd-zonepane assist">
+    <div className="rd-assist-root">
       <div className="rd-assist-main">
         <div className="rd-assist-block">
           <div className="rd-assist-block-h">我这次为什么读？（据此推荐深读工具）</div>
@@ -1735,10 +1741,18 @@ function ReaderPanel({ zone, setZone, doc, source, docKey, onGoto, pushToast, ex
           <button key={tb[0]} role="tab" aria-selected={zone === tb[0]} className={"rd-zone" + (tb[3] ? " inf" : "") + (zone === tb[0] ? " on" : "")} onClick={() => setZone(tb[0])}>{React.createElement(tb[2], { size: 13 })} {tb[1]}</button>
         ))}
       </div>
-      <div className="rd-zonepane" style={{ display: zone === "assist" ? "flex" : "none" }}><AssistantPanel ensurePages={ensurePages} source={source} onGoto={onGoto} pushToast={pushToast} explainReq={explainReq} purpose={purpose} setPurpose={setPurpose} /></div>
-      <div className="rd-zonepane" style={{ display: zone === "deep" ? "flex" : "none" }}><EvidencePane ensurePages={ensurePages} source={source} onGoto={onGoto} pushToast={pushToast} purpose={purpose} moveReq={moveReq} /></div>
-      <div className="rd-zonepane" style={{ display: zone === "inf" ? "flex" : "none" }}><InferencePane ensurePages={ensurePages} source={source} onGoto={onGoto} pushToast={pushToast} figureEnv={figureEnv} figuring={figuring} /></div>
-      <div className="rd-zonepane" style={{ display: zone === "notes" ? "flex" : "none" }}><AnnoPanel annos={annos} onGoto={onGoto} onUpdate={onUpdate} onRemove={onRemove} onExportPdf={onExportPdf} onExportMd={onExportMd} /></div>
+      {zone === "assist" && (
+        <div className="rd-zonepane"><AssistantPanel ensurePages={ensurePages} source={source} onGoto={onGoto} pushToast={pushToast} explainReq={explainReq} purpose={purpose} setPurpose={setPurpose} /></div>
+      )}
+      {zone === "deep" && (
+        <div className="rd-zonepane"><EvidencePane ensurePages={ensurePages} source={source} onGoto={onGoto} pushToast={pushToast} purpose={purpose} moveReq={moveReq} /></div>
+      )}
+      {zone === "inf" && (
+        <div className="rd-zonepane"><InferencePane ensurePages={ensurePages} source={source} onGoto={onGoto} pushToast={pushToast} figureEnv={figureEnv} figuring={figuring} /></div>
+      )}
+      {zone === "notes" && (
+        <div className="rd-zonepane"><AnnoPanel annos={annos} onGoto={onGoto} onUpdate={onUpdate} onRemove={onRemove} onExportPdf={onExportPdf} onExportMd={onExportMd} /></div>
+      )}
     </div>
   );
 }
