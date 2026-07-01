@@ -539,6 +539,24 @@ function scrollItemInContainer(container, el, pad = 10) {
   container.scrollTop = Math.max(0, Math.min(target, container.scrollHeight - container.clientHeight));
 }
 
+/** 连续模式：按 scrollTop 探测线取「顶边已过线」的最后一页（比中点距离法更稳，避免 0 高页误判为第 1 页） */
+function detectContinuousPage(container, numPages, ratio = 0.32) {
+  if (!container || !numPages) return 1;
+  const probe = container.scrollTop + container.clientHeight * ratio;
+  const cTop = container.getBoundingClientRect().top;
+  let found = 1;
+  for (let n = 1; n <= numPages; n++) {
+    const el = document.getElementById("rd-pg-" + n);
+    if (!el) continue;
+    const h = el.offsetHeight;
+    if (h < 8) continue;
+    const top = el.getBoundingClientRect().top - cTop + container.scrollTop;
+    if (top <= probe + 2) found = n;
+    else break;
+  }
+  return found;
+}
+
 // 缩略图：仅 canvas（无需文本层）；IO root=侧栏滚动区，随侧栏滚动能懒加载
 function ThumbCanvas({ doc, pageNum, rotation }) {
   const ref = useRef(null);
@@ -577,6 +595,17 @@ function ThumbCanvas({ doc, pageNum, rotation }) {
 function PageView({ doc, pageNum, scale, rotation, find, curOnThisPage, annos, scrollRootRef }) {
   const canvasRef = useRef(null);
   const textRef = useRef(null);
+  const [box, setBox] = useState(null);
+  useEffect(() => {
+    if (!doc) { setBox(null); return; }
+    let cancelled = false;
+    doc.getPage(pageNum).then((page) => {
+      if (cancelled) return;
+      const vp = page.getViewport({ scale, rotation });
+      setBox({ w: Math.floor(vp.width), h: Math.floor(vp.height) });
+    }).catch(() => { if (!cancelled) setBox(null); });
+    return () => { cancelled = true; };
+  }, [doc, pageNum, scale, rotation]);
   useEffect(() => {
     if (!doc || !canvasRef.current) return;
     let task = null, cancelled = false;
@@ -614,7 +643,7 @@ function PageView({ doc, pageNum, scale, rotation, find, curOnThisPage, annos, s
   }, [doc, pageNum, scale, rotation, find, curOnThisPage]);
 
   return (
-    <div className="rd-pg" data-page={pageNum}>
+    <div className="rd-pg" data-page={pageNum} style={box ? { width: box.w + "px", height: box.h + "px" } : undefined}>
       <canvas ref={canvasRef} />
       <div className="textLayer" ref={textRef} />
       {(annos || []).map((a) => (a.rects || []).map((r, i) => (
@@ -2143,7 +2172,9 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
   const sideBodyRef = useRef(null);
   const suppressPageScroll = useRef(false); // true 时跳过一次 page→scrollIntoView（滚动联动改 page 时用，避免与用户滚动打架）
   const scrollSpyRaf = useRef(0);
+  const scrollSpyTailRef = useRef(0);
   const pageRef = useRef(1);
+  const syncSidePanelScrollToRef = useRef(() => {});
   const spreadManualZoomRef = useRef(false); // 双页下用户手动缩放后，不再被自动 fit 覆盖
   const rootRef = useRef(null);
   const strCache = useRef({});
@@ -2360,6 +2391,19 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
     const el = container.querySelector(sel);
     if (el) scrollItemInContainer(container, el);
   }, [sidebar, sidePanel]);
+  syncSidePanelScrollToRef.current = syncSidePanelScrollTo;
+
+  const runScrollSpy = useCallback(() => {
+    if (view !== "continuous") return;
+    const root = viewRef.current;
+    if (!root || !numPages) return;
+    const best = detectContinuousPage(root, numPages);
+    if (best === pageRef.current) return;
+    suppressPageScroll.current = true;
+    pageRef.current = best;
+    setPage(best);
+    syncSidePanelScrollToRef.current(best);
+  }, [view, numPages]);
 
   const syncSidePanelScroll = useCallback(() => {
     syncSidePanelScrollTo(page);
@@ -2371,35 +2415,28 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
     return () => cancelAnimationFrame(id);
   }, [syncSidePanelScroll]);
 
-  // 连续模式滚动联动：滚动时把顶栏页码（及翻译/批注所依据的 page）同步为当前主视区页
+  // 连续模式滚动联动：scrollTop 探测当前页 + 侧栏即时跟随
   const onViewScroll = useCallback(() => {
     if (sel) setSel(null);
     if (view !== "continuous") return;
-    const root = viewRef.current;
-    if (!root) return;
+    if (!viewRef.current) return;
     if (scrollSpyRaf.current) cancelAnimationFrame(scrollSpyRaf.current);
     scrollSpyRaf.current = requestAnimationFrame(() => {
       scrollSpyRaf.current = 0;
-      const r0 = root.getBoundingClientRect();
-      const line = r0.top + root.clientHeight * 0.28;
-      let best = 1;
-      let bestDist = Infinity;
-      for (let nn = 1; nn <= (numPages || 1); nn++) {
-        const el = document.getElementById("rd-pg-" + nn);
-        if (!el) continue;
-        const rect = el.getBoundingClientRect();
-        const mid = rect.top + rect.height / 2;
-        const dist = Math.abs(mid - line);
-        if (dist < bestDist) { bestDist = dist; best = nn; }
-      }
-      if (best !== pageRef.current) {
-        suppressPageScroll.current = true;
-        pageRef.current = best;
-        setPage(best);
-        syncSidePanelScrollTo(best);
-      }
+      runScrollSpy();
     });
-  }, [sel, view, numPages, syncSidePanelScrollTo]);
+    if (scrollSpyTailRef.current) clearTimeout(scrollSpyTailRef.current);
+    scrollSpyTailRef.current = setTimeout(() => {
+      scrollSpyTailRef.current = 0;
+      runScrollSpy();
+    }, 80);
+  }, [sel, view, runScrollSpy]);
+
+  useEffect(() => {
+    if (view !== "continuous" || !doc || !numPages) return;
+    const t = setTimeout(() => runScrollSpy(), 80);
+    return () => clearTimeout(t);
+  }, [scale, rotation, doc, numPages, view, runScrollSpy]);
 
   const zoomOut = () => {
     if (view === "two") spreadManualZoomRef.current = true;
