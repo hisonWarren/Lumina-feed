@@ -187,6 +187,14 @@ export const bridge = {
       provenance: ctx.provenance || "find_fetch",
       channel: ctx.channel || "manual",
     };
+    const pack = async (r) => {
+      if (!r || !r.ok) return { ok: false, reason: (r && r.reason) || "no_pdf" };
+      let bytes = r.bytes;
+      if ((!bytes || !bytes.byteLength) && oa.readPdf && card.id) {
+        try { bytes = await oa.readPdf(card.id); } catch { /* 已落盘时从本机读回 */ }
+      }
+      return { ok: true, url: r.url, bytes, source: r.source, cached: !!r.cached };
+    };
     if (oa.fetchPaperStream && card.id) {
       const reqId = Date.now();
       return new Promise((resolve) => {
@@ -195,8 +203,7 @@ export const bridge = {
           if (settled) return;
           settled = true;
           stop && stop();
-          if (r && r.ok) resolve({ ok: true, url: r.url, bytes: r.bytes, source: r.source, cached: !!r.cached });
-          else resolve({ ok: false, reason: (r && r.reason) || "no_pdf" });
+          void pack(r).then(resolve);
         };
         const stop = oa.fetchPaperStream(card.id, reqId, (ev) => {
           if (ev && ev.steps && onProgress) onProgress(ev);
@@ -207,8 +214,7 @@ export const bridge = {
     if (oa.fetchPaper && card.id) {
       try {
         const r = await oa.fetchPaper(card.id, fetchCtx);
-        if (r && r.ok) return { ok: true, url: r.url, bytes: r.bytes, source: r.source, cached: !!r.cached };
-        return { ok: false, reason: (r && r.reason) || "no_pdf" };
+        return pack(r);
       } catch (e) {
         return { ok: false, reason: (e && e.message) || "fetch_failed" };
       }

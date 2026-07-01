@@ -169,6 +169,12 @@ export default function LuminaApp() {
     } catch { /* ignore */ }
   }, [refreshLib]);
 
+  const hydrateTimerRef = useRef(null);
+  const scheduleHydrateFetchedMeta = useCallback(() => {
+    if (hydrateTimerRef.current) clearTimeout(hydrateTimerRef.current);
+    hydrateTimerRef.current = setTimeout(() => { hydrateTimerRef.current = null; void hydrateFetchedMeta(); }, 400);
+  }, [hydrateFetchedMeta]);
+
   useEffect(() => {
     let alive = true;
     bridge.getSettings().then((s) => {
@@ -185,10 +191,10 @@ export default function LuminaApp() {
     const stopSubs = bridge.onSubsUpdated?.(() => { if (alive) refreshSubsBadge(); });
     const stopPapers = bridge.onPapersChanged?.(() => {
       if (!alive) return;
-      hydrateFetchedMeta();
+      scheduleHydrateFetchedMeta();
     });
-    return () => { alive = false; stopSubs?.(); stopPapers?.(); };
-  }, [refreshSubsBadge, hydrateFetchedMeta]);
+    return () => { alive = false; stopSubs?.(); stopPapers?.(); if (hydrateTimerRef.current) clearTimeout(hydrateTimerRef.current); };
+  }, [refreshSubsBadge, hydrateFetchedMeta, scheduleHydrateFetchedMeta]);
 
   useEffect(() => {
     if (mode !== "library") return;

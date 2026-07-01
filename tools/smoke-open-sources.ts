@@ -28,6 +28,7 @@ import { normalize } from "../src/core/normalize.ts";
 import { stageTextFromTrace, fetchProgressUi, fetchFailHint } from "../src/ui/fetch-meta.js";
 import { pickBestLibgenRow } from "../src/core/oa/alt-sources.ts";
 import { extractDoisFromText } from "../src/core/oa/pdf-identity.ts";
+import { fetchResultForIpc } from "../src/core/oa/fetch-result-ipc.ts";
 
 let ok = 0, ng = 0;
 const t = (n: string, c: boolean) => { console.log((c ? "✓" : "✗") + " " + n); c ? ok++ : ng++; };
@@ -124,6 +125,10 @@ t("pickBestLibgenRow: 标题相似拒绝错配", (() => {
   return pickBestLibgenRow(rows, { expectedTitle: "Biological Motion Perception in Autism", column: "title" })?.md5 === "b";
 })());
 t("extractDoisFromText", extractDoisFromText("see doi:10.1068/i198 and 10.1007/x").includes("10.1068/i198"));
+t("fetchResultForIpc strips bytes", (() => {
+  const slim = fetchResultForIpc({ ok: true, bytes: new Uint8Array(99), url: "u", source: "osf" });
+  return slim.ok && !("bytes" in slim) && slim.source === "osf";
+})());
 
 installDefaultLimiters();
 

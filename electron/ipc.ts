@@ -20,6 +20,7 @@ import { listSourceRegistry } from "../src/core/sources/index.ts";
 import { llmFromConfig, listModels } from "../src/core/summarize/llm-client.ts";
 import { PROVIDER_DEFAULT_MODEL } from "../src/core/summarize/model-presets.ts";
 import { makeOaFullTextProvider, fetchPaperPdf, isOaMarkedPaper } from "../src/core/oa/provider.ts";
+import { fetchResultForIpc } from "../src/core/oa/fetch-result-ipc.ts";
 import { attemptSignal } from "../src/core/oa/timeout.ts";
 import { probeAllMirrors } from "../src/core/oa/mirror-health.ts";
 import { resolvePdfCandidates } from "../src/core/oa/oa-resolver.ts";
@@ -511,8 +512,8 @@ export function registerIpc(deps: IpcDeps): void {
           try { job.sender.send("prefetch:start", { paperId: job.paperId }); } catch { /* 渲染层已关 */ }
           const res = await runFetchPaper(job.paperId, undefined, { channel: "prefetch", provenance: "find_fetch" });
           try {
-            if (res.ok) job.sender.send("prefetch:done", { paperId: job.paperId, result: res, autoOpen: job.autoOpen });
-            else job.sender.send("prefetch:fail", { paperId: job.paperId, result: res });
+            if (res.ok) job.sender.send("prefetch:done", { paperId: job.paperId, result: fetchResultForIpc(res), autoOpen: job.autoOpen });
+            else job.sender.send("prefetch:fail", { paperId: job.paperId, result: fetchResultForIpc(res) });
           } catch { /* 渲染层已关 */ }
         } catch (e) {
           try {
@@ -648,7 +649,7 @@ export function registerIpc(deps: IpcDeps): void {
 
   ipcMain.handle("oa:fetchPaper", async (_e, paperId: string, ctx?: FetchContext) => {
     try {
-      return await runFetchPaper(paperId, undefined, ctx || {});
+      return fetchResultForIpc(await runFetchPaper(paperId, undefined, ctx || {}));
     } catch (e: unknown) {
       const msg = (e && (e as { message?: unknown }).message) ? String((e as { message?: unknown }).message) : "取文失败";
       console.error("oa:fetchPaper 失败", paperId, msg);
@@ -669,8 +670,8 @@ export function registerIpc(deps: IpcDeps): void {
     };
     try {
       const res = await runFetchPaper(paperId, (ev) => send(ev), ctx || {});
-      send({ type: "final", result: res });
-      return res;
+      send({ type: "final", result: fetchResultForIpc(res) });
+      return fetchResultForIpc(res);
     } catch (err: unknown) {
       const msg = String((err as Error)?.message || err || "取文失败");
       const fail = { ok: false as const, reason: msg };

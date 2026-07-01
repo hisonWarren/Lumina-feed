@@ -33,6 +33,7 @@ import {
 import { migrateDocKeys } from "../src/core/store/doc-migrate.ts";
 import { normalizeLocalPath, recordReadingOpen } from "../src/core/reader/reading-history.ts";
 import { readerDocKeyCandidates } from "../src/core/reader/doc-key.ts";
+import { fetchResultForIpc } from "../src/core/oa/fetch-result-ipc.ts";
 
 export interface PaperAssetDeps {
   store: Store;
@@ -82,7 +83,8 @@ export function broadcastPapersChanged(payload: Record<string, unknown> = {}): v
 
 export async function indexPdfFulltext(deps: PaperAssetDeps, paperId: string, bytes: Uint8Array): Promise<void> {
   try {
-    const text = await extractText(bytes);
+    await new Promise<void>((r) => setImmediate(r));
+    const text = await extractText(bytes.subarray(0, Math.min(bytes.byteLength, 2_000_000)), { maxPages: 12 });
     if (!text || text.replace(/\s+/g, "").length < 400) return;
     deps.ensureFts();
     deps.store.db.prepare("DELETE FROM fulltext_fts WHERE paper_id=?").run(paperId);
@@ -472,7 +474,7 @@ async function drainFetchQueue(runFetch: FetchRunner): Promise<void> {
         };
         send({ status: "running" });
         const res = await runFetch(job.paperId, (ev) => send({ trace: ev }), job.ctx);
-        send({ status: "done", result: res });
+        send({ status: "done", result: fetchResultForIpc(res) });
       } catch (e) {
         if (job.sender && !job.sender.isDestroyed()) {
           try {

@@ -30,8 +30,13 @@ function textFromContentStream(content: string): string {
 }
 
 /** 纯 Node 抽取：扫描 stream…endstream，FlateDecode 则 inflate，再提取 Tj/TJ 文本。 */
-export function extractPdfTextBasic(bytes: Uint8Array): string {
-  const buf = Buffer.from(bytes);
+export function extractPdfTextBasic(
+  bytes: Uint8Array,
+  opts?: { maxScanBytes?: number; maxOutputChars?: number },
+): string {
+  const maxScan = opts?.maxScanBytes ?? bytes.byteLength;
+  const maxOut = opts?.maxOutputChars;
+  const buf = Buffer.from(bytes.subarray(0, Math.min(bytes.byteLength, maxScan)));
   const latin = buf.toString("latin1");
   let text = "";
   let idx = 0;
@@ -58,7 +63,11 @@ export function extractPdfTextBasic(bytes: Uint8Array): string {
     } else if (!/\/(DCTDecode|JPXDecode|CCITTFaxDecode|Image)/.test(dict)) {
       content = raw.toString("latin1"); // 未压缩文本流
     }
-    if (content) { const t = textFromContentStream(content); if (t.trim()) text += t + "\n"; }
+    if (content) {
+      const t = textFromContentStream(content);
+      if (t.trim()) text += t + "\n";
+      if (maxOut && text.length >= maxOut) break;
+    }
   }
   return text.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
 }

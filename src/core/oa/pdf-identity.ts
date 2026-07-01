@@ -43,7 +43,7 @@ export function titleMatchScore(expectedTitle: string, pdfText: string): number 
 export function verifyPdfIdentity(bytes: Uint8Array, expect: PdfIdentityExpect): PdfIdentityResult {
   if (!expect.doi && !expect.title?.trim()) return { ok: true };
 
-  const text = extractPdfTextBasic(bytes).slice(0, 12_000);
+  const text = extractPdfTextBasic(bytes, { maxOutputChars: 14_000 }).slice(0, 12_000);
   if (!text.replace(/\s+/g, "").length) return { ok: true };
 
   const foundDois = extractDoisFromText(text);
