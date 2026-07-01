@@ -76,10 +76,12 @@ export function urlImpliesDoi(url: string, doi?: string): boolean {
   return u.includes(d) || u.includes(encodeURIComponent(d).toLowerCase());
 }
 
-/** 备用库 / Sci-Hub 必须校验；出版商 URL 已含 DOI 时可跳过。 */
+/** 备用库 / Sci-Hub 必须校验；出版商 URL 已含 DOI 时可跳过；OSF 官方 download 直链可信。 */
 export function shouldVerifyPdfIdentity(cand: PdfCandidate, paper: Paper): boolean {
   if (cand.kind === "scihub") return true;
   if (/libgen|annas/.test(String(cand.source || "").toLowerCase())) return true;
   if (paper.doi && cand.kind === "url" && urlImpliesDoi(cand.url, paper.doi)) return false;
+  if (cand.kind === "url" && String(cand.source) === "osf_download") return false;
+  if (cand.kind === "url" && /osf\.io\/[a-z0-9]+\/download/i.test(cand.url)) return false;
   return !!(paper.doi || paper.title?.trim());
 }

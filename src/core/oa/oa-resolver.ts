@@ -8,6 +8,7 @@ import { isLegitimateOaUrl } from "../summarize/oa-guard.ts";
 import {
   fromCore, fromDoaj, fromHal, fromZenodo, fromDatacite,
 } from "./oa-extended.ts";
+import { osfDoiDownloadUrl, normalizeOsfFetchUrl } from "../sources/osf-preprints.ts";
 import publisherRules from "./config/publisher-rules.json" with { type: "json" };
 
 export interface ResolveDeps {
@@ -82,7 +83,10 @@ function fromPublisherRules(doi: string, paper: Paper): UrlCandidate[] {
 
 function fromIdentifiers(paper: Paper): UrlCandidate[] {
   const out: UrlCandidate[] = [];
-  if (paper.oaUrl) out.push({ kind: "url", url: paper.oaUrl, source: "paper_oa_url", priority: 4 });
+  if (paper.oaUrl) {
+    const url = normalizeOsfFetchUrl(paper.oaUrl) || paper.oaUrl;
+    if (url) out.push({ kind: "url", url, source: "paper_oa_url", priority: 4 });
+  }
   if (paper.pmcid) {
     const num = paper.pmcid.replace(/^PMC/i, "");
     out.push({ kind: "url", url: `https://www.ncbi.nlm.nih.gov/pmc/articles/PMC${num}/pdf/`, source: "pmc_identifier", priority: 35 });
@@ -132,6 +136,11 @@ function fromPlos(doi: string): UrlCandidate[] {
     }
   }
   return [];
+}
+
+function fromOsfDoi(doi: string): UrlCandidate[] {
+  const url = osfDoiDownloadUrl(doi);
+  return url ? [{ kind: "url", url, source: "osf_download", priority: 5 }] : [];
 }
 
 async function fromUnpaywall(doi: string, deps: ResolveDeps): Promise<UrlCandidate[]> {
@@ -333,6 +342,7 @@ export function immediatePdfCandidates(paper: Paper): PdfCandidate[] {
   if (doi) {
     all.push(...fromPublisherRules(doi, paper));
     all.push(...fromArxivDoi(doi));
+    all.push(...fromOsfDoi(doi));
     all.push(...fromElife(doi));
     all.push(...fromFrontiers(doi));
     all.push(...fromPlos(doi));

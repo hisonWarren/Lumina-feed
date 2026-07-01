@@ -13,7 +13,7 @@ const OA_ALLOW_HOSTS: RegExp[] = [
   /(^|\.)arxiv\.org$/i, /(^|\.)biorxiv\.org$/i, /(^|\.)medrxiv\.org$/i,
   /(^|\.)plos\.org$/i, /(^|\.)nature\.com$/i, /(^|\.)springeropen\.com$/i, /(^|\.)mdpi\.com$/i,
   /(^|\.)frontiersin\.org$/i, /(^|\.)biomedcentral\.com$/i, /(^|\.)elifesciences\.org$/i,
-  /(^|\.)doaj\.org$/i, /(^|\.)osf\.io$/i, /(^|\.)ssrn\.com$/i, /(^|\.)researchsquare\.com$/i,
+  /(^|\.)doaj\.org$/i, /(^|\.)osf\.io$/i, /(^|\.)files\.osf\.io$/i, /(^|\.)ssrn\.com$/i, /(^|\.)researchsquare\.com$/i,
   /(^|\.)hindawi\.com$/i, /(^|\.)wiley\.com$/i, /(^|\.)oup\.com$/i,
 ];
 

@@ -96,7 +96,8 @@ t("fetchFailHint: timeout", fetchFailHint("download_timeout").includes("超时")
 t("parseCore doi", parseCore({ results: [{ doi: "10.1/X", title: "T", authors: [{ name: "A" }], downloadUrl: "U" }] })[0]?.doi === "10.1/x");
 t("parseHal title", parseHal({ response: { docs: [{ title_s: ["HAL T"], authFullName_s: ["A"] }] } })[0]?.title === "HAL T");
 t("parseDblp title", parseDblp({ result: { hits: { hit: [{ info: { title: "DBLP T", authors: { author: "A" }, year: "2024" } }] } } })[0]?.title === "DBLP T");
-t("parseOsf preprint", parseOsf({ data: [{ attributes: { title: "OSF T", description: "ab" }, links: {} }] })[0]?.isPreprint === true);
+t("parseOsf preprint", parseOsf({ data: [{ id: "jfrwu_v1", attributes: { title: "OSF T", description: "ab" }, links: { html: "https://osf.io/preprints/psyarxiv/jfrwu_v1/" } }] })[0]?.isPreprint === true);
+t("parseOsf download url", parseOsf({ data: [{ id: "jfrwu_v1", attributes: { title: "OSF T" }, links: {} }] })[0]?.oaUrl === "https://osf.io/jfrwu/download");
 t("parseZenodo hit", parseZenodo({ hits: { hits: [{ metadata: { title: "Z T", creators: [{ name: "A" }] } }] } })[0]?.title === "Z T");
 t("parseOpenaire title", parseOpenaire({ response: { results: { result: [{ metadata: { title: [{ $: "OA T" }], creator: [{ name: { $: "A" } }] } }] } } })[0]?.title === "OA T");
 t("parseOpenaire oaf entity", parseOpenaire({ response: { results: { result: [{ metadata: { "oaf:entity": { "oaf:result": { title: [{ $: "OAF T" }], pid: { "@classid": "doi", $: "10.1/x" }, creator: [{ $: "B" }] } } } }] } } })[0]?.title === "OAF T");
