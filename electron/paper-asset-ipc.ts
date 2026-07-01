@@ -83,8 +83,8 @@ export function broadcastPapersChanged(payload: Record<string, unknown> = {}): v
 
 export async function indexPdfFulltext(deps: PaperAssetDeps, paperId: string, bytes: Uint8Array): Promise<void> {
   try {
-    await new Promise<void>((r) => setImmediate(r));
-    const text = await extractText(bytes.subarray(0, Math.min(bytes.byteLength, 2_000_000)), { maxPages: 12 });
+    await new Promise<void>((r) => setTimeout(r, 50));
+    const text = await extractText(bytes.subarray(0, Math.min(bytes.byteLength, 2_000_000)), { maxPages: 8 });
     if (!text || text.replace(/\s+/g, "").length < 400) return;
     deps.ensureFts();
     deps.store.db.prepare("DELETE FROM fulltext_fts WHERE paper_id=?").run(paperId);
@@ -100,6 +100,8 @@ export async function postFetchSuccess(
   ctx: FetchContext,
 ): Promise<void> {
   recordFetchLog(deps.store.db, paperId, source, ctx);
+  // 先通知 UI 刷新，避免 FTS/入库阻塞主进程导致 library:list IPC 卡死
+  broadcastPapersChanged({ paperId, action: "fetched", source });
   const settings = await loadAppSettings(deps.store);
   const autoIngest = settings.autoIngestOnFetch !== false;
   if (autoIngest) {
@@ -107,14 +109,16 @@ export async function postFetchSuccess(
     ensureStubPaper(deps, paperId);
     libraryAdd(deps.store.db, paperId, ctx.provenance || "find_fetch", !libraryHas(deps.store.db, paperId));
   }
-  void (async () => {
-    try {
-      const { readFile } = await import("node:fs/promises");
-      const buf = await readFile(deps.pdfPath(paperId));
-      await indexPdfFulltext(deps, paperId, new Uint8Array(buf));
-    } catch { /* 全文索引后台执行，不阻塞取文返回 */ }
-  })();
-  broadcastPapersChanged({ paperId, action: "fetched", source });
+  const ftsDelayMs = 10_000;
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const { readFile: readFileAsync } = await import("node:fs/promises");
+        const buf = await readFileAsync(deps.pdfPath(paperId));
+        await indexPdfFulltext(deps, paperId, new Uint8Array(buf));
+      } catch { /* 全文索引后台执行 */ }
+    })();
+  }, ftsDelayMs);
 }
 
 export function buildAssetSnapshot(deps: PaperAssetDeps, paperId: string): PaperAssetSnapshot {

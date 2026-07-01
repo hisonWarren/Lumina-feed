@@ -149,6 +149,36 @@ export default function LuminaApp() {
     } catch { /* ignore */ }
   }, []);
 
+  const refreshLibTimerRef = useRef(null);
+  const scheduleRefreshLib = useCallback(() => {
+    if (refreshLibTimerRef.current) clearTimeout(refreshLibTimerRef.current);
+    refreshLibTimerRef.current = setTimeout(() => {
+      refreshLibTimerRef.current = null;
+      void refreshLib();
+    }, 350);
+  }, [refreshLib]);
+
+  const bumpLibAfterFetch = useCallback((paperId, meta, fm) => {
+    setLib((prev) => {
+      if (prev.some((x) => x.id === paperId)) {
+        return prev.map((x) => (x.id === paperId
+          ? { ...x, _fetched: true, fetchSource: meta?.source || x.fetchSource }
+          : x));
+      }
+      return [{
+        id: paperId,
+        title: fm?.title || paperId,
+        doi: fm?.doi,
+        provenance: fm?.provenance || "find_fetch",
+        _fetched: true,
+        fetchSource: meta?.source,
+        authors: [],
+        oa: "gold",
+        preprint: !!(fm?.doi && /^10\.1101\//i.test(String(fm.doi))),
+      }, ...prev];
+    });
+  }, []);
+
   const hydrateFetchedMeta = useCallback(async () => {
     if (!hasBackend()) return;
     try {
@@ -165,9 +195,9 @@ export default function LuminaApp() {
         }
         return next;
       });
-      await refreshLib();
+      scheduleRefreshLib();
     } catch { /* ignore */ }
-  }, [refreshLib]);
+  }, [scheduleRefreshLib]);
 
   const hydrateTimerRef = useRef(null);
   const scheduleHydrateFetchedMeta = useCallback(() => {
@@ -189,12 +219,24 @@ export default function LuminaApp() {
     refreshSubsBadge();
     hydrateFetchedMeta();
     const stopSubs = bridge.onSubsUpdated?.(() => { if (alive) refreshSubsBadge(); });
-    const stopPapers = bridge.onPapersChanged?.(() => {
+    const stopPapers = bridge.onPapersChanged?.((payload) => {
       if (!alive) return;
+      const action = payload && payload.action;
+      if (action === "fetched" || action === "imported" || action === "import_existing" || action === "reconcile") {
+        scheduleRefreshLib();
+        return;
+      }
+      if (action === "queue_enqueued") return;
       scheduleHydrateFetchedMeta();
     });
-    return () => { alive = false; stopSubs?.(); stopPapers?.(); if (hydrateTimerRef.current) clearTimeout(hydrateTimerRef.current); };
-  }, [refreshSubsBadge, hydrateFetchedMeta, scheduleHydrateFetchedMeta]);
+    return () => {
+      alive = false;
+      stopSubs?.();
+      stopPapers?.();
+      if (hydrateTimerRef.current) clearTimeout(hydrateTimerRef.current);
+      if (refreshLibTimerRef.current) clearTimeout(refreshLibTimerRef.current);
+    };
+  }, [refreshSubsBadge, hydrateFetchedMeta, scheduleHydrateFetchedMeta, scheduleRefreshLib]);
 
   useEffect(() => {
     if (mode !== "library") return;
@@ -374,8 +416,10 @@ export default function LuminaApp() {
         if (r && r.ok) {
           const meta = buildFetchedMeta(r);
           if (meta) {
+            const fm = fetchingMetaRef.current[id];
             setFetchedMeta((m) => ({ ...m, [id]: meta }));
-            void refreshLib();
+            bumpLibAfterFetch(id, meta, fm);
+            scheduleRefreshLib();
             pushToast("已获取全文 · " + meta.label + " · 已保存到本机，可在阅读或我的文献打开");
           }
           setFetchingMeta((m) => { const n = { ...m }; delete n[id]; return n; });
@@ -389,7 +433,7 @@ export default function LuminaApp() {
       }
     });
     return () => stop?.();
-  }, [pushToast, refreshLib]);
+  }, [pushToast, bumpLibAfterFetch, scheduleRefreshLib]);
 
   const onFetch = useCallback(async (p, opts = {}) => {
     const provenance = opts.provenance || "find_fetch";
@@ -398,7 +442,7 @@ export default function LuminaApp() {
     const priority = channel === "manual" || channel === "library" || channel === "digest" ? 0 : channel === "batch" ? 1 : 2;
     setFetchingMeta((m) => ({
       ...m,
-      [p.id]: { startedAt: Date.now(), trace: null, queued: searchBusy, title: p.title || p.id, channel, doi: p.doi },
+      [p.id]: { startedAt: Date.now(), trace: null, queued: searchBusy, title: p.title || p.id, channel, doi: p.doi, provenance },
     }));
     try {
       if (hasBackend()) {
@@ -512,7 +556,8 @@ export default function LuminaApp() {
       const meta = buildFetchedMeta(result, { prefetched: !result?.cached });
       if (meta) {
         setFetchedMeta((m) => ({ ...m, [paperId]: meta }));
-        refreshLib();
+        bumpLibAfterFetch(paperId, meta, { title: paperId, provenance: "find_fetch" });
+        scheduleRefreshLib();
         if (autoOpen && primaryAutoOpenRef.current) {
           void onReadPaper({ id: paperId, title: paperId });
         } else {
@@ -528,7 +573,7 @@ export default function LuminaApp() {
       pushToast(hint || "后台预取未成功，可手动点「获取全文」");
     });
     return () => { offStart && offStart(); offDone && offDone(); offFail && offFail(); };
-  }, [pushToast, refreshLib, onReadPaper]);
+  }, [pushToast, bumpLibAfterFetch, scheduleRefreshLib, onReadPaper]);
 
   const onSave = useCallback((p) => {
     if (lib.some((x) => x.id === p.id)) {

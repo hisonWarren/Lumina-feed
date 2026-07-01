@@ -1,7 +1,7 @@
 // lumina-feed · IPC（干净基线：检索 · 总结 · OA · 设置）+ reader_engine（OA 取/存/读回 · 阅读器接地 AI）
 import { ipcMain, app, Notification, BrowserWindow, dialog, shell, type WebContents } from "electron";
 import fs from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Store } from "../src/core/store/index.ts";
 import type { SecretStore } from "../src/core/secrets/keyvault.ts";
@@ -487,9 +487,10 @@ export function registerIpc(deps: IpcDeps): void {
         }
       }
       if (res.ok) {
-        try { fs.writeFileSync(pdfPath(paperId), Buffer.from(res.bytes)); } catch { /* 落盘失败不阻断 */ }
+        try { await writeFile(pdfPath(paperId), Buffer.from(res.bytes)); } catch { /* 落盘失败不阻断 */ }
         const deps = getPaperAssetDeps();
         if (deps) await postFetchSuccess(deps, paperId, res.source || "unknown", ctx);
+        return fetchResultForIpc(res);
       }
       return res;
     } finally {

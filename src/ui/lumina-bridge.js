@@ -598,7 +598,7 @@ export const bridge = {
   },
   onPapersChanged(cb) {
     const api = A(); if (!api || !api.onPapersChanged) return () => {};
-    return api.onPapersChanged(() => { try { cb(); } catch { /* ignore */ } });
+    return api.onPapersChanged((payload) => { try { cb(payload); } catch { /* ignore */ } });
   },
   onSettingsChanged(cb) {
     const api = A(); if (!api || !api.onSettingsChanged) return () => {};
