@@ -56,7 +56,7 @@ const CATS = [
 
 const SET_CSS = `
 .set-h1{font-family:'Source Serif 4',Georgia,serif;font-size:22px;font-weight:600;margin:0;color:var(--ink)}
-.set-sec-d{font-size:12px;color:var(--ink3);line-height:1.55;margin:-6px 0 0}
+.set-sec-d{font-size:12px;color:var(--ink3);line-height:1.55;margin:0 0 14px}
 .set-row{display:flex;flex-direction:column;gap:6px}
 .set-lbl{font-size:12px;color:var(--ink2);font-weight:500}
 .set-provs{display:flex;flex-wrap:wrap;gap:7px}
@@ -134,7 +134,7 @@ const SET_CSS = `
 .set-railbtn.on{background:var(--gold);color:#fff}
 .set-railbtn.on svg{color:#fff}
 .set-pane{flex:1;min-width:0;overflow-y:auto;padding:24px 28px 40px;display:flex;flex-direction:column;gap:20px}
-.set-pane-h{font-family:'Source Serif 4',Georgia,serif;font-size:18px;font-weight:600;margin:0 0 2px;color:var(--ink);display:flex;align-items:center;gap:9px}
+.set-pane-h{font-family:'Source Serif 4',Georgia,serif;font-size:18px;font-weight:600;margin:0 0 8px;color:var(--ink);display:flex;align-items:center;gap:9px}
 .set-pane-h svg{color:var(--gold)}
 .set-kv{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:2px 0}
 .set-kv-main{display:flex;flex-direction:column;gap:3px;min-width:0}
@@ -629,13 +629,13 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
           </nav>
           <div className="set-pane">
             {!backend && (
-              <div className="set-note set-warn"><Info size={15} /><span className="set-note-t">当前未连接引擎（原型模式）：设置可填写与即时应用主题，但不会持久化；密钥也不会写入钥匙串。接入 Electron 引擎后生效。</span></div>
+              <div className="set-note set-warn"><Info size={15} /><span className="set-note-t">未连接桌面引擎：主题可预览，但设置与密钥不会保存。请使用 Lumina Feed 桌面版。</span></div>
             )}
 
             {activeCat === "llm" && (
               <>
                 <h2 className="set-pane-h"><Cpu size={18} /> 大模型</h2>
-                <p className="set-sec-d">选择提供方并填模型；密钥仅写入系统钥匙串，绝不进配置或代码（红线3）。AI 总结 / 问答 / 翻译都用此配置。</p>
+                <p className="set-sec-d">选择提供方并填写模型，用于 AI 总结、阅读问答与翻译。API 密钥保存在系统钥匙串，不会写入配置文件。</p>
                 <div className="set-row">
                   <span className="set-lbl">提供方</span>
                   <div className="set-provs">
@@ -678,11 +678,11 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                     <div className="set-key">
                       <KeyRound size={16} />
                       <input className="set-in set-mono" type={showKey ? "text" : "password"} value={apiKey}
-                        placeholder={llmKeySaved ? "已保存（输入新值可覆盖；不回显明文）" : "粘贴密钥（保存后写入系统钥匙串，不回显）"}
+                        placeholder={llmKeySaved ? "已保存（输入新值可覆盖）" : "粘贴 API 密钥"}
                         onChange={(e) => setApiKey(e.target.value)} />
                       <button type="button" className="set-key-eye" onClick={() => setShowKey((v) => !v)} aria-label={showKey ? "隐藏密钥" : "显示密钥"} title={showKey ? "隐藏" : "显示"}>{showKey ? <EyeOff size={15} /> : <Eye size={15} />}</button>
                     </div>
-                    <span className="set-hint">留空＝保持现有密钥不变；填入新值并保存＝更新。密钥保存在 Windows 凭据管理器（服务名 <span className="set-mono">lumina-feed</span>），卸载应用通常不会清除，与下方 AppData 目录无关。</span>
+                    <span className="set-hint">留空表示保留现有密钥。新密钥保存在 Windows 凭据管理器（<span className="set-mono">lumina-feed</span>），与文献数据目录分开存放。</span>
                   </div>
                 )}
                 <div className="set-btnrow">
@@ -699,9 +699,9 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
             {activeCat === "sources" && (
               <>
                 <div className="set-row">
-                  <span className="set-lbl"><Mail size={13} style={{ verticalAlign: "-2px", marginRight: 5 }} />学者联络方式（推荐）</span>
+                  <span className="set-lbl"><Mail size={13} style={{ verticalAlign: "-2px", marginRight: 5 }} />联系邮箱（推荐）</span>
                   <input className="set-in" type="email" value={contactEmail} placeholder="you@example.org" onChange={(e) => setContactEmail(e.target.value)} onBlur={saveEmailOnBlur} />
-                  <span className="set-hint">用于 Unpaywall、PubMed、Crossref、OpenAlex 等 API 礼貌标识；仅本机保存，不上传云端。可用机构邮箱。</span>
+                  <span className="set-hint">部分开放数据源（如 Unpaywall）要求提供联系邮箱，仅保存在本机，不上传云端。</span>
                 </div>
                 <div className="set-btnrow" style={{ marginBottom: 16 }}>
                   <button className="set-btn2" onClick={saveGeneral} disabled={savingGen}><Save size={15} /> {savingGen ? "保存中…" : "保存联络邮箱"}</button>
@@ -850,17 +850,13 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                   <span className="set-lbl"><Eye size={13} style={{ verticalAlign: "-2px", marginRight: 5 }} />允许云端读图（把图表图像发送到云端视觉模型分析）</span>
                   <button role="switch" aria-checked={visionConsent} className={"set-switch" + (visionConsent ? " on" : "")} onClick={() => void onToggleVisionConsent()} aria-label="云端读图开关"><i /></button>
                 </div>
-                <span className="set-hint">默认关闭，守本地优先（红线7）：关闭时图表分析仅用本地视觉模型（Ollama），图像不出本机；开启后才允许把图像发往所选云端模型。切换后立即保存。</span>
+                <span className="set-hint">默认关闭：图表分析仅用本机模型（如 Ollama），图像不会上传。开启后才允许发往所选云端视觉模型。切换后立即保存。</span>
                 {visionConsent && provider === "doubao" && (
                   <div className="set-note"><Info size={15} /><span className="set-note-t">豆包（火山方舟）支持读图，但需选用<b>视觉 / 多模态模型</b>（如 <span className="set-mono">doubao-seed-*</span> 或 <span className="set-mono">doubao-*-vision-*</span>）；纯文本 pro 会拒绝图像。下拉仅列常用 Model ID；其他 ID 或 <span className="set-mono">ep-</span> 接入点请自填。</span></div>
                 )}
                 {visionConsent && !["openai", "anthropic", "ollama"].includes(provider) && provider !== "doubao" && (
-                  <div className="set-note set-warn"><Info size={15} /><span className="set-note-t">当前所选「{preset.label}」多为纯文本模型，可能不支持读图：图表分析需 OpenAI / Anthropic 的视觉模型，或本地 Ollama 多模态模型（如 llava / qwen2-vl）。纯文本模型（如 deepseek-v4-flash）会返回「不支持视觉输入」。</span></div>
+                  <div className="set-note set-warn"><Info size={15} /><span className="set-note-t">当前所选「{preset.label}」多为纯文本模型，可能不支持读图：图表分析需 OpenAI / Anthropic 的视觉模型，或本地 Ollama 多模态模型（如 llava / qwen2-vl）。纯文本模型会返回「不支持视觉输入」。</span></div>
                 )}
-                <div className="set-btnrow">
-                  <button className="set-btn" onClick={saveLlm} disabled={savingLlm}><Save size={15} /> {savingLlm ? "保存中…" : "保存大模型设置"}</button>
-                </div>
-                <div className="set-note"><Info size={15} /><span className="set-note-t">密钥安全：保存时写入系统钥匙串或环境变量，界面不回显；绝不写入配置文件或代码。</span></div>
               </>
             )}
 
@@ -908,7 +904,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                       <button key={k} type="button" className={digestNotifyTier === k ? "on" : ""} onClick={() => void onPickDigestTier(k)}>{l}</button>
                     ))}
                   </div>
-                  <span className="set-hint">安静：仅 app 内简报 · 标准：每次调度汇总一条 · 积极：每个订阅单独通知</span>
+                  <span className="set-hint">安静：仅应用内显示 · 标准：每次调度一条汇总通知 · 积极：每个订阅单独通知</span>
                 </div>
                 <div className="set-row">
                   <span className="set-lbl">简报历史保留</span>
@@ -932,15 +928,15 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                   <span className="set-lbl">开机时自动启动 Lumina</span>
                   <button role="switch" aria-checked={bgLogin} className={"set-switch" + (bgLogin ? " on" : "")} onClick={() => void onToggleBgLogin()} aria-label="开机自启开关"><i /></button>
                 </div>
-                <span className="set-hint">后台运行：关主窗口后驻留系统托盘，订阅按计划检索、有新发表时桌面通知；从托盘可重新打开或退出。开关切换后立即生效并保存。托盘/自启为系统级，需打包后真机验证（Linux 自启支持有限）。</span>
+                <span className="set-hint">后台运行：关闭主窗口后驻留系统托盘，订阅按计划检索并在有新文献时通知。从托盘可重新打开或退出。Linux 下开机自启支持有限。</span>
                 <div className="set-row">
-                  <span className="set-lbl"><Mail size={13} style={{ verticalAlign: "-2px", marginRight: 5 }} />联系邮箱（用于 OA 取文的礼貌池标识，可选）</span>
+                  <span className="set-lbl"><Mail size={13} style={{ verticalAlign: "-2px", marginRight: 5 }} />联系邮箱（可选）</span>
                   <input className="set-in" type="email" value={contactEmail} placeholder="you@example.org" onChange={(e) => setContactEmail(e.target.value)} onBlur={saveEmailOnBlur} />
                 </div>
                 <button className="set-btn" onClick={saveGeneral} disabled={savingGen}><Save size={15} /> {savingGen ? "保存中…" : "保存联络邮箱"}</button>
-                <div className="set-note" style={{ marginTop: 16 }}><Info size={15} /><span className="set-note-t">本机数据保存在：<span className="set-mono">{userDataPath || "（启动后显示实际路径）"}</span> — 文献库、已下载 PDF 与阅读 AI 缓存均在此目录。大模型 API Key <b>不在</b>此目录，而在 Windows 凭据管理器（<span className="set-mono">lumina-feed</span>）。卸载应用通常不会清除上述两处。</span></div>
+                <div className="set-note" style={{ marginTop: 16 }}><Info size={15} /><span className="set-note-t">文献数据目录：<span className="set-mono">{userDataPath || "（启动后显示）"}</span>。大模型 API 密钥保存在 Windows 凭据管理器（<span className="set-mono">lumina-feed</span>），不在此目录。</span></div>
                 <button className="set-btn set-btn-danger" onClick={onResetLocalData} disabled={resetting || !backend}><Trash2 size={15} /> {resetting ? "正在清除…" : "清除本机文献数据并重启"}</button>
-                <span className="set-hint">删除文献库、订阅、收藏、已下载 PDF 与阅读缓存；不删除大模型密钥。要清密钥请去「大模型」页点「清除已存密钥」，或在 Windows 凭据管理器中删除 <span className="set-mono">lumina-feed</span> 相关条目。</span>
+                <span className="set-hint">删除文献库、订阅、收藏、已下载 PDF 与阅读缓存；不删除大模型密钥。清除密钥请前往「大模型」页，或在 Windows 凭据管理器中删除 <span className="set-mono">lumina-feed</span> 条目。</span>
               </>
             )}
 
@@ -952,9 +948,9 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                   {userDataPath ? (
                     <p className="set-mono" style={{ marginTop: 10, fontSize: 12.5, wordBreak: "break-all" }}>本机数据：{userDataPath}</p>
                   ) : null}
-                  <p style={{ marginTop: 10 }}>检索并行问多个开放数据库，各取最相关的一批后合并去重（快/广 控制每库上限）；不是全库镜像或商业库遍历。取文须点「获取全文」；不含 Google Scholar 或 Web of Science / Scopus。</p>
-                  <p style={{ marginTop: 10 }}><b>底线（始终成立）</b></p>
-                  <p>· 全文按 OA → LibGen → Anna's Archive → Sci-Hub 顺序自动尝试；<br />· AI 只排序 / 总结，从不替你裁决纳入或排除；<br />· 密钥只入 OS 钥匙串，绝不写配置或代码；<br />· 每条总结都带依据徽章与页码引用，可回原文核对；<br />· 预印本标注「未经同行评议」、已撤稿明确提示；<br />· 数据、PDF 与索引都在本机。</p>
+                  <p style={{ marginTop: 10 }}>检索并行查询多个开放数据库，各取最相关的一批后合并去重（快/广 控制每库上限），不是全库遍历。取文须手动点「获取全文」。</p>
+                  <p style={{ marginTop: 10 }}><b>设计原则</b></p>
+                  <p>· 全文按 OA → LibGen → Anna's Archive → Sci-Hub 顺序尝试；<br />· AI 只做排序与总结，不替你决定纳入或排除；<br />· API 密钥保存在系统钥匙串，不会写入配置文件；<br />· 总结标注依据来源与页码，可回原文核对；<br />· 预印本标注「未经同行评议」，撤稿明确提示；<br />· 文献数据、PDF 与索引均在本机。</p>
                 </div>
               </>
             )}

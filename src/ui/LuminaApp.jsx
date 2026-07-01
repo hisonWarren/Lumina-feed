@@ -487,7 +487,7 @@ export default function LuminaApp() {
       pushToast("请先获取全文");
       return;
     }
-    if (!hasBackend()) { pushToast("原型模式无法打开已下载 PDF"); return; }
+    if (!hasBackend()) { pushToast("请使用桌面版打开已下载 PDF"); return; }
     setReadTarget({ paperId: id, title, _t: Date.now() });
     setMode("read");
   }, [paperHasFull, pushToast]);

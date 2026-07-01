@@ -200,7 +200,7 @@ function SubDialog({ initial, onClose, onSave }) {
           <>
             <div className="subs-f"><label>期刊名</label><input className="subs-in" value={jName} placeholder="如：Nature Medicine" onChange={(e) => setJName(e.target.value)} /></div>
             <div className="subs-f"><label>ISSN（可选，更精准）</label><input className="subs-in subs-mono" value={issn} placeholder="如 1078-8956" onChange={(e) => setIssn(e.target.value)} />
-              <span className="subs-hint">刊名可能有歧义；填 ISSN 由引擎按 ISSN 精确匹配各源（PubMed [TA] / Crossref / OpenAlex）。期刊命中检索由引擎按计划执行。</span>
+              <span className="subs-hint">刊名可能有歧义；填写 ISSN 可精确匹配各源。期刊订阅按计划自动检索。</span>
             </div>
           </>
         )}
@@ -210,7 +210,7 @@ function SubDialog({ initial, onClose, onSave }) {
         <div className="subs-f"><label>运行时间</label><input className="subs-in" type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ maxWidth: 140 }} /></div>
         <div className="subs-f"><label>命中后的 AI 说明</label>
           <div className="subs-seg-grid">{AUTO_OPTS.map(([k, l]) => <button key={k} type="button" className={autoSummarize === k ? "on" : ""} onClick={() => setAuto(k)}>{l}{k === "blurb" ? <span className="subs-rec">推荐</span> : null}</button>)}</div>
-          <span className="subs-hint">推荐「一句相关」：每条写一句为何值得看，够用且省 API。「前 3 条深总结」最耗额度；未配大模型时自动跳过。今日综合报告在「设置 → 简报报告」单独开关，与此无关。</span>
+          <span className="subs-hint">推荐「一句相关」：每条写一句为何值得看，够用且省 API。「前 3 条深总结」最耗额度；未配大模型时自动跳过。今日总报告在「设置 → 通用」单独开关。</span>
         </div>
         <div className="subs-f">
           <label>简报条目过滤</label>
@@ -767,7 +767,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
               )}
             </div>
           )}
-          {!backend && <div className="dg-note"><Info size={15} /> 原型模式：订阅（含按期刊）可建/编辑/管理，但「今日命中」需引擎按计划真实检索——关键词按检索式、期刊按 ISSN/刊名匹配各源（PubMed/Crossref/OpenAlex）。接入 Electron 引擎后，每日新发表会自动出现在这里。</div>}
+          {!backend && <div className="dg-note"><Info size={15} /> 浏览器预览模式：可管理订阅，但「今日命中」需桌面版按计划检索后才会出现。</div>}
           {backend && subs.length > 0 && !subsBgHintDismissed && (
             <div className="dg-note">
               <Info size={15} />

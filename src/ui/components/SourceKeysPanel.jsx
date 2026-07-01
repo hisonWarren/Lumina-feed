@@ -31,7 +31,7 @@ function KeyRow({ row, configured, onSave, onTest, onOpen }) {
       </div>
       <div className="lf-keyrow-i">
         <input className="lf-key-in set-mono" type={show ? "text" : "password"} value={val}
-               placeholder={configured ? "已保存（保存新值将覆盖；不回显）" : "粘贴密钥（写入系统钥匙串，不回显）"}
+               placeholder={configured ? "已保存（输入新值可覆盖）" : "粘贴 API 密钥"}
                onChange={(e) => setVal(e.target.value)} />
         <button className="lf-key-eye" onClick={() => setShow((s) => !s)} aria-label="显示/隐藏">{show ? "隐藏" : "显示"}</button>
         <button className="lf-key-save" disabled={!val.trim() || busy} onClick={save}>保存</button>
@@ -49,7 +49,7 @@ export default function SourceKeysPanel({ configured = {}, onSaveKey, onTestKey,
   return (
     <div className="lf-sources-panel">
       <h2 className="set-pane-h">数据源</h2>
-      <p className="set-sec-d">配置开放学术源的 API 密钥。保存时仅写入系统钥匙串，界面不回显，也不会写入配置文件。</p>
+      <p className="set-sec-d">配置开放学术源的 API 密钥。保存至系统钥匙串，界面不显示已存内容，也不会写入配置文件。</p>
 
       <div className="set-sec">
         <div className="set-sec-t">API 密钥</div>

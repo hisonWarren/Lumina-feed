@@ -5,8 +5,8 @@
 import React, { useState } from "react";
 
 const COPY = {
-  title: "学者联络方式（仅本机保存）",
-  body: "Unpaywall 等开放全文源要求一个联系邮箱（礼貌池）。可填机构邮箱；只存在你的电脑上，不上传、不外发。",
+  title: "联系邮箱（仅本机保存）",
+  body: "部分开放全文源（如 Unpaywall）要求提供联系邮箱。可填机构邮箱；只保存在你的电脑上，不上传。",
   ph: "you@example.org",
   save: "保存", later: "稍后", fix: "去填写",
 };
@@ -24,7 +24,7 @@ export default function EmailPrompt({ variant = "onboarding", initialEmail = "",
   if (variant === "search") {
     return (
       <div className="lf-email-bar">
-        <span className="t">填一个联系邮箱即可解锁 Unpaywall 等更多合法全文源（仅本机）。</span>
+        <span className="t">填写联系邮箱可解锁 Unpaywall 等更多合法全文源（仅本机保存）。</span>
         <button className="lf-email-fix" onClick={() => onDismiss && onDismiss("open")}>{COPY.fix}</button>
         <button className="lf-email-x" aria-label="稍后" onClick={() => onDismiss && onDismiss("later")}>×</button>
       </div>
