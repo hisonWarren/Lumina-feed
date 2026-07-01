@@ -14,6 +14,8 @@ const OA_ALLOW_HOSTS: RegExp[] = [
   /(^|\.)plos\.org$/i, /(^|\.)nature\.com$/i, /(^|\.)springeropen\.com$/i, /(^|\.)mdpi\.com$/i,
   /(^|\.)frontiersin\.org$/i, /(^|\.)biomedcentral\.com$/i, /(^|\.)elifesciences\.org$/i,
   /(^|\.)doaj\.org$/i, /(^|\.)osf\.io$/i, /(^|\.)files\.osf\.io$/i, /(^|\.)ssrn\.com$/i, /(^|\.)researchsquare\.com$/i,
+  /(^|\.)chemrxiv\.org$/i, /(^|\.)cambridge\.org$/i, /(^|\.)figshare\.com$/i, /(^|\.)zenodo\.org$/i,
+  /(^|\.)hal\.science$/i, /(^|\.)archives-ouvertes\.fr$/i, /(^|\.)peerj\.com$/i,
   /(^|\.)hindawi\.com$/i, /(^|\.)wiley\.com$/i, /(^|\.)oup\.com$/i,
 ];
 

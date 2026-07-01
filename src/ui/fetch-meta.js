@@ -45,6 +45,7 @@ export function fetchFailHint(reason) {
     return "备用库返回的 PDF 与目标文献不一致（DOI/标题校验未通过），已拒绝保存。请换来源或浏览器打开原文。";
   }
   if (r === "no_pdf" || r === "no_oa") return "各来源均未成功下载 PDF（备用库可能暂时不可用）";
+  if (/social_login|researchgate|academia/.test(r)) return "该链接需登录（如 ResearchGate），请用下方按钮在浏览器打开手动下载";
   if (/timeout|timed out|超时/.test(r)) return "链接可能可用但下载超时，请稍后重试";
   if (/403|forbidden/.test(r)) return "服务器拒绝自动下载（403），请在浏览器打开原文页";
   if (r === "missing_email") return "请填写联络邮箱以启用 Unpaywall（保存后请重试获取全文）";
@@ -152,3 +153,22 @@ export function oaStatusBadge(oa, fetchedMeta, prefix = "ff-b", fetchingMeta = n
 }
 
 export const ALT_SUMMARY_CAVEAT = "全文来自非出版商渠道——总结请回原文核对。";
+
+/** ResearchGate / Academia 等：元数据仅有社交落地页时的手动取文提示 */
+export function socialManualFullText(paper) {
+  const url = paper?.oaUrl;
+  if (!url || typeof url !== "string") return null;
+  try {
+    const h = new URL(url).host.toLowerCase();
+    if (/researchgate/.test(h)) {
+      return { label: "ResearchGate", url, hint: "元数据指向 ResearchGate，需登录，程序无法自动下载；可浏览器打开后手动保存 PDF。" };
+    }
+    if (/academia\.edu/.test(h)) {
+      return { label: "Academia", url, hint: "元数据指向 Academia，需登录，程序无法自动下载。" };
+    }
+    if (/mendeley/.test(h)) {
+      return { label: "Mendeley", url, hint: "元数据指向 Mendeley，需登录，程序无法自动下载。" };
+    }
+  } catch { /* ignore */ }
+  return null;
+}

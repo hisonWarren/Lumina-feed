@@ -25,6 +25,14 @@ export function paperFromCard(card: unknown): Paper | null {
   const id = String(c.id || "").trim();
   if (!id) return null;
   const oaRaw = String(c.oaStatus || c.oa || "unknown").toLowerCase();
+  const doiNorm = c.doi
+    ? String(c.doi).toLowerCase().replace(/^https?:\/\/(dx\.)?doi\.org\//, "")
+    : "";
+  const isBiorxivDoi = /^10\.1101\//.test(doiNorm);
+  let oaStatus = OA_UI[oaRaw] || oaRaw;
+  if (isBiorxivDoi && (!oaStatus || oaStatus === "unknown" || oaStatus === "closed")) {
+    oaStatus = "gold";
+  }
   const versions = Array.isArray(c.versions) ? c.versions : [];
   const source = versions.length && typeof versions[0] === "object" && versions[0]
     ? String((versions[0] as { source?: string }).source || "search")
@@ -42,11 +50,11 @@ export function paperFromCard(card: unknown): Paper | null {
     pubDate: c.pubDate ? String(c.pubDate) : undefined,
     studyTypes: studyTypesFromCard(c),
     source,
-    isPreprint: !!(c.isPreprint ?? c.preprint),
+    isPreprint: !!(c.isPreprint ?? c.preprint ?? isBiorxivDoi),
     peerReviewed: !!(c.peerReviewed ?? c.peer),
     retracted: !!c.retracted,
     citationCount: cites != null && cites !== "" ? Number(cites) : undefined,
-    oaStatus: OA_UI[oaRaw] || oaRaw,
+    oaStatus,
     oaUrl: c.oaUrl ? String(c.oaUrl) : undefined,
     versions: versions as Paper["versions"],
     ingestedAt: new Date().toISOString(),

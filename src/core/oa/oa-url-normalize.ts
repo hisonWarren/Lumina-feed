@@ -1,4 +1,5 @@
 // lumina-feed · OA 抓取 URL 归一化（落地页 HTML / DOI 链接 → 可下载 PDF 直链）
+import { isNonAutomatableLandingUrl } from "./landing-hosts.ts";
 /** OSF 预印本 id（如 jfrwu_v1）→ 项目直链下载 */
 export function osfPreprintDownloadUrl(preprintId?: string): string | undefined {
   if (!preprintId) return undefined;
@@ -61,6 +62,7 @@ function stripDoiLanding(url: string): string | undefined {
  */
 export function normalizeOaFetchUrl(url?: string): string | undefined {
   if (!url) return undefined;
+  if (isNonAutomatableLandingUrl(url)) return undefined;
   let u = stripDoiLanding(url);
   if (!u) return undefined;
   u = normalizeArxivUrl(u) || u;

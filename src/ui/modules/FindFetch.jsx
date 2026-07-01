@@ -10,7 +10,7 @@ import { isDoi, normDoi, isIdentifierLike, identifierLabel, escapeRe } from "../
 import SummaryDrawer from "./SummaryDrawer.jsx";
 import FetchBadges from "../FetchBadges.jsx";
 import FetchTrace from "../components/FetchTrace.jsx";
-import { isFetched, fetchProgressUi } from "../fetch-meta.js";
+import { isFetched, fetchProgressUi, socialManualFullText } from "../fetch-meta.js";
 import { formatAuthors, normalizeAuthors } from "../lib/format-authors.js";
 import AbstractSnippet from "../components/AbstractSnippet.jsx";
 import BadgeRow from "../components/BadgeRow.jsx";
@@ -763,6 +763,7 @@ export default function FindFetch({
             const isFetching = !!fmeta;
             const prog = isFetching ? fetchProgressUi(fmeta, Date.now()) : null;
             const saved = inLibFn(p.id);
+            const social = !got ? socialManualFullText(p) : null;
             return (
               <div className={"ff-card" + (isPrimary ? " ff-primary" : "")} key={p.id} data-paper-id={p.id}>
                 <MatchBadge kind={p.matchKind} primary={isPrimary && locateMode === "primary"} />
@@ -792,8 +793,16 @@ export default function FindFetch({
                   <button className={"ff-act" + (saved ? " on" : "")} onClick={() => onSave(p)}><Bookmark size={13} fill={saved ? "currentColor" : "none"} /> {saved ? "已收藏" : "收藏"}</button>
                   <CitationActions paper={p} onToast={pushToast} />
                 </div>
-                {p.oa === "closed" && !got && (
+                {p.oa === "closed" && !got && !social && (
                   <div className="ff-wall">未标注开放获取。仍会尝试 LibGen、Anna's Archive、Sci-Hub 等来源；若均失败，可经<b>机构订阅</b>或向作者索取。</div>
+                )}
+                {social && (
+                  <div className="ff-wall">
+                    {social.hint}
+                    <button type="button" className="ff-expand-btn" style={{ marginLeft: 8 }} onClick={() => bridge.openExternal(social.url)}>
+                      在 {social.label} 打开
+                    </button>
+                  </div>
                 )}
               </div>
             );

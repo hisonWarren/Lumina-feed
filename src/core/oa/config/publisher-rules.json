@@ -9,13 +9,8 @@
   {
     "prefix": "10.1101",
     "name": "bioRxiv / medRxiv",
-    "pdf_urls": [
-      "https://www.biorxiv.org/content/10.1101/{suffix}v1.full.pdf",
-      "https://www.biorxiv.org/content/{suffix}v1.full.pdf",
-      "https://www.medrxiv.org/content/10.1101/{suffix}v1.full.pdf",
-      "https://www.medrxiv.org/content/{suffix}v1.full.pdf"
-    ],
-    "referer": null,
+    "pdf_urls": [],
+    "referer": "https://www.biorxiv.org/",
     "priority": 20
   },
   {

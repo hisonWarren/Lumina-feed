@@ -13,6 +13,7 @@ import { parseHal } from "../src/core/sources/hal.ts";
 import { parseDblp } from "../src/core/sources/dblp.ts";
 import { parseOsf } from "../src/core/sources/osf-preprints.ts";
 import { normalizeOaFetchUrl, biorxivPdfUrl, pickEuropePmcOaUrl } from "../src/core/oa/oa-url-normalize.ts";
+import { isNonAutomatableLandingUrl } from "../src/core/oa/landing-hosts.ts";
 import { parseZenodo } from "../src/core/sources/zenodo.ts";
 import { parseOpenaire } from "../src/core/sources/openaire.ts";
 import { parseSemanticScholar } from "../src/core/sources/semantic-scholar.ts";
@@ -101,6 +102,8 @@ t("parseDblp title", parseDblp({ result: { hits: { hit: [{ info: { title: "DBLP 
 t("parseOsf preprint", parseOsf({ data: [{ id: "jfrwu_v1", attributes: { title: "OSF T", description: "ab" }, links: { html: "https://osf.io/preprints/psyarxiv/jfrwu_v1/" } }] })[0]?.isPreprint === true);
 t("parseOsf download url", parseOsf({ data: [{ id: "jfrwu_v1", attributes: { title: "OSF T" }, links: {} }] })[0]?.oaUrl === "https://osf.io/jfrwu/download");
 t("normalize biorxiv html→pdf", normalizeOaFetchUrl("https://www.biorxiv.org/content/10.1101/2020.01.01.123v1")?.endsWith(".full.pdf"));
+t("skip researchgate landing", normalizeOaFetchUrl("https://www.researchgate.net/publication/123") === undefined);
+t("isNonAutomatable RG", isNonAutomatableLandingUrl("https://www.researchgate.net/publication/123"));
 t("biorxivPdfUrl", biorxivPdfUrl("10.1101/2020.01.01.123", 1).includes(".full.pdf"));
 t("epmc skip doi only", pickEuropePmcOaUrl([{ availabilityCode: "F", documentStyle: "doi", url: "https://doi.org/10.1/x" }]) === undefined);
 t("parseZenodo hit", parseZenodo({ hits: { hits: [{ metadata: { title: "Z T", creators: [{ name: "A" }] } }] } })[0]?.title === "Z T");

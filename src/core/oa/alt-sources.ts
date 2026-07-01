@@ -218,10 +218,6 @@ export async function searchAnnasKeywordHits(
   return out;
 }
 
-function titleFingerprint(title: string): string {
-  return title.toLowerCase().replace(/\s+/g, " ").trim().slice(0, 80);
-}
-
 async function resolveLibgenGetUrl(
   f: FetchImpl,
   mirror: string,

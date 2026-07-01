@@ -16,6 +16,9 @@ import { makeTraceEmitter, traceStepForSource, type FetchTraceCallback } from ".
 import { attemptSignal } from "./timeout.ts";
 import { candidateKey, type PdfCandidate } from "./candidate.ts";
 import { verifyPdfIdentity, shouldVerifyPdfIdentity } from "./pdf-identity.ts";
+import { biorxivApiPdfCandidates, isBiorxivDoi } from "./biorxiv-resolve.ts";
+import { chemrxivPdfCandidates, isChemrxivDoi } from "./chemrxiv-resolve.ts";
+import { figsharePdfCandidates, isFigshareDoi } from "./figshare-resolve.ts";
 
 export interface OaFullTextDeps extends ResolveDeps, FetchPdfDeps, ExtractDeps {
   minChars?: number;
@@ -42,8 +45,12 @@ export interface FetchPaperFailure {
 export function isOaMarkedPaper(paper: Paper): boolean {
   const s = String(paper.oaStatus || "").toLowerCase();
   if (["gold", "green", "hybrid", "bronze"].includes(s)) return true;
+  const doi = String(paper.doi || "").toLowerCase().replace(/^https?:\/\/(dx\.)?doi\.org\//, "");
+  if (/^10\.1101\//.test(doi)) return true;
+  if (/^10\.26434\/chemrxiv/i.test(doi)) return true;
+  if (/^10\.6084\/m9\.figshare/i.test(doi)) return true;
   if (paper.oaUrl || paper.pmcid || paper.arxivId) return true;
-  if (/arxiv\.\d+\.\d+/i.test(String(paper.doi || ""))) return true;
+  if (/arxiv\.\d+\.\d+/i.test(doi)) return true;
   return false;
 }
 
@@ -160,6 +167,25 @@ export async function fetchPaperPdf(paper: Paper, deps: OaFullTextDeps = {}): Pr
   trace?.patch("identifiers", "running");
   const immediate = immediatePdfCandidates(paper);
   trace?.patch("identifiers", immediate.length ? "ok" : "skip", immediate.length ? `${immediate.length} 个` : undefined);
+
+  const doiNorm = String(paper.doi || "").toLowerCase().replace(/^https?:\/\/(dx\.)?doi\.org\//, "");
+  const earlyApis: { step: string; run: () => Promise<import("./candidate.ts").UrlCandidate[]> }[] = [];
+  if (isBiorxivDoi(doiNorm)) earlyApis.push({ step: "biorxiv_api", run: () => biorxivApiPdfCandidates(doiNorm, deps.fetchImpl, deps.signal) });
+  if (isChemrxivDoi(doiNorm)) earlyApis.push({ step: "chemrxiv_api", run: () => chemrxivPdfCandidates(doiNorm, deps.fetchImpl, deps.signal) });
+  if (isFigshareDoi(doiNorm)) earlyApis.push({ step: "figshare_api", run: () => figsharePdfCandidates(doiNorm, deps.fetchImpl, deps.signal) });
+  for (const { step, run } of earlyApis) {
+    trace?.patch(step, "running");
+    const apiCands = await run();
+    trace?.patch(step, apiCands.length ? "ok" : "fail", apiCands.length ? apiCands[0]?.source : undefined);
+    if (!apiCands.length) continue;
+    const { hit, publisherBlocked: pb, identityRejected: idRej } = await tryCandidateList(apiCands, paper, deps, trace, dlMs, tried);
+    if (pb) publisherBlocked = true;
+    if (idRej) identityRejected = true;
+    if (hit) {
+      trace?.done("done", { ok: true, source: hit.source });
+      return hit;
+    }
+  }
 
   if (immediate.length) {
     const { hit, publisherBlocked: pb, identityRejected: idRej } = await tryCandidateList(immediate, paper, deps, trace, dlMs, tried);

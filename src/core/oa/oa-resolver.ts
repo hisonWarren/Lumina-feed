@@ -10,6 +10,10 @@ import {
 } from "./oa-extended.ts";
 import { osfDoiDownloadUrl } from "../sources/osf-preprints.ts";
 import { normalizeOaFetchUrl } from "./oa-url-normalize.ts";
+import { biorxivApiPdfCandidates } from "./biorxiv-resolve.ts";
+import { chemrxivPdfCandidates } from "./chemrxiv-resolve.ts";
+import { figsharePdfCandidates } from "./figshare-resolve.ts";
+import { isNonAutomatableLandingUrl } from "./landing-hosts.ts";
 import publisherRules from "./config/publisher-rules.json" with { type: "json" };
 
 export interface ResolveDeps {
@@ -156,10 +160,14 @@ async function fromUnpaywall(doi: string, deps: ResolveDeps): Promise<UrlCandida
   const out: UrlCandidate[] = [];
   const best = data.best_oa_location;
   if (best?.url_for_pdf) out.push({ kind: "url", url: best.url_for_pdf, source: "unpaywall_best", priority: 5 });
-  else if (best?.url) out.push({ kind: "url", url: best.url, source: "unpaywall_best_landing", priority: 8 });
+  else if (best?.url && !isNonAutomatableLandingUrl(best.url)) {
+    out.push({ kind: "url", url: best.url, source: "unpaywall_best_landing", priority: 8 });
+  }
   for (const [i, loc] of (data.oa_locations ?? []).entries()) {
     if (loc.url_for_pdf) out.push({ kind: "url", url: loc.url_for_pdf, source: `unpaywall_loc_${i}`, priority: 12 + i });
-    else if (loc.url) out.push({ kind: "url", url: loc.url, source: `unpaywall_loc_${i}_html`, priority: 15 + i });
+    else if (loc.url && !isNonAutomatableLandingUrl(loc.url)) {
+      out.push({ kind: "url", url: loc.url, source: `unpaywall_loc_${i}_html`, priority: 15 + i });
+    }
   }
   return out;
 }
@@ -173,12 +181,18 @@ async function fromOpenalex(doi: string, deps: ResolveDeps): Promise<UrlCandidat
   const out: UrlCandidate[] = [];
   const best = data.best_oa_location;
   if (best?.pdf_url) out.push({ kind: "url", url: best.pdf_url, source: "openalex_best_pdf", priority: 7 });
-  else if (best?.landing_page_url) out.push({ kind: "url", url: best.landing_page_url, source: "openalex_best_landing", priority: 8 });
-  if (data.open_access?.oa_url) out.push({ kind: "url", url: data.open_access.oa_url, source: "openalex_oa_url", priority: 10 });
+  else if (best?.landing_page_url && !isNonAutomatableLandingUrl(best.landing_page_url)) {
+    out.push({ kind: "url", url: best.landing_page_url, source: "openalex_best_landing", priority: 8 });
+  }
+  if (data.open_access?.oa_url && !isNonAutomatableLandingUrl(data.open_access.oa_url)) {
+    out.push({ kind: "url", url: data.open_access.oa_url, source: "openalex_oa_url", priority: 10 });
+  }
   if (data.primary_location?.pdf_url) out.push({ kind: "url", url: data.primary_location.pdf_url, source: "openalex_pdf", priority: 7 });
   for (const [i, loc] of (data.locations ?? []).entries()) {
     if (loc.pdf_url) out.push({ kind: "url", url: loc.pdf_url, source: `openalex_loc_${i}`, priority: 18 + i });
-    else if (loc.landing_page_url) out.push({ kind: "url", url: loc.landing_page_url, source: `openalex_loc_${i}_html`, priority: 20 + i });
+    else if (loc.landing_page_url && !isNonAutomatableLandingUrl(loc.landing_page_url)) {
+      out.push({ kind: "url", url: loc.landing_page_url, source: `openalex_loc_${i}_html`, priority: 20 + i });
+    }
   }
   return out;
 }
@@ -192,7 +206,8 @@ async function fromSemanticScholar(doi: string, deps: ResolveDeps): Promise<UrlC
     deps.signal,
   );
   const url = data?.openAccessPdf?.url;
-  return url ? [{ kind: "url", url, source: "semantic_scholar", priority: 9 }] : [];
+  if (!url || isNonAutomatableLandingUrl(url)) return [];
+  return [{ kind: "url", url, source: "semantic_scholar", priority: 9 }];
 }
 
 async function fromEuropePmc(doi: string, deps: ResolveDeps): Promise<{ cands: UrlCandidate[]; title?: string }> {
@@ -267,6 +282,9 @@ export async function resolvePdfCandidates(paper: Paper, deps: ResolveDeps = {})
     all.push(...fromPlos(doi));
 
     const settled = await Promise.allSettled([
+      timed("biorxiv_api", () => biorxivApiPdfCandidates(doi, deps.fetchImpl, deps.signal)),
+      timed("chemrxiv_api", () => chemrxivPdfCandidates(doi, deps.fetchImpl, deps.signal)),
+      timed("figshare_api", () => figsharePdfCandidates(doi, deps.fetchImpl, deps.signal)),
       timed("unpaywall", () => fromUnpaywall(doi, deps)),
       timed("openalex", () => fromOpenalex(doi, deps)),
       timed("extended", () => fromSemanticScholar(doi, deps)),

@@ -15,6 +15,8 @@ export function getRefererForUrl(url: string): string | undefined {
   if (/frontiersin\.org/i.test(url)) return "https://www.frontiersin.org/";
   if (/plos\.org/i.test(url)) return "https://journals.plos.org/";
   if (/elifesciences\.org/i.test(url)) return "https://elifesciences.org/";
+  if (/biorxiv\.org/i.test(url)) return "https://www.biorxiv.org/";
+  if (/medrxiv\.org/i.test(url)) return "https://www.medrxiv.org/";
   if (/sagepub\.com/i.test(url)) return "https://journals.sagepub.com/";
   if (/tandfonline\.com/i.test(url)) return "https://www.tandfonline.com/";
   if (/onlinelibrary\.wiley\.com|wiley\.com/i.test(url)) return "https://onlinelibrary.wiley.com/";

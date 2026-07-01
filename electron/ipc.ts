@@ -53,6 +53,7 @@ import {
   clearPdfStorageDir,
   readPdfStorageDirSetting,
 } from "./pdf-storage.ts";
+import { fetchPdfViaSession } from "./pdf-http.ts";
 import type { SummarizeOptions } from "../src/core/summarize/types.ts";
 import { DEFAULT_SUMMARIZE } from "../src/core/summarize/types.ts";
 import { setPoliteIdentity } from "../src/core/sources/adapter.ts";
@@ -477,6 +478,7 @@ export function registerIpc(deps: IpcDeps): void {
         oaAttemptTimeoutMs: 10_000,
         perAttemptTimeoutMs: 22_000,
         deferAltSources: isOaMarkedPaper(paper),
+        electronFetch: (url, signal) => fetchPdfViaSession(url, signal),
       });
       if (!res.ok) {
         const emailReason = maybeMissingEmailReason(paper.doi, email, res.reason);
