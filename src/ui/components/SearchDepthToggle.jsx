@@ -19,7 +19,7 @@ export default function SearchDepthToggle({ value = "standard", onChange, busy }
     );
   };
   return (
-    <div className="lf-depth" role="group" aria-label="检索广度">
+    <div className="lf-depth" role="group" aria-label="检索广度" title="控制每个开放数据库返回的最大条数（快/广）">
       {opt("standard")}
       {opt("full")}
       <span className="lf-depth-hint" title={SEARCH_DEPTH_META[value]?.hint || SEARCH_DEPTH_META.standard.hint}>

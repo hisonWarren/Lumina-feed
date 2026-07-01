@@ -61,7 +61,7 @@ export default function HitSources({ perSource, mergedCount, sourceLimit = 25, n
 
   return (
     <div className="lf-sources lf-sources-v2">
-      <button type="button" className="lf-src-summary" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+      <button type="button" className="lf-src-summary" onClick={() => setOpen((o) => !o)} aria-expanded={open} title={open ? "收起各数据库命中详情" : "展开查看各数据库命中、超时与失败"}>
         <span className="lbl">来源</span>
         <span className="sum">{summary.join(" · ")}</span>
         <span className="caret">{open ? "收起 ▴" : "展开 ▾"}</span>
@@ -79,7 +79,7 @@ export default function HitSources({ perSource, mergedCount, sourceLimit = 25, n
             {unconfigured.map((s) => row(s, "need", "需 Key"))}
           </div>
           {empty.length > 0 && (
-            <button type="button" className="lf-src-empty-toggle" onClick={() => setShowEmpty((v) => !v)}>
+            <button type="button" className="lf-src-empty-toggle" onClick={() => setShowEmpty((v) => !v)} title={showEmpty ? "收起无匹配的数据库列表" : "展开查看本次检索无命中的数据库"}>
               {showEmpty ? "收起无匹配" : `${empty.length} 个源无匹配`}
             </button>
           )}

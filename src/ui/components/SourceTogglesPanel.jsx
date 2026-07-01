@@ -79,6 +79,7 @@ export default function SourceTogglesPanel({ keysConfigured = {}, pushToast, onS
                 onClick={() => toggle(row.id)}
                 disabled={saving}
                 aria-label={`${row.label} ${on ? "已启用" : "已禁用"}`}
+                title={on ? "关闭后不参与关键词检索与单源重试" : "开启后参与关键词检索"}
               >
                 <i />
               </button>
@@ -99,7 +100,7 @@ export function PrefetchToggleRow({ value, onChange }) {
         <span className="set-lbl">DOI 定位后自动取全文</span>
         <span className="set-kv-d">粘贴 DOI/PMID 直达命中后，后台静默获取 PDF。默认关闭；检索结果请手动点「获取全文」。</span>
       </div>
-      <button role="switch" aria-checked={on} className={"set-switch" + (on ? " on" : "")} onClick={() => onChange(!on)} aria-label="定位预取开关"><i /></button>
+      <button role="switch" aria-checked={on} className={"set-switch" + (on ? " on" : "")} onClick={() => onChange(!on)} aria-label="定位预取开关" title="粘贴 DOI/PMID 直达命中后，后台静默获取 PDF"><i /></button>
     </div>
   );
 }
@@ -113,7 +114,7 @@ export function OaPrefetchToggleRow({ value, onChange }) {
         <span className="set-lbl">OA 结果自动预取</span>
         <span className="set-kv-d">检索列表中 gold/green OA 文献进入视区后后台取文。默认关闭，避免大量并行取文拖慢界面。</span>
       </div>
-      <button role="switch" aria-checked={on} className={"set-switch" + (on ? " on" : "")} onClick={() => onChange(!on)} aria-label="OA 预取开关"><i /></button>
+      <button role="switch" aria-checked={on} className={"set-switch" + (on ? " on" : "")} onClick={() => onChange(!on)} aria-label="OA 预取开关" title="检索列表中 OA 文献进入视区后后台取文"><i /></button>
     </div>
   );
 }
@@ -127,7 +128,7 @@ export function PrimaryAutoOpenToggleRow({ value, onChange }) {
         <span className="set-lbl">取文成功自动阅读</span>
         <span className="set-kv-d">手动或 DOI 自动取文成功后，自动打开阅读器。默认关闭。</span>
       </div>
-      <button role="switch" aria-checked={on} className={"set-switch" + (on ? " on" : "")} onClick={() => onChange(!on)} aria-label="自动打开阅读器开关"><i /></button>
+      <button role="switch" aria-checked={on} className={"set-switch" + (on ? " on" : "")} onClick={() => onChange(!on)} aria-label="自动打开阅读器开关" title="取文成功后自动打开阅读器"><i /></button>
     </div>
   );
 }

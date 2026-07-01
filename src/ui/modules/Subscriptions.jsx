@@ -215,8 +215,8 @@ function SubDialog({ initial, onClose, onSave }) {
         <div className="subs-f">
           <label>简报条目过滤</label>
           <div className="subs-seg">
-            <button type="button" className={!hideNoAbstract ? "on" : ""} onClick={() => setHideNoAbstract(false)}>保留无摘要</button>
-            <button type="button" className={hideNoAbstract ? "on" : ""} onClick={() => setHideNoAbstract(true)}>隐藏无摘要</button>
+            <button type="button" className={!hideNoAbstract ? "on" : ""} title="无摘要条目仍显示在简报中" onClick={() => setHideNoAbstract(false)}>保留无摘要</button>
+            <button type="button" className={hideNoAbstract ? "on" : ""} title="从简报中过滤掉没有摘要的条目" onClick={() => setHideNoAbstract(true)}>隐藏无摘要</button>
           </div>
           <span className="subs-hint">默认保留：无摘要条目排在后面。开启「隐藏」后，摘要不足 40 字且无 DOI/PMID 的薄条目不进简报；有标识符的仍保留便于追踪。</span>
         </div>
@@ -723,13 +723,13 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
               <div className="dg-date">{today.getMonth() + 1} 月 {today.getDate()} 日 · 本机生成</div>
             </div>
             {allPending.length > 0 && (onFetchBatch || onFetchProp) && (
-              <button className="dg-batch" onClick={() => {
+              <button className="dg-batch" title="批量获取本批全部待读文献的 PDF" onClick={() => {
                 if (onFetchBatch) onFetchBatch(allPending, batchFetchOpts);
                 else allPending.forEach((p) => onFetchProp(p, batchFetchOpts));
               }}><Download size={14} /> 取本批全部（{allPending.length}）</button>
             )}
             {total > 0 && (
-              <button type="button" className="dg-markall" onClick={() => void markAllRead()}><Check size={14} /> 全部标为已读</button>
+              <button type="button" className="dg-markall" title="将今日全部待读标为已读" onClick={() => void markAllRead()}><Check size={14} /> 全部标为已读</button>
             )}
           </div>
           <p className="brief-lead">今日共有 <b>{total} 篇</b> 待读（本日时间窗内<strong>新发表</strong>且未读）。每条标了证据来源，可取全文或 AI 总结——<b>是否纳入研究由你判断</b>。</p>
@@ -743,9 +743,9 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
           )}
           {total > 0 && (
             <div className="dg-view-seg" role="tablist" aria-label="简报视图">
-              <button type="button" role="tab" aria-selected={viewMode === "scan"} className={viewMode === "scan" ? "on" : ""} onClick={() => setViewMode("scan")}>扫描列表</button>
-              <button type="button" role="tab" aria-selected={viewMode === "report"} className={viewMode === "report" ? "on" : ""} onClick={() => setViewMode("report")}>今日报告</button>
-              <button type="button" role="tab" aria-selected={viewMode === "retro"} className={viewMode === "retro" ? "on" : ""} onClick={() => setViewMode("retro")}>回顾</button>
+              <button type="button" role="tab" aria-selected={viewMode === "scan"} className={viewMode === "scan" ? "on" : ""} title="逐条浏览今日待读列表" onClick={() => setViewMode("scan")}>扫描列表</button>
+              <button type="button" role="tab" aria-selected={viewMode === "report"} className={viewMode === "report" ? "on" : ""} title="查看 AI 归纳的今日简报总报告" onClick={() => setViewMode("report")}>今日报告</button>
+              <button type="button" role="tab" aria-selected={viewMode === "retro"} className={viewMode === "retro" ? "on" : ""} title="回看历史日期的简报快照" onClick={() => setViewMode("retro")}>回顾</button>
             </div>
           )}
           {globalActivity && (

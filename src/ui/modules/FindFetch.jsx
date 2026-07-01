@@ -54,22 +54,22 @@ function hi(text, terms) {
 }
 
 const FIELD_OPTS = [
-  { id: "all", label: "不限" },
-  { id: "title", label: "标题" },
-  { id: "abstract", label: "摘要" },
-  { id: "tiab", label: "标题+摘要" },
-  { id: "author", label: "作者" },
-  { id: "journal", label: "期刊" },
-  { id: "mesh", label: "主题词" },
+  { id: "all", label: "不限", hint: "在标题、摘要、作者、期刊等字段中检索" },
+  { id: "title", label: "标题", hint: "仅在文章标题中检索" },
+  { id: "abstract", label: "摘要", hint: "仅在摘要正文中检索" },
+  { id: "tiab", label: "标题+摘要", hint: "在标题与摘要中检索" },
+  { id: "author", label: "作者", hint: "按作者姓名检索" },
+  { id: "journal", label: "期刊", hint: "按期刊名称检索" },
+  { id: "mesh", label: "主题词", hint: "按 MeSH 主题词检索（生物医学）" },
 ];
 
 const SORT_OPTS = [
-  { id: "relevance", label: "相关（默认）" },
-  { id: "newest", label: "最新优先" },
-  { id: "cited", label: "被引最多" },
-  { id: "oldest", label: "最早优先" },
-  { id: "title", label: "标题 A–Z" },
-  { id: "author", label: "第一作者 A–Z" },
+  { id: "relevance", label: "相关（默认）", hint: "按与检索式的相关度排序" },
+  { id: "newest", label: "最新优先", hint: "按发表年份从新到旧" },
+  { id: "cited", label: "被引最多", hint: "按被引次数从高到低" },
+  { id: "oldest", label: "最早优先", hint: "按发表年份从旧到新" },
+  { id: "title", label: "标题 A–Z", hint: "按标题字母顺序" },
+  { id: "author", label: "第一作者 A–Z", hint: "按第一作者姓氏字母顺序" },
 ];
 
 const EXPAND_SOURCES = ["libgen", "annas", "crossref", "openalex", "semanticscholar", "pubmed", "europepmc"];
@@ -323,7 +323,10 @@ export default function FindFetch({
   useEffect(() => {
     if (!yearOpen) return;
     const onKey = (e) => { if (e.key === "Escape") setYearOpen(false); };
-    const onDown = (e) => { if (!(e.target && e.target.closest && e.target.closest(".ff-year"))) setYearOpen(false); };
+    const onDown = (e) => {
+      if (e.target?.closest?.(".ff-year-wrap") || e.target?.closest?.(".ff-year")) return;
+      setYearOpen(false);
+    };
     window.addEventListener("keydown", onKey);
     window.addEventListener("mousedown", onDown);
     return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("mousedown", onDown); };
@@ -540,6 +543,8 @@ export default function FindFetch({
   const safePage = clampPage(page, total, pageSize);
   const pageItems = pageSlice(shown, safePage, pageSize);
   const fieldLabel = (FIELD_OPTS.find((o) => o.id === field) || FIELD_OPTS[0]).label;
+  const fieldHint = (FIELD_OPTS.find((o) => o.id === field) || FIELD_OPTS[0]).hint;
+  const sortHint = (SORT_OPTS.find((o) => o.id === sortBy) || SORT_OPTS[0]).hint;
   const sourceLimit = sourceLimitFor(searchDepth);
   const sessionAge = sessionTs ? formatSessionAge(sessionTs, Date.now() + (fetchTick * 0)) : "";
 
@@ -604,13 +609,13 @@ export default function FindFetch({
         <div className="ff-bar">
           <Search size={16} />
           <div className="ff-field-wrap">
-            <button type="button" className={"ff-field-btn" + (fieldMenuOpen ? " on" : "")} aria-label="检索字段" aria-haspopup="listbox" aria-expanded={fieldMenuOpen} onClick={() => setFieldMenuOpen((v) => !v)}>
+            <button type="button" className={"ff-field-btn" + (fieldMenuOpen ? " on" : "")} aria-label="检索字段" aria-haspopup="listbox" aria-expanded={fieldMenuOpen} title={fieldHint} onClick={() => setFieldMenuOpen((v) => !v)}>
               {fieldLabel}<ChevronDown size={13} />
             </button>
             {fieldMenuOpen && (
               <div className="ff-field-menu" role="listbox" aria-label="检索范围">
                 {FIELD_OPTS.map((o) => (
-                  <button key={o.id} type="button" role="option" aria-selected={field === o.id} className={"ff-field-opt" + (field === o.id ? " on" : "")}
+                  <button key={o.id} type="button" role="option" aria-selected={field === o.id} title={o.hint} className={"ff-field-opt" + (field === o.id ? " on" : "")}
                     onClick={() => { setField(o.id); setFieldMenuOpen(false); }}>
                     {o.label}{field === o.id ? <Check size={14} /> : null}
                   </button>
@@ -628,7 +633,7 @@ export default function FindFetch({
         )}
         <div className="ff-tools">
           <div className="ff-syntax">
-            <button className={"ff-tool" + (sxOpen ? " on" : "")} onClick={() => setSxOpen((v) => !v)} aria-expanded={sxOpen}><Info size={13} /> 检索语法</button>
+            <button type="button" className={"ff-tool" + (sxOpen ? " on" : "")} onClick={() => setSxOpen((v) => !v)} aria-expanded={sxOpen} title="布尔运算符 AND/OR 与字段标签写法"><Info size={13} /> 检索语法</button>
             {sxOpen && (
               <div className="ff-sx-pop" role="dialog" aria-label="检索语法帮助">
                 <p className="ff-sx-lead">日常检索用左侧「范围」即可；需要组合条件时再写布尔。</p>
@@ -640,7 +645,9 @@ export default function FindFetch({
               </div>
             )}
           </div>
-          <button className={"ff-tool" + (yearOpen ? " on" : "")} onClick={() => setYearOpen((v) => !v)} aria-expanded={yearOpen}><Calendar size={13} /> 年份{(yearFrom || yearTo) ? ("：" + (yearFrom || "…") + "–" + (yearTo || "…")) : ""} <ChevronDown size={12} /></button>
+          <div className="ff-year-wrap">
+            <button type="button" className={"ff-tool" + (yearOpen ? " on" : "")} onClick={() => setYearOpen((v) => !v)} aria-expanded={yearOpen} title="按发表年份过滤本次结果（本地过滤，不重新检索）"><Calendar size={13} /> 年份{(yearFrom || yearTo) ? ("：" + (yearFrom || "…") + "–" + (yearTo || "…")) : ""} <ChevronDown size={12} /></button>
+          </div>
           <SearchDepthToggle value={searchDepth} onChange={async (d) => {
             setSearchDepth(d);
             await persistSettings((cur) => ({ ...cur, searchDepth: d }));
@@ -649,13 +656,13 @@ export default function FindFetch({
             <div className="ff-sort">
               <ArrowUpDown size={13} /> 排序
               <div className="ff-sort-wrap">
-                <button type="button" className={"ff-sort-btn" + (sortMenuOpen ? " on" : "")} aria-label="结果排序" aria-haspopup="listbox" aria-expanded={sortMenuOpen} onClick={() => setSortMenuOpen((v) => !v)}>
+                <button type="button" className={"ff-sort-btn" + (sortMenuOpen ? " on" : "")} aria-label="结果排序" aria-haspopup="listbox" aria-expanded={sortMenuOpen} title={sortHint} onClick={() => setSortMenuOpen((v) => !v)}>
                   {(SORT_OPTS.find((o) => o.id === sortBy) || SORT_OPTS[0]).label}<ChevronDown size={12} />
                 </button>
                 {sortMenuOpen && (
                   <div className="ff-sort-menu" role="listbox" aria-label="结果排序">
                     {SORT_OPTS.map((o) => (
-                      <button key={o.id} type="button" role="option" aria-selected={sortBy === o.id} className={"ff-sort-opt" + (sortBy === o.id ? " on" : "")}
+                      <button key={o.id} type="button" role="option" aria-selected={sortBy === o.id} title={o.hint} className={"ff-sort-opt" + (sortBy === o.id ? " on" : "")}
                         onClick={() => { setSortBy(o.id); setSortMenuOpen(false); }}>
                         {o.label}{sortBy === o.id ? <Check size={14} /> : null}
                       </button>
@@ -686,8 +693,8 @@ export default function FindFetch({
               <span>
                 <strong>本次检索</strong> · 合并 {total} 篇{sessionAge ? ` · ${sessionAge}` : ""}{loading ? " · 仍在补充…" : ""}
               </span>
-              <span className="ff-session-meta">各数据库各取最相关 {sourceLimit} 条后去重，非全库总数</span>
-              <button type="button" className="ff-session-new" onClick={clear}>新检索</button>
+              <span className="ff-session-meta" title={`每个开放数据库各取最相关 ${sourceLimit} 条后合并去重，不是全库总数`}>各数据库各取最相关 {sourceLimit} 条后去重，非全库总数</span>
+              <button type="button" className="ff-session-new" onClick={clear} title="清空当前结果并开始新检索">新检索</button>
             </div>
             {perSource && Object.keys(perSource).length > 0 && (
               <>

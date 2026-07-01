@@ -761,7 +761,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                 <p className="set-sec-d">阅读器的默认行为与快捷键。开关与缩放切换后立即保存，对新打开的文献生效。</p>
                 <div className="set-kv">
                   <div className="set-kv-main"><span className="set-lbl">记住阅读位置</span><span className="set-kv-d">重开同一篇时回到上次页码（按文献分别记忆）。</span></div>
-                  <button role="switch" aria-checked={rememberPos} className={"set-switch" + (rememberPos ? " on" : "")} onClick={() => void onToggleRememberPos()} aria-label="记住阅读位置开关"><i /></button>
+                  <button role="switch" aria-checked={rememberPos} className={"set-switch" + (rememberPos ? " on" : "")} onClick={() => void onToggleRememberPos()} aria-label="记住阅读位置开关" title="重开同一篇时回到上次页码（按文献分别记忆）"><i /></button>
                 </div>
                 <div className="set-kv">
                   <div className="set-kv-main"><span className="set-lbl">默认缩放</span><span className="set-kv-d">打开文献时的初始缩放比例。</span></div>
@@ -773,7 +773,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                 </div>
                 <div className="set-kv">
                   <div className="set-kv-main"><span className="set-lbl">夜读反色（默认）</span><span className="set-kv-d">深色环境下反相页面，减轻白底刺眼；阅读器内也可随时切换。</span></div>
-                  <button role="switch" aria-checked={nightInvert} className={"set-switch" + (nightInvert ? " on" : "")} onClick={() => void onToggleNightInvert()} aria-label="夜读反色默认开关"><i /></button>
+                  <button role="switch" aria-checked={nightInvert} className={"set-switch" + (nightInvert ? " on" : "")} onClick={() => void onToggleNightInvert()} aria-label="夜读反色默认开关" title="深色环境下反相页面，减轻白底刺眼"><i /></button>
                 </div>
                 <h3 className="set-sec-h" style={{ marginTop: 20 }}>跨篇分析</h3>
                 <p className="set-sec-d">控制「我的文献」多选跨篇归纳时使用的语料深度与篇数上限。深读缓存越完整，跨篇结论越扎实。</p>
@@ -808,7 +808,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                     setCorpusUseLedger(next);
                     await persistSettings((cur) => ({ ...cur, corpus: { ...(cur.corpus || {}), useLedger: next } }));
                     pushToast && pushToast(next ? "已并入深读缓存" : "已仅用总结/摘要");
-                  }} aria-label="并入深读缓存开关"><i /></button>
+                  }} aria-label="并入深读缓存开关" title="将各篇 claim 账本、方法配方、逻辑大纲一并送入跨篇分析"><i /></button>
                 </div>
                 <div className="set-kv">
                   <div className="set-kv-main"><span className="set-lbl">清除继续阅读</span><span className="set-kv-d">移除阅读落地页的「继续阅读」列表；不影响已下载 PDF、批注与页码记忆。</span></div>
@@ -848,7 +848,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                 <p className="set-sec-d">Lumina 本地优先：数据、PDF 与索引都在本机。唯一会出网的是你主动配置的云端模型调用。</p>
                 <div className="set-toggle">
                   <span className="set-lbl"><Eye size={13} style={{ verticalAlign: "-2px", marginRight: 5 }} />允许云端读图（把图表图像发送到云端视觉模型分析）</span>
-                  <button role="switch" aria-checked={visionConsent} className={"set-switch" + (visionConsent ? " on" : "")} onClick={() => void onToggleVisionConsent()} aria-label="云端读图开关"><i /></button>
+                  <button role="switch" aria-checked={visionConsent} className={"set-switch" + (visionConsent ? " on" : "")} onClick={() => void onToggleVisionConsent()} aria-label="云端读图开关" title="开启后才允许把图表图像发送到云端视觉模型"><i /></button>
                 </div>
                 <span className="set-hint">默认关闭：图表分析仅用本机模型（如 Ollama），图像不会上传。开启后才允许发往所选云端视觉模型。切换后立即保存。</span>
                 {visionConsent && provider === "doubao" && (
@@ -870,7 +870,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                 </div>
                 <div className="set-toggle">
                   <span className="set-lbl">取文后自动加入「我的文献」工作集</span>
-                  <button role="switch" aria-checked={autoIngest} className={"set-switch" + (autoIngest ? " on" : "")} onClick={() => void onToggleAutoIngest()} aria-label="自动入库开关"><i /></button>
+                  <button role="switch" aria-checked={autoIngest} className={"set-switch" + (autoIngest ? " on" : "")} onClick={() => void onToggleAutoIngest()} aria-label="自动入库开关" title="获取全文成功时自动写入「我的文献」工作集"><i /></button>
                 </div>
                 <span className="set-hint">开启后，获取全文成功时会自动写入工作集并记录来源；关闭则仅保存 PDF 到本机，需手动收藏。切换后立即保存。</span>
                 <div className="set-note" style={{ marginTop: 12 }}>
@@ -888,6 +888,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                     className="set-btn"
                     disabled={!backend || pruningDetached || detachedSummary.count < 1}
                     onClick={() => setPruneDetachedOpen(true)}
+                    title="删除不在「我的文献」中的本地 PDF，并清除全文索引"
                   >
                     <Trash2 size={15} /> {pruningDetached ? "清理中…" : "清理未收藏 PDF"}
                   </button>
@@ -895,13 +896,13 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                 <span className="set-hint">仅删除<b>不在「我的文献」</b>中的本地 PDF 文件，并同步清除全文索引；收藏中的 PDF 不受影响。从书库点「移除」会保留 PDF 并记入此处，避免重启后又被自动加回工作集。</span>
                 <div className="set-toggle">
                   <span className="set-lbl">桌面通知（订阅简报等）</span>
-                  <button role="switch" aria-checked={notifications} className={"set-switch" + (notifications ? " on" : "")} onClick={() => void onToggleNotifications()} aria-label="通知开关"><i /></button>
+                  <button role="switch" aria-checked={notifications} className={"set-switch" + (notifications ? " on" : "")} onClick={() => void onToggleNotifications()} aria-label="通知开关" title="订阅简报有新文献时弹出系统通知"><i /></button>
                 </div>
                 <div className="set-row">
                   <span className="set-lbl">订阅简报通知档位</span>
                   <div className="set-seg">
-                    {[["calm", "安静"], ["regular", "标准"], ["power", "积极"]].map(([k, l]) => (
-                      <button key={k} type="button" className={digestNotifyTier === k ? "on" : ""} onClick={() => void onPickDigestTier(k)}>{l}</button>
+                    {[["calm", "安静", "仅应用内显示新文献"], ["regular", "标准", "每次调度一条汇总通知"], ["power", "积极", "每个订阅单独通知"]].map(([k, l, hint]) => (
+                      <button key={k} type="button" className={digestNotifyTier === k ? "on" : ""} title={hint} onClick={() => void onPickDigestTier(k)}>{l}</button>
                     ))}
                   </div>
                   <span className="set-hint">安静：仅应用内显示 · 标准：每次调度一条汇总通知 · 积极：每个订阅单独通知</span>
@@ -909,24 +910,24 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                 <div className="set-row">
                   <span className="set-lbl">简报历史保留</span>
                   <div className="set-seg">
-                    {[[90, "90 天"], [365, "1 年"], [0, "永久"]].map(([d, l]) => (
-                      <button key={d} type="button" className={digestHistoryDays === d ? "on" : ""} onClick={() => void onPickDigestHistory(d)}>{l}</button>
+                    {[[90, "90 天", "超过 90 天的简报快照与总报告会被清理"], [365, "1 年", "保留约一年的简报历史"], [0, "永久", "永久保留简报快照与总报告"]].map(([d, l, hint]) => (
+                      <button key={d} type="button" className={digestHistoryDays === d ? "on" : ""} title={hint} onClick={() => void onPickDigestHistory(d)}>{l}</button>
                     ))}
                   </div>
                   <span className="set-hint">仅清理每日简报快照与总报告缓存；你的文献库与 PDF 不受影响。</span>
                 </div>
                 <div className="set-toggle">
                   <span className="set-lbl">检索完成后自动生成「今日简报总报告」</span>
-                  <button role="switch" aria-checked={digestReportAuto} className={"set-switch" + (digestReportAuto ? " on" : "")} onClick={() => void onToggleDigestReportAuto()} aria-label="自动生成简报总报告"><i /></button>
+                  <button role="switch" aria-checked={digestReportAuto} className={"set-switch" + (digestReportAuto ? " on" : "")} onClick={() => void onToggleDigestReportAuto()} aria-label="自动生成简报总报告" title="订阅检索完成后自动生成今日简报总报告"><i /></button>
                 </div>
                 <span className="set-hint">与每条「相关说明」分开：总报告归纳今日全部待读（基于标题+摘要）。关闭后仍可在简报页手动生成。默认开启。</span>
                 <div className="set-toggle">
                   <span className="set-lbl">关闭时最小化到托盘后台运行（订阅检索与每日简报继续）</span>
-                  <button role="switch" aria-checked={bgTray} className={"set-switch" + (bgTray ? " on" : "")} onClick={() => void onToggleBgTray()} aria-label="后台运行开关"><i /></button>
+                  <button role="switch" aria-checked={bgTray} className={"set-switch" + (bgTray ? " on" : "")} onClick={() => void onToggleBgTray()} aria-label="后台运行开关" title="关闭主窗口后驻留托盘，订阅检索与简报继续"><i /></button>
                 </div>
                 <div className="set-toggle">
                   <span className="set-lbl">开机时自动启动 Lumina</span>
-                  <button role="switch" aria-checked={bgLogin} className={"set-switch" + (bgLogin ? " on" : "")} onClick={() => void onToggleBgLogin()} aria-label="开机自启开关"><i /></button>
+                  <button role="switch" aria-checked={bgLogin} className={"set-switch" + (bgLogin ? " on" : "")} onClick={() => void onToggleBgLogin()} aria-label="开机自启开关" title="开机时自动启动 Lumina"><i /></button>
                 </div>
                 <span className="set-hint">后台运行：关闭主窗口后驻留系统托盘，订阅按计划检索并在有新文献时通知。从托盘可重新打开或退出。Linux 下开机自启支持有限。</span>
                 <div className="set-row">
