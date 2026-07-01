@@ -53,6 +53,8 @@
 .lf-email-inline{ background:var(--surf2); border:1px solid var(--line); border-radius:var(--radius,12px); padding:14px; margin-top:10px; }
 
 /* ---- Settings → 数据源 panel ---- */
+.lf-sources-panel .set-pane-h{ margin-bottom:10px; }
+.lf-sources-panel .set-sec-d{ margin:0 0 16px; }
 .lf-sources-panel .set-sec{ margin-top:18px; }
 .lf-sources-panel .set-sec-t{ font-size:13px; font-weight:600; color:var(--ink2); margin-bottom:8px; }
 .lf-sources-keys-hint{ margin:0 0 12px; font-size:12px; line-height:1.55; }
