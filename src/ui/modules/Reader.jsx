@@ -200,12 +200,17 @@ const READER_CSS = `
 .rd-pageind{display:inline-flex;align-items:center;gap:6px;font-family:'Space Mono',monospace;font-size:12px;color:var(--ink2)}
 .rd-pageind input{width:42px;text-align:center;border:1px solid var(--line2);border-radius:6px;padding:4px;font-family:inherit;font-size:12px;background:var(--surf);color:var(--ink)}
 .rd-hint{display:inline-flex;align-items:center;font-size:11.5px;color:var(--ink3);font-family:inherit;white-space:nowrap;line-height:1}
-.rd-find{display:flex;align-items:center;gap:8px;padding:7px 14px;background:var(--surf);border-bottom:1px solid var(--line);flex-shrink:0}
-.rd-find svg{color:var(--ink3)}
-.rd-find input{flex:1;border:1px solid var(--line2);border-radius:8px;padding:6px 10px;font-size:13px;font-family:inherit;background:var(--surf);color:var(--ink);outline:none}
-.rd-find input:focus{border-color:var(--gold)}
-.rd-fcount{font-family:'Space Mono',monospace;font-size:12px;color:var(--ink3);min-width:50px;text-align:center}
-.rd-body{flex:1;min-height:0;display:flex;overflow:hidden}
+.rd-body{flex:1;min-height:0;display:flex;overflow:hidden;position:relative}
+.rd-find-float{position:absolute;top:12px;right:16px;z-index:35;display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--surf);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.14);max-width:min(440px,calc(100% - 32px))}
+.rd-find-float svg{color:var(--ink3);flex-shrink:0}
+.rd-find-float input{flex:1;min-width:108px;border:1px solid var(--line2);border-radius:8px;padding:6px 10px;font-size:13px;font-family:inherit;background:var(--surf);color:var(--ink);outline:none}
+.rd-find-float input:focus{border-color:var(--gold)}
+.rd-find-float.no-match input{border-color:#d97757}
+.rd-find-float .rd-fcount{font-family:'Space Mono',monospace;font-size:12px;color:var(--ink3);min-width:54px;text-align:center;white-space:nowrap}
+.rd-find-float .rd-find-none{font-size:11px;color:#c0392b;white-space:nowrap}
+.rd-find-float .rd-btn{padding:5px 7px}
+.rd-find-float .rd-x{border:none;background:transparent;color:var(--ink3);cursor:pointer;display:inline-flex;border-radius:6px;padding:3px;margin-left:2px}
+.rd-find-float .rd-x:hover{background:var(--surf2);color:var(--ink)}
 .rd-side{flex-shrink:0;border-right:1px solid var(--line);background:var(--surf);display:flex;flex-direction:row;overflow:hidden;box-sizing:border-box}
 .rd-rail{width:46px;flex-shrink:0;display:flex;flex-direction:column;gap:6px;padding:9px 6px;border-right:1px solid var(--line2);background:var(--surf2)}
 .rd-railbtn{width:34px;height:34px;display:grid;place-items:center;border:1px solid transparent;background:transparent;color:var(--ink3);border-radius:8px;cursor:pointer}
@@ -253,8 +258,10 @@ const READER_CSS = `
 .textLayer span,.textLayer br{color:transparent;position:absolute;white-space:pre;cursor:text;transform-origin:0 0}
 .textLayer span.markedContent{top:0;height:0}
 .textLayer ::selection{background:rgba(14,124,111,.35)}
-.textLayer mark.lf-fh{background:rgba(245,177,66,.42);color:transparent;border-radius:1px}
-.textLayer mark.lf-fh-cur{background:rgba(245,158,11,.85)}
+.textLayer mark.lf-fh{background:rgba(245,177,66,.48);color:transparent;border-radius:2px;padding:0}
+.textLayer mark.lf-fh-cur{background:rgba(245,158,11,.88);box-shadow:0 0 0 1px rgba(217,119,6,.65)}
+.rd.night .textLayer mark.lf-fh{background:rgba(255,193,70,.52)}
+.rd.night .textLayer mark.lf-fh-cur{background:rgba(255,210,90,.92);box-shadow:0 0 0 1px rgba(255,230,140,.85)}
 .rd-loading,.rd-err{margin:auto;display:flex;flex-direction:column;align-items:center;gap:12px;color:var(--ink3);font-size:13.5px}
 .rd-loading svg,.rd-err svg{color:var(--gold)}
 .rd-spin{animation:rdspin 1s linear infinite}
@@ -438,40 +445,84 @@ const READER_CSS = `
 .rd-zoom-menu button:hover{background:var(--surf2);color:var(--gold)}
 `;
 
-// 统计 q 在 str 中的出现次数（indexOf，避免正则 /g 状态坑）
-function countOcc(str, q) {
-  let n = 0, i = 0; const s = (str || "").toLowerCase();
-  while ((i = s.indexOf(q, i)) !== -1) { n += 1; i += q.length; }
-  return n;
+// 页内查找：跨 span / 跨 PDF 文本项匹配（与 DOM 文本层同源顺序）
+function collectTextSpans(container) {
+  if (!container) return [];
+  return [...container.querySelectorAll("span")].filter((s) => !s.classList.contains("markedContent") && !s.closest("mark"));
 }
 
-// 在已渲染文本层 DOM 内包裹匹配项；curIdx = 当前匹配在本页的序号（标 cur 并滚入视野）
-function applyHighlight(container, q, curIdx) {
-  if (!container || !q) return;
-  const spans = container.querySelectorAll("span");
-  let k = 0;
-  spans.forEach((span) => {
+function findMatchStarts(text, q) {
+  const low = (text || "").toLowerCase();
+  const starts = [];
+  let i = 0;
+  while ((i = low.indexOf(q, i)) !== -1) {
+    starts.push(i);
+    i += q.length;
+  }
+  return starts;
+}
+
+function buildSpanMeta(spans) {
+  let g = 0;
+  return spans.map((span) => {
     const text = span.textContent || "";
-    const low = text.toLowerCase();
-    if (low.indexOf(q) === -1) return;
-    const frag = document.createDocumentFragment();
-    let last = 0, idx = low.indexOf(q, 0);
-    while (idx !== -1) {
-      if (idx > last) frag.appendChild(document.createTextNode(text.slice(last, idx)));
-      const mark = document.createElement("mark");
-      mark.className = "lf-fh" + (k === curIdx ? " lf-fh-cur" : "");
-      mark.textContent = text.slice(idx, idx + q.length);
-      frag.appendChild(mark);
-      k += 1; last = idx + q.length; idx = low.indexOf(q, last);
+    const meta = { span, text, gStart: g, gEnd: g + text.length };
+    g += text.length;
+    return meta;
+  });
+}
+
+function applyHighlight(container, q, curIdx, scrollRoot) {
+  if (!container || !q) return;
+  const spans = collectTextSpans(container);
+  if (!spans.length) return;
+  const spanMeta = buildSpanMeta(spans);
+  const pageText = spanMeta.map((s) => s.text).join("");
+  const matchStarts = findMatchStarts(pageText, q);
+  const spanRanges = new Map();
+
+  matchStarts.forEach((ms, mi) => {
+    const me = ms + q.length;
+    const isCur = mi === curIdx;
+    for (const { span, text, gStart, gEnd } of spanMeta) {
+      if (me <= gStart || ms >= gEnd) continue;
+      const from = Math.max(0, ms - gStart);
+      const to = Math.min(text.length, me - gStart);
+      if (!spanRanges.has(span)) spanRanges.set(span, []);
+      const ranges = spanRanges.get(span);
+      const last = ranges[ranges.length - 1];
+      if (last && last.isCur === isCur && last.to === from) last.to = to;
+      else ranges.push({ from, to, isCur });
     }
-    if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+  });
+
+  for (const { span, text } of spanMeta) {
+    const ranges = spanRanges.get(span);
+    if (!ranges || !ranges.length) continue;
+    const frag = document.createDocumentFragment();
+    let pos = 0;
+    for (const r of ranges) {
+      if (r.from > pos) frag.appendChild(document.createTextNode(text.slice(pos, r.from)));
+      const mark = document.createElement("mark");
+      mark.className = "lf-fh" + (r.isCur ? " lf-fh-cur" : "");
+      mark.textContent = text.slice(r.from, r.to);
+      frag.appendChild(mark);
+      pos = r.to;
+    }
+    if (pos < text.length) frag.appendChild(document.createTextNode(text.slice(pos)));
     span.textContent = "";
     span.appendChild(frag);
-  });
+  }
+
   if (curIdx != null && curIdx >= 0) {
     const cur = container.querySelector(".lf-fh-cur");
-    if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "center", inline: "nearest" });
+    if (cur && scrollRoot) scrollItemInContainer(scrollRoot, cur);
+    else if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "center", inline: "nearest" });
   }
+}
+
+function countPageMatches(pageText, q) {
+  return findMatchStarts(pageText, q).length;
 }
 
 /** 在指定滚动容器内滚到子项（scrollIntoView 在 overflow:hidden 嵌套侧栏里不可靠） */
@@ -523,7 +574,7 @@ function ThumbCanvas({ doc, pageNum, rotation }) {
 }
 
 // 单页：canvas + 文本层（可选择）+ 查找高亮
-function PageView({ doc, pageNum, scale, rotation, find, curOnThisPage, annos }) {
+function PageView({ doc, pageNum, scale, rotation, find, curOnThisPage, annos, scrollRootRef }) {
   const canvasRef = useRef(null);
   const textRef = useRef(null);
   useEffect(() => {
@@ -556,7 +607,7 @@ function PageView({ doc, pageNum, scale, rotation, find, curOnThisPage, annos })
         const viewport = page.getViewport({ scale, rotation });
         await renderTextLayer(page, textRef.current, viewport);
         if (cancelled || !textRef.current) return;
-        if (find && find.q) applyHighlight(textRef.current, find.q, curOnThisPage == null ? -1 : curOnThisPage);
+        if (find && find.q) applyHighlight(textRef.current, find.q, curOnThisPage == null ? -1 : curOnThisPage, scrollRootRef?.current);
       } catch (e) { /* noop */ }
     })();
     return () => { cancelled = true; };
@@ -2079,6 +2130,9 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
   const [llmModel, setLlmModel] = useState("");
   const [explainReq, setExplainReq] = useState(null);
   const [find, setFind] = useState(null); // { q, matches:[{page,kOnPage}], cur }
+  const [findQuery, setFindQuery] = useState("");
+  const findInputRef = useRef(null);
+  const findDebounceRef = useRef(null);
   const [zoomMenuOpen, setZoomMenuOpen] = useState(false);
   const [night, setNight] = useState(false);   // 夜读反色（页面 canvas 反相）
   const [hand, setHand] = useState(false);      // 抓手平移
@@ -2130,7 +2184,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true); setErr(null); strCache.current = {}; setFind(null); setFindOpen(false);
+    setLoading(true); setErr(null); strCache.current = {}; setFind(null); setFindQuery(""); setFindOpen(false);
     posLoadedRef.current = false;
     resolveReaderPdfData(source)
       .then(async (data) => {
@@ -2262,11 +2316,11 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
 
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === "Escape") { if (snipMode) { setSnipMode(false); setSnipRect(null); } else if (transMenuOpen) { setTransMenuOpen(false); } else if (zoomMenuOpen) { setZoomMenuOpen(false); } else if (sel) { setSel(null); } else if (findOpen) { setFindOpen(false); setFind(null); } else if (aiOpen) { setAiOpen(false); } else if (transMode) { setTransMode(null); } else onClose(); return; }
+      if (e.key === "Escape") { if (snipMode) { setSnipMode(false); setSnipRect(null); } else if (transMenuOpen) { setTransMenuOpen(false); } else if (zoomMenuOpen) { setZoomMenuOpen(false); } else if (sel) { setSel(null); } else if (findOpen) { setFindOpen(false); setFind(null); setFindQuery(""); if (findDebounceRef.current) clearTimeout(findDebounceRef.current); } else if (aiOpen) { setAiOpen(false); } else if (transMode) { setTransMode(null); } else onClose(); return; }
       const t = e.target;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return; // 输入框内不抢快捷键
       const mod = e.metaKey || e.ctrlKey;
-      if (mod && (e.key === "f" || e.key === "F")) { e.preventDefault(); setFindOpen(true); }
+      if (mod && (e.key === "f" || e.key === "F")) { e.preventDefault(); setFindOpen(true); requestAnimationFrame(() => findInputRef.current?.focus()); }
       else if (e.key === "Home") { e.preventDefault(); setPage(1); }
       else if (e.key === "End") { e.preventDefault(); setPage(numPages); }
       else if (mod && (e.key === "=" || e.key === "+")) { e.preventDefault(); if (view === "two") spreadManualZoomRef.current = true; setScale((s) => Math.min(4, +(s * 1.1).toFixed(3))); }
@@ -2565,18 +2619,30 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
     strCache.current[p] = arr;
     return arr;
   };
-  const runFind = async (raw) => {
+  const runFind = useCallback(async (raw) => {
     const q = (raw || "").trim().toLowerCase();
     if (!q || !doc) { setFind(null); return; }
     const matches = [];
     for (let p = 1; p <= numPages; p++) {
       const items = await getStrs(p);
-      let k = 0;
-      for (const s of items) { const c = countOcc(s, q); for (let j = 0; j < c; j++) matches.push({ page: p, kOnPage: k + j }); k += c; }
+      const pageText = items.join("");
+      const n = countPageMatches(pageText, q);
+      for (let j = 0; j < n; j++) matches.push({ page: p, kOnPage: j });
     }
     setFind({ q, matches, cur: matches.length ? 0 : -1 });
     if (matches.length) setPage(Math.max(1, Math.min(numPages, matches[0].page)));
-  };
+  }, [doc, numPages]);
+
+  useEffect(() => {
+    if (!findOpen) return undefined;
+    if (findDebounceRef.current) clearTimeout(findDebounceRef.current);
+    findDebounceRef.current = setTimeout(() => { void runFind(findQuery); }, 300);
+    return () => { if (findDebounceRef.current) clearTimeout(findDebounceRef.current); };
+  }, [findQuery, findOpen, runFind]);
+
+  useEffect(() => {
+    if (findOpen) requestAnimationFrame(() => findInputRef.current?.focus());
+  }, [findOpen]);
 
   const runCtxAction = useCallback((actionId) => {
     const captured = ctxSelectionRef.current || sel;
@@ -2599,7 +2665,12 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
       case "writingObs": onWritingObsFromSel(captured); break;
       case "translate": onTranslateFromSel(captured); break;
       case "findSelection":
-        if (captured) { setFindOpen(true); runFind(captured.text); }
+        if (captured) {
+          setFindQuery(captured.text);
+          setFindOpen(true);
+          if (findDebounceRef.current) clearTimeout(findDebounceRef.current);
+          void runFind(captured.text);
+        }
         break;
       case "zoomIn": zoomIn(); break;
       case "zoomOut": zoomOut(); break;
@@ -2638,7 +2709,12 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
     setFind({ ...find, cur });
     setPage(Math.max(1, Math.min(numPages, find.matches[cur].page)));
   };
-  const closeFind = () => { setFindOpen(false); setFind(null); };
+  const closeFind = () => {
+    setFindOpen(false);
+    setFind(null);
+    setFindQuery("");
+    if (findDebounceRef.current) clearTimeout(findDebounceRef.current);
+  };
 
   const curMatch = find && find.cur >= 0 ? find.matches[find.cur] : null;
   const curFor = (n) => (curMatch && curMatch.page === n ? curMatch.kOnPage : -1);
@@ -2724,7 +2800,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
           <button className={"rd-btn" + (focus ? " on" : "")} onClick={() => setFocus((v) => !v)} title="专注模式"><Expand size={15} /></button>
         </div>
         <div className="rd-grp" style={{ position: "relative" }}>
-          <button className={"rd-btn" + (findOpen ? " on" : "")} onClick={() => setFindOpen((v) => !v)} title="页内查找"><Search size={15} /> 查找</button>
+          <button className={"rd-btn" + (findOpen ? " on" : "")} onClick={() => (findOpen ? closeFind() : setFindOpen(true))} title="页内查找 (Ctrl/⌘ F)"><Search size={15} /> 查找</button>
           <button className={"rd-btn" + (aiOpen && zone === "assist" ? " on" : "")} onClick={() => { if (aiOpen && zone === "assist") setAiOpen(false); else { setAiOpen(true); setZone("assist"); setTransMode(null); } }} title="阅读助手"><Sparkles size={15} /> 助手</button>
           <button className={"rd-btn" + (aiOpen && zone === "notes" ? " on" : "")} onClick={() => { if (aiOpen && zone === "notes") setAiOpen(false); else { setAiOpen(true); setZone("notes"); setTransMode(null); } }} title="批注"><Highlighter size={15} /> 批注</button>
           <button className="rd-btn" disabled={!canUndoAnno} onClick={undoAnno} title="撤销批注 (Ctrl/⌘ Z)"><Undo2 size={15} /> 撤销</button>
@@ -2747,19 +2823,35 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
         </div>
       </div>
 
-      {findOpen && (
-        <div className="rd-find">
-          <Search size={15} />
-          <input autoFocus placeholder="在文档中查找…（回车搜索）" defaultValue={find ? find.q : ""}
-            onKeyDown={(e) => { if (e.key === "Enter") runFind(e.target.value); else if (e.key === "Escape") closeFind(); }} />
-          <span className="rd-fcount">{find ? (find.matches.length ? find.cur + 1 + " / " + find.matches.length : "0 / 0") : "—"}</span>
-          <button className="rd-btn" onClick={() => moveFind(-1)} disabled={!find || !find.matches.length} title="上一处"><ChevronUp size={15} /></button>
-          <button className="rd-btn" onClick={() => moveFind(1)} disabled={!find || !find.matches.length} title="下一处"><ChevronDown size={15} /></button>
-          <button className="rd-x" onClick={closeFind} title="关闭查找"><X size={16} /></button>
-        </div>
-      )}
-
       <div className="rd-body">
+        {findOpen && (
+          <div className={"rd-find-float" + (find && find.q && !find.matches.length ? " no-match" : "")} role="search">
+            <Search size={15} aria-hidden />
+            <input
+              ref={findInputRef}
+              value={findQuery}
+              onChange={(e) => setFindQuery(e.target.value)}
+              placeholder="在文档中查找…"
+              aria-label="在文档中查找"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  if (findDebounceRef.current) clearTimeout(findDebounceRef.current);
+                  void runFind(e.currentTarget.value);
+                } else if (e.key === "Escape") closeFind();
+                else if (e.key === "F3") { e.preventDefault(); moveFind(e.shiftKey ? -1 : 1); }
+              }}
+            />
+            <span className="rd-fcount">
+              {find && find.q
+                ? (find.matches.length ? (find.cur + 1) + " / " + find.matches.length : "0 处")
+                : "—"}
+            </span>
+            {find && find.q && !find.matches.length && <span className="rd-find-none">无匹配</span>}
+            <button type="button" className="rd-btn" onClick={() => moveFind(-1)} disabled={!find || !find.matches.length} title="上一处 (Shift+F3)"><ChevronUp size={15} /></button>
+            <button type="button" className="rd-btn" onClick={() => moveFind(1)} disabled={!find || !find.matches.length} title="下一处 (F3)"><ChevronDown size={15} /></button>
+            <button type="button" className="rd-x" onClick={closeFind} title="关闭查找 (Esc)"><X size={16} /></button>
+          </div>
+        )}
         {sidebar && !loading && !err && doc && (
           <div className="rd-side" style={{ width: sidePanel ? sideWidth + 46 : 46 }}>
             <div className="rd-rail">
@@ -2812,15 +2904,15 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
             <div className="rd-err"><AlertTriangle size={24} /><div>{err}</div></div>
           ) : !doc ? null : view === "continuous" ? (
             Array.from({ length: numPages }, (_, i) => i + 1).map((n) => (
-              <div key={n} id={"rd-pg-" + n}><PageView doc={doc} pageNum={n} scale={scale} rotation={rotation} find={find} curOnThisPage={curFor(n)} annos={annos.filter((a) => a.page === n)} /></div>
+              <div key={n} id={"rd-pg-" + n}><PageView doc={doc} pageNum={n} scale={scale} rotation={rotation} find={find} curOnThisPage={curFor(n)} annos={annos.filter((a) => a.page === n)} scrollRootRef={viewRef} /></div>
             ))
           ) : view === "two" ? (
             <div className="rd-spread">
-              <PageView doc={doc} pageNum={page} scale={scale} rotation={rotation} find={find} curOnThisPage={curFor(page)} annos={annos.filter((a) => a.page === page)} />
-              {page + 1 <= numPages && <PageView doc={doc} pageNum={page + 1} scale={scale} rotation={rotation} find={find} curOnThisPage={curFor(page + 1)} annos={annos.filter((a) => a.page === page + 1)} />}
+              <PageView doc={doc} pageNum={page} scale={scale} rotation={rotation} find={find} curOnThisPage={curFor(page)} annos={annos.filter((a) => a.page === page)} scrollRootRef={viewRef} />
+              {page + 1 <= numPages && <PageView doc={doc} pageNum={page + 1} scale={scale} rotation={rotation} find={find} curOnThisPage={curFor(page + 1)} annos={annos.filter((a) => a.page === page + 1)} scrollRootRef={viewRef} />}
             </div>
           ) : (
-            <PageView doc={doc} pageNum={page} scale={scale} rotation={rotation} find={find} curOnThisPage={curFor(page)} annos={annos.filter((a) => a.page === page)} />
+            <PageView doc={doc} pageNum={page} scale={scale} rotation={rotation} find={find} curOnThisPage={curFor(page)} annos={annos.filter((a) => a.page === page)} scrollRootRef={viewRef} />
           )}
         </div>
 

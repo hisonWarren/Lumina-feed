@@ -14,7 +14,7 @@ export function isReaderContextHost() {
 export function shouldReaderHandleContextTarget(target) {
   if (!target || !target.closest) return false;
   if (target.closest("input, textarea, [contenteditable='true']")) return false;
-  if (target.closest(".rd-ai, .rd-tp, .rd-anno, .rd-sidepanel, .rd-find")) return false;
+  if (target.closest(".rd-ai, .rd-tp, .rd-anno, .rd-sidepanel, .rd-find-float")) return false;
   if (target.closest(".lf-ctx, .rd-ctx")) return false;
   return !!target.closest(".rd");
 }
