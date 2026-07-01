@@ -21,6 +21,7 @@ function formatSrcCount(count, sourceLimit) {
 
 export default function HitSources({ perSource, mergedCount, sourceLimit = 25, needsKey, onRetrySource, retryingSource }) {
   const [open, setOpen] = useState(false);
+  const [showEmpty, setShowEmpty] = useState(false);
   if (!perSource || !Object.keys(perSource).length) return null;
 
   const entries = Object.entries(perSource);
@@ -45,8 +46,8 @@ export default function HitSources({ perSource, mergedCount, sourceLimit = 25, n
     if (!onRetrySource || !RETRYABLE.has(src)) return null;
     const busy = retryingSource === src;
     return (
-      <button type="button" className="lf-src-retry" disabled={busy} onClick={() => onRetrySource(src)} title="仅重试此源">
-        <RefreshCw size={11} className={busy ? "ff-spin" : ""} /> {busy ? "重试中" : "重试"}
+      <button type="button" className="lf-src-retry" disabled={busy} onClick={() => onRetrySource(src)} title="重试此源" aria-label="重试">
+        <RefreshCw size={10} className={busy ? "ff-spin" : ""} />
       </button>
     );
   };
@@ -66,16 +67,25 @@ export default function HitSources({ perSource, mergedCount, sourceLimit = 25, n
         <span className="caret">{open ? "收起 ▴" : "展开 ▾"}</span>
       </button>
       {open && (
-        <div className="lf-src-detail">
-          {hit.map((s) => (
-            <span key={s} className="lf-src">
-              <i className="dot ok" />{label(s)}{perSource[s]?.count ? ` · ${formatSrcCount(perSource[s].count, sourceLimit)}` : ""}
-            </span>
-          ))}
-          {empty.map((s) => row(s, "zero", "无匹配"))}
-          {timeout.map((s) => row(s, "warn", "超时"))}
-          {failed.map((s) => row(s, "warn", "失败"))}
-          {unconfigured.map((s) => row(s, "need", "需配置 Key"))}
+        <div className="lf-src-detail-wrap">
+          <div className="lf-src-detail">
+            {hit.map((s) => (
+              <span key={s} className="lf-src lf-src-hit">
+                <i className="dot ok" />{label(s)}{perSource[s]?.count ? ` · ${formatSrcCount(perSource[s].count, sourceLimit)}` : ""}
+              </span>
+            ))}
+            {timeout.map((s) => row(s, "warn", "超时"))}
+            {failed.map((s) => row(s, "warn", "失败"))}
+            {unconfigured.map((s) => row(s, "need", "需 Key"))}
+          </div>
+          {empty.length > 0 && (
+            <button type="button" className="lf-src-empty-toggle" onClick={() => setShowEmpty((v) => !v)}>
+              {showEmpty ? "收起无匹配" : `${empty.length} 个源无匹配`}
+            </button>
+          )}
+          {showEmpty && empty.length > 0 && (
+            <div className="lf-src-empty-list">{empty.map((s) => label(s)).join(" · ")}</div>
+          )}
         </div>
       )}
     </div>

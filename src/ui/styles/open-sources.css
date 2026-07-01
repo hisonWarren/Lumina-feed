@@ -3,13 +3,16 @@
    All color via existing CSS variables (doc 03 §1); selected = solid petrol + white (§2). */
 
 /* ---- HitSources v2: summary + expandable (fixes 17-chip overload) ---- */
-.lf-sources-v2{ flex-direction:column; align-items:stretch; gap:8px; }
-.lf-src-summary{ display:flex; align-items:center; gap:10px; background:transparent; border:0; cursor:pointer; font:inherit; padding:0; text-align:left; }
-.lf-src-summary .lbl{ font-size:12px; font-weight:600; color:var(--ink3); }
-.lf-src-summary .sum{ font-family:var(--mono); font-size:12.5px; color:var(--petrol-deep); }
-.lf-src-summary .caret{ margin-left:auto; font-size:12px; color:var(--ink4); }
-.lf-src-detail{ display:grid; grid-template-columns:repeat(auto-fill,minmax(148px,1fr)); gap:6px 10px; padding-top:6px; }
-.lf-src-detail .lf-src{ font-size:11.5px; line-height:1.45; }
+.lf-sources-v2{ flex-direction:column; align-items:stretch; gap:4px; padding:8px 12px !important; margin:0 0 10px !important; }
+.lf-src-summary{ display:flex; align-items:center; gap:8px; background:transparent; border:0; cursor:pointer; font:inherit; padding:0; text-align:left; min-height:0; }
+.lf-src-summary .lbl{ font-size:11.5px; font-weight:600; color:var(--ink3); flex-shrink:0; }
+.lf-src-summary .sum{ font-family:var(--mono); font-size:11.5px; color:var(--petrol-deep); line-height:1.35; }
+.lf-src-summary .caret{ margin-left:auto; font-size:11px; color:var(--ink4); flex-shrink:0; }
+.lf-src-detail-wrap{ display:flex; flex-direction:column; gap:4px; }
+.lf-src-detail{ display:flex; flex-wrap:wrap; gap:4px 8px; padding-top:2px; max-height:72px; overflow-y:auto; }
+.lf-src-detail .lf-src{ font-size:11px; line-height:1.3; white-space:nowrap; }
+.lf-src-detail .lf-src::before{ content:none; display:none; }
+.lf-src-detail .lf-src-hit{ font-family:var(--mono); color:var(--ink2); }
 .lf-src .dot{ width:6px; height:6px; border-radius:50%; background:var(--line2); display:inline-block; margin-right:5px; vertical-align:middle; }
 .lf-src .dot.ok{ background:var(--petrol); }
 .lf-src .dot.warn{ background:#C68A12; }
@@ -102,7 +105,10 @@
 .ff-idtag{ font-family:var(--mono); font-size:10px; color:var(--petrol); background:rgba(14,124,111,.1); border-radius:6px; padding:2px 7px; margin-left:6px; }
 .ff-resolved{ font-size:11px; color:var(--ink4); margin-top:4px; }
 .ff-disambig{ font-size:12px; color:#9a6b2e; background:rgba(154,107,46,.1); border:1px solid rgba(154,107,46,.22); border-radius:8px; padding:8px 11px; margin-bottom:8px; line-height:1.5; }
-.lf-src-retry{ margin-left:8px; border:1px solid var(--line2); background:var(--surf); color:var(--ink3); border-radius:6px; padding:2px 7px; font-size:10px; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center; gap:4px; }
+.lf-src-retry{ margin-left:4px; border:1px solid var(--line2); background:var(--surf); color:var(--ink3); border-radius:5px; padding:1px 4px; font-size:10px; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center; gap:0; vertical-align:middle; line-height:1; }
+.lf-src-empty-toggle{ align-self:flex-start; font:inherit; font-size:10.5px; color:var(--ink4); background:transparent; border:0; cursor:pointer; padding:0; text-decoration:underline; text-underline-offset:2px; }
+.lf-src-empty-toggle:hover{ color:var(--ink3); }
+.lf-src-empty-list{ font-size:10.5px; color:var(--ink4); line-height:1.4; padding:0 2px 2px; }
 .lf-src-retry:hover{ border-color:var(--petrol); color:var(--petrol); }
 .lf-src-retry:disabled{ opacity:.55; cursor:default; }
 .lf-src-chips{ display:flex; flex-wrap:wrap; gap:5px; margin:6px 0 4px; }

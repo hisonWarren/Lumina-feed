@@ -1,6 +1,6 @@
 {
   "name": "lumina-feed",
-  "version": "0.4.62",
+  "version": "0.4.63",
   "description": "Lumina Feed · 干净基线（检索取文 + 接地总结）",
   "author": "hisonWarren",
   "main": "build/main.cjs",
