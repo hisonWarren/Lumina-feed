@@ -5,7 +5,7 @@ export default function DigestAbstract({ abstract }) {
   const [open, setOpen] = useState(false);
   const text = String(abstract || "").trim();
   if (!text) {
-    return <div className="dg-abs dg-abs-empty">暂无摘要 · 仅标题与 metadata</div>;
+    return <div className="dg-abs dg-abs-empty">暂无摘要 · 仍可看标题与 DOI</div>;
   }
   const long = text.length > 180 || text.split(/\s+/).length > 35;
   return (

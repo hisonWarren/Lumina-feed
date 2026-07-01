@@ -1,16 +1,11 @@
-// open-sources · 设置「数据源」面板（修 review F1 红线3 + F14 Key UX）。
-// 关键：API Key 一律经 bridge.setSecret(name,value) 写入 OS 钥匙串，*绝不*写入 AppSettings/配置（红线3）。
-//   - 与既有「大模型」Key 完全相同的存储路径（Settings.jsx 既有 setSecret 模式）。
-//   - 每个 Key 配「获取 Key →」外链 + 「测试」连通（sources:test，见 WIRING）。
-//   - 邮箱与检索深度走 settings:save（非密钥）；面板只显示「已配置」布尔，不回显 Key 明文。
+// open-sources · 设置「数据源」面板（API Key UX；密钥经 bridge.setSecret 写入 OS 钥匙串）。
 import React, { useState } from "react";
-import SearchDepthToggle from "./SearchDepthToggle.jsx";
 
 const KEYS = [
   { secret: "semanticscholar_key", label: "Semantic Scholar Key", need: "可选", hint: "无也可用，配置后限速更稳", url: "https://www.semanticscholar.org/product/api" },
   { secret: "ncbi_key",            label: "NCBI API Key",         need: "可选", hint: "PubMed 提速（3→10 req/s）", url: "https://www.ncbi.nlm.nih.gov/account/settings/" },
-  { secret: "core_key",            label: "CORE API Key",         need: "必填才启用", hint: "无则跳过 CORE 源", url: "https://core.ac.uk/services/api" },
-  { secret: "lens_token",          label: "Lens.org Token",       need: "必填才启用", hint: "无则跳过 Lens 源", url: "https://www.lens.org/lens/user/subscriptions" },
+  { secret: "core_key",            label: "CORE API Key",         need: "无则跳过", hint: "未配置时不检索 CORE 源", url: "https://core.ac.uk/services/api" },
+  { secret: "lens_token",          label: "Lens.org Token",       need: "无则跳过", hint: "未配置时不检索 Lens 源", url: "https://www.lens.org/lens/user/subscriptions" },
 ];
 
 function KeyRow({ row, configured, onSave, onTest, onOpen }) {
@@ -50,26 +45,20 @@ function KeyRow({ row, configured, onSave, onTest, onOpen }) {
   );
 }
 
-export default function SourceKeysPanel({ configured = {}, depth = "standard", onSaveKey, onTestKey, onOpenUrl, onChangeDepth }) {
+export default function SourceKeysPanel({ configured = {}, onSaveKey, onTestKey, onOpenUrl }) {
   return (
     <div className="lf-sources-panel">
       <h2 className="set-pane-h">数据源</h2>
-      <p className="set-sec-d">开放学术源的 API Key 与检索深度。密钥只写入系统钥匙串，绝不写入配置文件或代码（红线 3）。</p>
+      <p className="set-sec-d">配置开放学术源的 API 密钥。保存时仅写入系统钥匙串，界面不回显，也不会写入配置文件。</p>
 
       <div className="set-sec">
-        <div className="set-sec-t">检索深度</div>
-        <SearchDepthToggle value={depth} onChange={onChangeDepth} />
-      </div>
-
-      <div className="set-sec">
-        <div className="set-sec-t">API 密钥（均为可选；未配置的数据源自动跳过，不影响其他检索）</div>
+        <div className="set-sec-t">API 密钥</div>
+        <p className="set-hint lf-sources-keys-hint">Semantic Scholar、NCBI 可不配；CORE、Lens 无密钥时自动跳过该源，不影响其他检索。默认检索广度见「设置 → 通用」。</p>
         {KEYS.map((row) => (
           <KeyRow key={row.secret} row={row} configured={!!configured[row.secret]}
                   onSave={onSaveKey} onTest={onTestKey} onOpen={onOpenUrl} />
         ))}
       </div>
-
-      <div className="set-note"><span className="set-note-t">密钥安全：保存时写入系统钥匙串或环境变量，界面不回显；绝不写入配置文件或代码。</span></div>
     </div>
   );
 }

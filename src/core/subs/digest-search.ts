@@ -154,12 +154,16 @@ export function filterDigestQuality(
     const hasIds = !!(p.doi || p.pmid);
     const hasMeta = !!String(p.journal || "").trim() && Array.isArray(p.authors) && p.authors.length > 0;
     if (!hasBody && !hasIds && !hasMeta) return false;
+    if (sub?.hideNoAbstract === true && !hasBody && !hasIds) return false;
     // 关键词订阅：仅有标题壳子时，标题须命中检索词之一
     if (kind === "keyword" && qTerms.length > 0 && !hasBody && !hasIds) {
       const t = title.toLowerCase();
       if (!qTerms.some((w) => t.includes(w))) return false;
     }
     return true;
+  }).sort((a, b) => {
+    const score = (p: Paper) => ((p.abstract || "").trim().length >= 40 ? 1 : 0);
+    return score(b) - score(a);
   });
 }
 

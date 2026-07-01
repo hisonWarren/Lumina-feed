@@ -1,4 +1,4 @@
-// HitSources v3 · 汇总 + 展开 + 单源重试（P9）
+// HitSources v3 · 多源合并状态（非全库总数）
 import React, { useState } from "react";
 import { RefreshCw } from "lucide-react";
 
@@ -11,9 +11,15 @@ const LABEL = {
 };
 const label = (id) => LABEL[id] || id;
 
-const RETRYABLE = new Set(["libgen", "annas", "semanticscholar", "zenodo", "openaire", "biorxiv", "medrxiv", "core", "lens"]);
+const RETRYABLE = new Set(["libgen", "annas", "semanticscholar", "zenodo", "openaire", "biorxiv", "medrxiv", "core", "lens", "crossref", "arxiv", "openalex"]);
 
-export default function HitSources({ perSource, mergedCount, needsKey, onRetrySource, retryingSource }) {
+function formatSrcCount(count, sourceLimit) {
+  if (!count) return "";
+  const cap = sourceLimit > 0 && count >= sourceLimit;
+  return cap ? `${sourceLimit}+` : String(count);
+}
+
+export default function HitSources({ perSource, mergedCount, sourceLimit = 25, needsKey, onRetrySource, retryingSource }) {
   const [open, setOpen] = useState(false);
   if (!perSource || !Object.keys(perSource).length) return null;
 
@@ -28,12 +34,12 @@ export default function HitSources({ perSource, mergedCount, needsKey, onRetrySo
     else failed.push(src);
   }
 
-  const summary = [];
-  summary.push(`${entries.length + unconfigured.length} 源`);
-  if (mergedCount != null) summary.push(`命中 ${mergedCount} 篇`);
-  if (timeout.length) summary.push(`${timeout.length} 超时`);
-  if (failed.length) summary.push(`${failed.length} 失败`);
-  if (unconfigured.length) summary.push(`${unconfigured.length} 需配置`);
+  const issues = timeout.length + failed.length + unconfigured.length;
+  const summary = [
+    `${entries.length + unconfigured.length} 个数据库`,
+    mergedCount != null ? `合并 ${mergedCount} 篇` : null,
+    issues ? `${issues} 个需关注` : null,
+  ].filter(Boolean);
 
   const RetryBtn = ({ src }) => {
     if (!onRetrySource || !RETRYABLE.has(src)) return null;
@@ -54,17 +60,16 @@ export default function HitSources({ perSource, mergedCount, needsKey, onRetrySo
 
   return (
     <div className="lf-sources lf-sources-v2">
-      <button className="lf-src-summary" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+      <button type="button" className="lf-src-summary" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
         <span className="lbl">来源</span>
         <span className="sum">{summary.join(" · ")}</span>
         <span className="caret">{open ? "收起 ▴" : "展开 ▾"}</span>
       </button>
-      <span className="lf-src-note">所列为本次检索的候选来源（开放 API 与全文库）；上方篇数为合并去重结果，非全库命中总数。超时/失败源可单独重试。</span>
       {open && (
         <div className="lf-src-detail">
           {hit.map((s) => (
             <span key={s} className="lf-src">
-              <i className="dot ok" />{label(s)}{perSource[s]?.count ? ` · ${perSource[s].count}` : ""}
+              <i className="dot ok" />{label(s)}{perSource[s]?.count ? ` · ${formatSrcCount(perSource[s].count, sourceLimit)}` : ""}
             </span>
           ))}
           {empty.map((s) => row(s, "zero", "无匹配"))}

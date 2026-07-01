@@ -7,6 +7,7 @@ import type { Store } from "../src/core/store/index.ts";
 import type { SecretStore } from "../src/core/secrets/keyvault.ts";
 import { isValidSecretValue } from "../src/core/secrets/keyvault.ts";
 import type { Paper } from "../src/core/model.ts";
+import { ensurePaperFromCard } from "../src/core/card-to-paper.ts";
 import { rawToSpec, type QueryFilters } from "../src/core/querySpec.ts";
 import { aggregateSearch, aggregateSearchStream, searchSingleSource } from "../src/core/aggregate.ts";
 import { runLocateKeywordStream } from "../src/core/locate/locate-stream.ts";
@@ -334,7 +335,11 @@ export function registerIpc(deps: IpcDeps): void {
   ): Promise<void> {
     beginSearchInflight();
     const opts = await buildSearchOpts();
-    const send = (payload: unknown) => { try { e.sender.send("search:stream", payload); } catch { /* 渲染层已关则忽略 */ } };
+    const send = (payload: unknown) => {
+      const batch = payload as { papers?: Paper[] };
+      if (batch?.papers?.length) store.papers.upsertMany(batch.papers);
+      try { e.sender.send("search:stream", payload); } catch { /* 渲染层已关则忽略 */ }
+    };
     try {
       const kind = classifyInput(String(raw || "").trim());
       if (kind !== "text") {
@@ -1564,8 +1569,17 @@ export function registerIpc(deps: IpcDeps): void {
       return pruneDetachedPdfs(deps, paperIds);
     } catch { return { removed: 0, freedBytes: 0 }; }
   });
-  ipcMain.handle("papers:enqueueFetch", (e, jobs: Array<{ paperId: string; provenance?: string; channel?: string; priority?: number }>) => {
+  ipcMain.handle("papers:enqueueFetch", (e, jobs: Array<{ paperId: string; provenance?: string; channel?: string; priority?: number; paper?: unknown }>) => {
     try {
+      for (const j of jobs || []) {
+        if (j?.paper) {
+          ensurePaperFromCard(
+            (id) => store.papers.getById(id),
+            (p) => store.papers.upsert(p),
+            j.paper,
+          );
+        }
+      }
       return enqueueFetch(
         (jobs || []).map((j) => ({
           paperId: j.paperId,

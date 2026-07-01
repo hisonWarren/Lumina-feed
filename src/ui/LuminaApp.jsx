@@ -395,7 +395,7 @@ export default function LuminaApp() {
     }));
     try {
       if (hasBackend()) {
-        await bridge.enqueueFetch([{ paperId: p.id, provenance, channel, priority }]);
+        await bridge.enqueueFetch([{ paperId: p.id, provenance, channel, priority, paper: p }]);
         if (searchBusy && priority === 0) {
           pushToast("检索进行中，取文已排队（完成后优先处理）");
         }
@@ -431,6 +431,7 @@ export default function LuminaApp() {
       paperId: p.id,
       provenance,
       channel: opts.channel || "batch",
+      paper: p,
     }));
     pushToast("已加入取文队列 · " + jobs.length + " 篇（最多 2 篇并行）");
     await bridge.enqueueFetch(jobs);

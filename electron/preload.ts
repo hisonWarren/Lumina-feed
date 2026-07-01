@@ -32,7 +32,9 @@ contextBridge.exposeInMainWorld("luminaApi", {
   searchOnlineStream: (raw: string, filters: unknown, reqId: number, cb: (p: unknown) => void) => {
     const handler = (_e: unknown, payload: any) => { if (payload && payload.reqId === reqId) cb(payload); };
     ipcRenderer.on("search:stream", handler);
-    ipcRenderer.invoke("search:online-stream", raw, filters, reqId).catch(() => {});
+    ipcRenderer.invoke("search:online-stream", raw, filters, reqId).catch(() => {
+      cb({ reqId, done: true, resolveError: "stream_start_failed", papers: [] });
+    });
     return () => ipcRenderer.removeListener("search:stream", handler);
   },
   openExternal: (url: string) => invoke("shell:openExternal", url),

@@ -25,7 +25,9 @@ has("src/core/subs/digest-search.ts", /countSubsUnread/, "countSubsUnread 待读
 has("electron/ipc.ts", /subs:markRead/, "subs:markRead IPC");
 has("electron/ipc.ts", /subs:markAllRead/, "subs:markAllRead IPC");
 has("src/ui/lib/subs-unread.js", /countSubsUnread/, "渲染层 subs-unread");
-has("src/core/subs/digest-search.ts", /dedupeDigestPapers/, "跨订阅 DOI 去重");
+has("src/core/subs/digest-search.ts", /hideNoAbstract/, "hideNoAbstract 订阅过滤");
+has("src/ui/modules/Subscriptions.jsx", /hideNoAbstract/, "订阅对话框隐藏无摘要");
+has("src/ui/modules/Settings.jsx", /onPickSearchDepth/, "设置通用检索广度");
 
 console.log("\n[2] IPC 引擎对齐");
 has("electron/ipc.ts", /buildDigestSearchOpts/, "buildDigestSearchOpts");

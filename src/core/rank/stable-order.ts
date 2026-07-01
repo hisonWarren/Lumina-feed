@@ -1,7 +1,7 @@
 // src/core/rank/stable-order.ts
 // Streaming stability (fixes review F3 reshuffle): as slow sources arrive, the VISIBLE list must not
 // reorder under the user. Keep the order of already-shown items; append genuinely new items at the
-// bottom (in reranked order). Surface `appended` for a "刷新排序 (N)" affordance.
+// bottom (in reranked order). Stream completion auto-applies adoptRanking.
 export interface Identified { id: string; }
 export interface StableResult<T extends Identified> { items: T[]; appended: number; }
 

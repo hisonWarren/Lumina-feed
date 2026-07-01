@@ -165,6 +165,7 @@ function SubDialog({ initial, onClose, onSave }) {
   const [freq, setFreq] = useState(initial ? initial.freq || "daily" : "daily");
   const [time, setTime] = useState(initial ? initial.time || "08:00" : "08:00");
   const [autoSummarize, setAuto] = useState(initial ? initial.autoSummarize || "blurb" : "blurb");
+  const [hideNoAbstract, setHideNoAbstract] = useState(initial ? !!initial.hideNoAbstract : false);
   const [kind, setKind] = useState(initial ? (initial.kind || "keyword") : "keyword");
   const [jName, setJName] = useState(initial && initial.journal ? initial.journal.name || "" : "");
   const [issn, setIssn] = useState(initial && initial.journal ? initial.journal.issn || "" : "");
@@ -173,8 +174,8 @@ function SubDialog({ initial, onClose, onSave }) {
   const valid = kind === "keyword" ? q.trim() : jName.trim();
   const backend = hasBackend();
   const draft = () => kind === "journal"
-    ? { id: initial ? initial.id : "preview", name: name.trim(), kind: "journal", journal: { name: jName.trim(), issn: issn.trim() || undefined }, q: jName.trim(), freq, time, autoSummarize, enabled: true }
-    : { id: initial ? initial.id : "preview", name: name.trim(), kind: "keyword", q: q.trim(), freq, time, autoSummarize, enabled: true };
+    ? { id: initial ? initial.id : "preview", name: name.trim(), kind: "journal", journal: { name: jName.trim(), issn: issn.trim() || undefined }, q: jName.trim(), freq, time, autoSummarize, hideNoAbstract, enabled: true }
+    : { id: initial ? initial.id : "preview", name: name.trim(), kind: "keyword", q: q.trim(), freq, time, autoSummarize, hideNoAbstract, enabled: true };
   const runPreview = async () => {
     setPreviewBusy(true);
     try {
@@ -211,6 +212,14 @@ function SubDialog({ initial, onClose, onSave }) {
           <div className="subs-seg-grid">{AUTO_OPTS.map(([k, l]) => <button key={k} type="button" className={autoSummarize === k ? "on" : ""} onClick={() => setAuto(k)}>{l}{k === "blurb" ? <span className="subs-rec">推荐</span> : null}</button>)}</div>
           <span className="subs-hint">推荐「一句相关」：每条写一句为何值得看，够用且省 API。「前 3 条深总结」最耗额度；未配大模型时自动跳过。今日综合报告在「设置 → 简报报告」单独开关，与此无关。</span>
         </div>
+        <div className="subs-f">
+          <label>简报条目过滤</label>
+          <div className="subs-seg">
+            <button type="button" className={!hideNoAbstract ? "on" : ""} onClick={() => setHideNoAbstract(false)}>保留无摘要</button>
+            <button type="button" className={hideNoAbstract ? "on" : ""} onClick={() => setHideNoAbstract(true)}>隐藏无摘要</button>
+          </div>
+          <span className="subs-hint">默认保留：无摘要条目排在后面。开启「隐藏」后，摘要不足 40 字且无 DOI/PMID 的薄条目不进简报；有标识符的仍保留便于追踪。</span>
+        </div>
         {backend && (
           <div className="subs-f">
             <button type="button" className="subs-preview-btn" disabled={!valid || previewBusy} onClick={runPreview}>
@@ -218,7 +227,7 @@ function SubDialog({ initial, onClose, onSave }) {
             </button>
             {preview && (
               <div className="dg-preview">
-                <div className="dg-preview-h">试跑样本 · 本次检索（非全库总数）</div>
+                <div className="dg-preview-h">试跑样本 · 多源合并结果（非全库）</div>
                 {preview.length === 0 ? <div className="dg-preview-item">暂无样本命中</div> : preview.map((p) => (
                   <div key={p.id} className="dg-preview-item">
                     <div>{p.title}</div>
@@ -233,8 +242,8 @@ function SubDialog({ initial, onClose, onSave }) {
           <button className="subs-btn ghost" onClick={onClose}>取消</button>
           <button className="subs-btn primary" disabled={!valid} onClick={() => onSave(
             kind === "journal"
-              ? { id: initial ? initial.id : "s" + Date.now(), name: name.trim(), kind: "journal", journal: { name: jName.trim(), issn: issn.trim() || undefined }, q: jName.trim(), freq, time, autoSummarize, enabled: initial ? initial.enabled !== false : true, today: initial ? initial.today || [] : [] }
-              : { id: initial ? initial.id : "s" + Date.now(), name: name.trim(), kind: "keyword", q: q.trim(), freq, time, autoSummarize, enabled: initial ? initial.enabled !== false : true, today: initial ? initial.today || [] : [] }
+              ? { id: initial ? initial.id : "s" + Date.now(), name: name.trim(), kind: "journal", journal: { name: jName.trim(), issn: issn.trim() || undefined }, q: jName.trim(), freq, time, autoSummarize, hideNoAbstract, enabled: initial ? initial.enabled !== false : true, today: initial ? initial.today || [] : [] }
+              : { id: initial ? initial.id : "s" + Date.now(), name: name.trim(), kind: "keyword", q: q.trim(), freq, time, autoSummarize, hideNoAbstract, enabled: initial ? initial.enabled !== false : true, today: initial ? initial.today || [] : [] }
           )}>保存</button>
         </div>
       </div>

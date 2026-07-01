@@ -8,7 +8,7 @@ import { PROVIDER_DEFAULT_MODEL } from "../src/core/summarize/model-presets.ts";
 
 export interface AppSettings {
   contactEmail?: string;
-  searchDepth?: "standard" | "full";   // 检索深度（非密钥）
+  searchDepth?: "standard" | "full";   // 检索广度：每源 25/50 条上限（非密钥）
   /** 全文库镜像覆盖（LibGen / Anna / Sci-Hub URL 列表，非密钥） */
   altMirrors?: { libgen?: string[]; annas?: string[]; scihub?: string[] };
   /** 取文后自动加入我的文献（工作集）；关则仅落盘，需手动收藏 */

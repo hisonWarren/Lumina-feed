@@ -7,6 +7,7 @@ import { bridge, hasBackend } from "../lumina-bridge.js";
 import { persistSettings } from "../settings-persist.js";
 import { THEMES } from "../themes.js";
 import { CURATED_MODELS, PROVIDER_DEFAULT_MODEL, OLLAMA_MODEL_PRESETS } from "../../core/summarize/model-presets.ts";
+import SearchDepthToggle from "../components/SearchDepthToggle.jsx";
 import SourceKeysPanel from "../components/SourceKeysPanel.jsx";
 import MirrorSettingsPanel from "../components/MirrorSettingsPanel.jsx";
 import SourceTogglesPanel, { PrefetchToggleRow, OaPrefetchToggleRow, PrimaryAutoOpenToggleRow } from "../components/SourceTogglesPanel.jsx";
@@ -165,6 +166,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
   const [notifications, setNotifications] = useState(true);
   const [digestNotifyTier, setDigestNotifyTier] = useState("regular");
   const [digestReportAuto, setDigestReportAuto] = useState(true);
+  const [digestHistoryDays, setDigestHistoryDays] = useState(365);
   const [bgTray, setBgTray] = useState(false);
   const [bgLogin, setBgLogin] = useState(false);
   const [autoIngest, setAutoIngest] = useState(true);
@@ -271,6 +273,18 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
     setDigestNotifyTier(tier);
     await persistGeneralToggle({ digestNotifyTier: tier }, () => setDigestNotifyTier(prev));
   }, [digestNotifyTier, persistGeneralToggle]);
+
+  const onPickSearchDepth = useCallback(async (d) => {
+    setSearchDepth(d);
+    await persistSettings((cur) => ({ ...cur, searchDepth: d }));
+    pushToast && pushToast("检索广度已更新");
+  }, [pushToast]);
+
+  const onPickDigestHistory = useCallback(async (days) => {
+    const prev = digestHistoryDays;
+    setDigestHistoryDays(days);
+    await persistGeneralToggle({ digestHistoryRetentionDays: days }, () => setDigestHistoryDays(prev));
+  }, [digestHistoryDays, persistGeneralToggle]);
 
   const onToggleDigestReportAuto = useCallback(async () => {
     const next = !digestReportAuto;
@@ -379,15 +393,14 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
       if (s.searchDepth === "full" || s.searchDepth === "standard") setSearchDepth(s.searchDepth);
       if (s.altMirrors && typeof s.altMirrors === "object") setAltMirrors(s.altMirrors);
       if (typeof s.prefetchOnIdentifier === "boolean") setPrefetchOnIdentifier(s.prefetchOnIdentifier);
-      else setPrefetchOnIdentifier(true);
       if (typeof s.prefetchOaResults === "boolean") setPrefetchOaResults(s.prefetchOaResults);
-      else setPrefetchOaResults(true);
       if (typeof s.primaryAutoOpenReader === "boolean") setPrimaryAutoOpenReader(s.primaryAutoOpenReader);
-      else setPrimaryAutoOpenReader(true);
       if (typeof s.notifications === "boolean") setNotifications(s.notifications);
       if (s.digestNotifyTier === "calm" || s.digestNotifyTier === "regular" || s.digestNotifyTier === "power") setDigestNotifyTier(s.digestNotifyTier);
       if (typeof s.digestReportAuto === "boolean") setDigestReportAuto(s.digestReportAuto);
       else setDigestReportAuto(true);
+      if (typeof s.digestHistoryRetentionDays === "number") setDigestHistoryDays(s.digestHistoryRetentionDays);
+      else setDigestHistoryDays(365);
       if (s.app) {
         setBgTray(!!s.app.minimizeToTray);
         setBgLogin(!!s.app.openAtLogin);
@@ -695,15 +708,9 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                 </div>
                 <SourceKeysPanel
                   configured={keysConfigured}
-                  depth={searchDepth}
                   onSaveKey={async (name, val) => { await bridge.setSecret(name, val); await refreshKeysStatus(); pushToast && pushToast("密钥已写入钥匙串"); }}
                   onTestKey={(name, cand) => bridge.testSource(name, cand)}
                   onOpenUrl={(u) => bridge.openExternal(u)}
-                  onChangeDepth={async (d) => {
-                    setSearchDepth(d);
-                    await persistSettings((cur) => ({ ...cur, searchDepth: d }));
-                    pushToast && pushToast("检索深度已更新");
-                  }}
                 />
                 <MirrorSettingsPanel
                   value={altMirrors}
@@ -860,6 +867,11 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
             {activeCat === "general" && (
               <>
                 <h2 className="set-pane-h"><Bell size={18} /> 通用</h2>
+                <div className="set-row">
+                  <span className="set-lbl">默认检索广度</span>
+                  <SearchDepthToggle value={searchDepth} onChange={(d) => void onPickSearchDepth(d)} />
+                  <span className="set-hint">快 = 每库最多 25 条 · 广 = 每库最多 50 条。各库各取最相关一批后合并去重，非全库检索。检索页开关与此同步。</span>
+                </div>
                 <div className="set-toggle">
                   <span className="set-lbl">取文后自动加入「我的文献」工作集</span>
                   <button role="switch" aria-checked={autoIngest} className={"set-switch" + (autoIngest ? " on" : "")} onClick={() => void onToggleAutoIngest()} aria-label="自动入库开关"><i /></button>
@@ -898,6 +910,15 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                   </div>
                   <span className="set-hint">安静：仅 app 内简报 · 标准：每次调度汇总一条 · 积极：每个订阅单独通知</span>
                 </div>
+                <div className="set-row">
+                  <span className="set-lbl">简报历史保留</span>
+                  <div className="set-seg">
+                    {[[90, "90 天"], [365, "1 年"], [0, "永久"]].map(([d, l]) => (
+                      <button key={d} type="button" className={digestHistoryDays === d ? "on" : ""} onClick={() => void onPickDigestHistory(d)}>{l}</button>
+                    ))}
+                  </div>
+                  <span className="set-hint">仅清理每日简报快照与总报告缓存；你的文献库与 PDF 不受影响。</span>
+                </div>
                 <div className="set-toggle">
                   <span className="set-lbl">检索完成后自动生成「今日简报总报告」</span>
                   <button role="switch" aria-checked={digestReportAuto} className={"set-switch" + (digestReportAuto ? " on" : "")} onClick={() => void onToggleDigestReportAuto()} aria-label="自动生成简报总报告"><i /></button>
@@ -931,7 +952,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                   {userDataPath ? (
                     <p className="set-mono" style={{ marginTop: 10, fontSize: 12.5, wordBreak: "break-all" }}>本机数据：{userDataPath}</p>
                   ) : null}
-                  <p style={{ marginTop: 10 }}>检索并行覆盖 20 个来源（开放 API 与 LibGen、Anna&apos;s Archive 等）；结果是候选级检索，不提供库镜像式遍历。取文须点「获取全文」，OA 与备用库自动串联；不含 Google Scholar 或 Web of Science / Scopus 等商业库。</p>
+                  <p style={{ marginTop: 10 }}>检索并行问多个开放数据库，各取最相关的一批后合并去重（快/广 控制每库上限）；不是全库镜像或商业库遍历。取文须点「获取全文」；不含 Google Scholar 或 Web of Science / Scopus。</p>
                   <p style={{ marginTop: 10 }}><b>底线（始终成立）</b></p>
                   <p>· 全文按 OA → LibGen → Anna's Archive → Sci-Hub 顺序自动尝试；<br />· AI 只排序 / 总结，从不替你裁决纳入或排除；<br />· 密钥只入 OS 钥匙串，绝不写配置或代码；<br />· 每条总结都带依据徽章与页码引用，可回原文核对；<br />· 预印本标注「未经同行评议」、已撤稿明确提示；<br />· 数据、PDF 与索引都在本机。</p>
                 </div>

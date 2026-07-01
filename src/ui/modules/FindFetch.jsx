@@ -19,6 +19,7 @@ import HitSources from "../components/HitSources.jsx";
 import SourceChips from "../components/SourceChips.jsx";
 import CitationActions from "../components/CitationActions.jsx";
 import SearchDepthToggle from "../components/SearchDepthToggle.jsx";
+import { sourceLimitFor } from "../search-depth.js";
 import EmailPrompt from "../components/EmailPrompt.jsx";
 import GoogleScholarLink from "../components/GoogleScholarLink.jsx";
 import ResultsPager from "../components/ResultsPager.jsx";
@@ -59,6 +60,7 @@ const FIELD_OPTS = [
   { id: "tiab", label: "标题+摘要" },
   { id: "author", label: "作者" },
   { id: "journal", label: "期刊" },
+  { id: "mesh", label: "主题词" },
 ];
 
 const SORT_OPTS = [
@@ -78,7 +80,11 @@ const FF_CSS = `
 .ff-tool:hover{border-color:var(--gold);color:var(--gold)}
 .ff-tool.on{border-color:var(--gold);color:var(--gold)}
 .ff-syntax{position:relative}
-.ff-sx-pop{position:absolute;top:calc(100% + 6px);left:0;z-index:20;width:300px;max-width:calc(100vw - 40px);background:var(--raise,var(--surf));border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow-lg,0 8px 24px rgba(0,0,0,.16));padding:11px 12px;font-size:11.5px;line-height:1.7;color:var(--ink2)}
+.ff-sx-pop{position:absolute;top:calc(100% + 6px);left:0;z-index:20;width:min(340px,calc(100vw - 40px));background:var(--raise,var(--surf));border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow-lg,0 8px 24px rgba(0,0,0,.16));padding:12px 14px;font-size:12px;line-height:1.55;color:var(--ink2);display:flex;flex-direction:column;gap:10px}
+.ff-sx-lead{margin:0;font-size:12px;color:var(--ink3)}
+.ff-sx-ex{display:flex;flex-direction:column;gap:6px}
+.ff-sx-ex code{display:block;font-family:'Space Mono',monospace;font-size:10.5px;background:var(--surf2);border:1px solid var(--line2);border-radius:6px;padding:6px 8px;color:var(--ink);word-break:break-word}
+.ff-sx-foot{margin:0;font-size:11px;color:var(--ink4);line-height:1.5}
 .ff-sx-pop code{font-family:'Space Mono',monospace;font-size:10.5px;background:var(--surf2);border:1px solid var(--line2);border-radius:4px;padding:1px 5px;color:var(--ink)}
 .ff-sort{display:inline-flex;align-items:center;gap:6px;margin-left:auto;font-size:12px;color:var(--ink3)}
 .ff-sort-wrap{position:relative;display:inline-flex;align-items:center}
@@ -90,7 +96,7 @@ const FF_CSS = `
 .ff-sort-opt:hover{background:var(--surf2);color:var(--gold)}
 .ff-sort-opt.on{color:var(--gold);background:color-mix(in srgb,var(--gold) 10%,transparent)}
 .ff-field-wrap{position:relative;flex-shrink:0;border-right:1px solid var(--line2);margin-right:6px;padding-right:4px}
-.ff-field-btn{display:inline-flex;align-items:center;gap:4px;border:none;background:transparent;color:var(--ink2);font-family:inherit;font-size:12.5px;padding:5px 8px 5px 4px;cursor:pointer;outline:none;min-width:76px;line-height:1.35}
+.ff-field-btn{display:inline-flex;align-items:center;gap:4px;border:none;background:transparent;color:var(--ink2);font-family:inherit;font-size:12.5px;padding:5px 8px 5px 4px;cursor:pointer;outline:none;min-width:88px;line-height:1.35}
 .ff-field-btn:hover,.ff-field-btn.on{color:var(--gold)}
 .ff-field-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:25;min-width:156px;background:var(--raise,var(--surf));border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow-lg,0 8px 24px rgba(0,0,0,.16));padding:6px;display:flex;flex-direction:column;gap:3px}
 .ff-field-opt{display:flex;align-items:center;justify-content:space-between;gap:8px;border:none;background:transparent;color:var(--ink2);text-align:left;padding:9px 12px;border-radius:8px;cursor:pointer;font-size:13px;font-family:inherit;line-height:1.4}
@@ -104,7 +110,7 @@ const FF_CSS = `
 .ff-track .lf-sources{box-sizing:border-box;width:100%;margin:0 0 14px}
 .ff-session-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;box-sizing:border-box;width:100%;margin:0 0 10px;padding:8px 12px;background:var(--surf2);border:1px solid var(--line);border-radius:10px;font-size:12px;color:var(--ink2);line-height:1.45}
 .ff-session-bar strong{font-weight:600;color:var(--ink)}
-.ff-session-h{flex:1;min-width:140px;font-size:11px;color:var(--ink4)}
+.ff-session-meta{font-size:11px;color:var(--ink4)}
 .ff-session-new{margin-left:auto;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:8px;padding:4px 10px;font-size:11.5px;cursor:pointer;font-family:inherit}
 .ff-session-new:hover{border-color:var(--gold);color:var(--gold)}
 .ff-sources{display:inline-flex;align-items:center;flex-wrap:wrap;gap:7px;margin:0 0 16px;padding:9px 13px;width:fit-content;max-width:100%;background:var(--surf2);border:1px solid var(--line);border-radius:11px}
@@ -170,11 +176,12 @@ export default function FindFetch({
   const [showSearchEmail, setShowSearchEmail] = useState(false);
   const [fetchEmailPaper, setFetchEmailPaper] = useState(null);
   const [keysCfg, setKeysCfg] = useState({});
-  const [pendingSort, setPendingSort] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const latestRanked = useRef([]);
   const curReq = useRef(0);
+  const streamStopRef = useRef(null);
+  const STREAM_MAX_MS = 180_000;
   const [mergedCount, setMergedCount] = useState(null);
   const [resolvedFrom, setResolvedFrom] = useState(null);
   const [showExpand, setShowExpand] = useState(false);
@@ -304,6 +311,24 @@ export default function FindFetch({
     return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("mousedown", onDown); };
   }, [sortMenuOpen]);
 
+  useEffect(() => {
+    if (!sxOpen) return;
+    const onKey = (e) => { if (e.key === "Escape") setSxOpen(false); };
+    const onDown = (e) => { if (!(e.target && e.target.closest && e.target.closest(".ff-syntax"))) setSxOpen(false); };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onDown);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("mousedown", onDown); };
+  }, [sxOpen]);
+
+  useEffect(() => {
+    if (!yearOpen) return;
+    const onKey = (e) => { if (e.key === "Escape") setYearOpen(false); };
+    const onDown = (e) => { if (!(e.target && e.target.closest && e.target.closest(".ff-year"))) setYearOpen(false); };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onDown);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("mousedown", onDown); };
+  }, [yearOpen]);
+
   // P3 · 标识符粘贴后自动检索（debounce）
   useEffect(() => {
     if (!hasBackend()) return;
@@ -319,13 +344,31 @@ export default function FindFetch({
     return () => clearTimeout(timer);
   }, [q, submitted, loading]);
 
+  useEffect(() => () => { streamStopRef.current?.(); }, []);
+
+  useEffect(() => {
+    if (!active) return;
+    const wake = () => {
+      if (document.visibilityState !== "visible") return;
+      ref.current?.focus({ preventScroll: true });
+    };
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("focus", wake);
+    return () => {
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("focus", wake);
+    };
+  }, [active]);
+
   const run = async (val, opts = {}) => {
     const term = (val !== undefined ? val : q).trim();
     if (!term) return;
+    streamStopRef.current?.();
+    streamStopRef.current = null;
     if (val !== undefined) setQ(val);
     setSubmitted(term);
     setSessionTs(Date.now());
-    setLoading(true); setErr(null); setResults([]); setPerSource(null); setMergedCount(null); setPendingSort(0); latestRanked.current = [];
+    setLoading(true); setErr(null); setResults([]); setPerSource(null); setMergedCount(null); latestRanked.current = [];
     setResolvedFrom(null); setShowExpand(false); setLocateMode(null); setIdentifierError(null);
     setPrimaryPaperId(null); setPrimaryAmbiguous(false);
     if (!opts.expand) setExpandedOnce(false);
@@ -346,16 +389,27 @@ export default function FindFetch({
     try {
       if (hasBackend() && bridge.searchOnlineStream) {
         // 渐进式：每个开放源返回即增量显示（去重在引擎侧），慢源不拖累首屏
-          const streamed = await new Promise((resolve) => {
-          let done = false;
+        const streamed = await new Promise((resolve) => {
+          let finished = false;
+          const finish = (val) => {
+            if (finished) return;
+            finished = true;
+            clearTimeout(timer);
+            if (stop) stop();
+            if (streamStopRef.current === abort) streamStopRef.current = null;
+            resolve(val);
+          };
+          const timer = setTimeout(() => {
+            if (curReq.current === reqId) setErr((prev) => prev || "检索超时，请重试。");
+            finish(false);
+          }, STREAM_MAX_MS);
           const stop = bridge.searchOnlineStream(searchTerm, filters, reqId, (ev) => {
             if (!ev || ev.reqId !== curReq.current) return;
             if (Array.isArray(ev.papers)) {
               const cards = ev.papers.map((p) => toCardModel(p, searchTerm));
               latestRanked.current = cards;
               setResults((prev) => {
-                const { items, appended } = mergeStreamResults(prev, cards, ev.primaryPaperId);
-                if (appended) setPendingSort((n) => n + appended);
+                const { items } = mergeStreamResults(prev, cards, ev.primaryPaperId);
                 setMergedCount(items.length);
                 return items;
               });
@@ -366,22 +420,38 @@ export default function FindFetch({
             if (ev.primaryPaperId) setPrimaryPaperId(ev.primaryPaperId);
             if (typeof ev.primaryAmbiguous === "boolean") setPrimaryAmbiguous(ev.primaryAmbiguous);
             if (ev.identifierError) setIdentifierError(ev.identifierError);
-            if (ev.resolveError && curReq.current === reqId) setErr(ev.resolveError === "not_found" ? "未找到该标识符的元数据。" : String(ev.resolveError));
-            if (ev.done && !done) {
-              done = true;
-              stop && stop();
+            if (ev.resolveError && curReq.current === reqId) {
+              const msg = ev.resolveError === "not_found"
+                ? "未找到该标识符的元数据。"
+                : ev.resolveError === "stream_start_failed"
+                  ? "检索连接中断，请重试。"
+                  : String(ev.resolveError);
+              setErr(msg);
+            }
+            if (ev.done) {
               if (!opts.expand && !isIdentifierLike(term) && latestRanked.current.length === 0) setShowExpand(true);
-              resolve(true);
+              if (curReq.current === reqId && latestRanked.current.length) {
+                const ranked = adoptRanking(latestRanked.current);
+                latestRanked.current = ranked;
+                setResults(ranked);
+                setMergedCount(ranked.length);
+              }
+              finish(true);
             }
           });
-          if (!stop) resolve(false); // 旧版预载/无流式支持 → 回落
+          const abort = () => finish(false);
+          streamStopRef.current = abort;
+          if (!stop) finish(false);
         });
         if (!streamed && curReq.current === reqId) {
           const r = await bridge.searchOnline(searchTerm, filters);
           const list = (r && r.papers) || [];
-          setResults(list);
+          latestRanked.current = list;
+          const ranked = adoptRanking(list);
+          latestRanked.current = ranked;
+          setResults(ranked);
           setPerSource((r && r.perSource) || null);
-          setMergedCount((r && r.count) ?? list.length);
+          setMergedCount(ranked.length);
           if (r && r.resolvedFrom) setResolvedFrom(r.resolvedFrom);
           if (r && r.locateMode) setLocateMode(r.locateMode);
           if (r && r.primaryPaperId) setPrimaryPaperId(r.primaryPaperId);
@@ -396,9 +466,12 @@ export default function FindFetch({
         const r = await bridge.searchOnline(searchTerm, filters);
         const list = (r && r.papers) || [];
         if (curReq.current === reqId) {
-          setResults(list);
+          latestRanked.current = list;
+          const ranked = adoptRanking(list);
+          latestRanked.current = ranked;
+          setResults(ranked);
           setPerSource((r && r.perSource) || null);
-          setMergedCount((r && r.count) ?? list.length);
+          setMergedCount(ranked.length);
           if (r && r.resolvedFrom) setResolvedFrom(r.resolvedFrom);
           if (r && r.locateMode) setLocateMode(r.locateMode);
           if (r && r.primaryPaperId) setPrimaryPaperId(r.primaryPaperId);
@@ -438,8 +511,7 @@ export default function FindFetch({
       if (r && r.perSource) setPerSource((ps) => ({ ...(ps || {}), ...r.perSource }));
       if (r && r.papers && r.papers.length) {
         setResults((prev) => {
-          const { items, appended } = stableMerge(prev, r.papers);
-          if (appended) setPendingSort((n) => n + appended);
+          const { items } = stableMerge(prev, r.papers);
           setMergedCount(items.length);
           return items;
         });
@@ -468,6 +540,7 @@ export default function FindFetch({
   const safePage = clampPage(page, total, pageSize);
   const pageItems = pageSlice(shown, safePage, pageSize);
   const fieldLabel = (FIELD_OPTS.find((o) => o.id === field) || FIELD_OPTS[0]).label;
+  const sourceLimit = sourceLimitFor(searchDepth);
   const sessionAge = sessionTs ? formatSessionAge(sessionTs, Date.now() + (fetchTick * 0)) : "";
 
   useEffect(() => {
@@ -546,7 +619,7 @@ export default function FindFetch({
             )}
           </div>
           <input ref={ref} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") run(); else if (e.key === "Escape") clear(); }}
-            placeholder={idTag ? `已识别 ${idTag} — 回车或稍候自动检索` : "粘贴 DOI，或输入标题 / 作者 / 关键词（左侧可选字段）"} />
+            placeholder={idTag ? `已识别 ${idTag} — 回车或稍候自动检索` : "粘贴 DOI，或输入标题 / 作者 / 关键词"} />
           {idTag && <span className="ff-idtag">{idTag}</span>}
           {q && <button className="ff-clr" onClick={clear} title="清除"><X size={14} /></button>}
         </div>
@@ -557,11 +630,13 @@ export default function FindFetch({
           <div className="ff-syntax">
             <button className={"ff-tool" + (sxOpen ? " on" : "")} onClick={() => setSxOpen((v) => !v)} aria-expanded={sxOpen}><Info size={13} /> 检索语法</button>
             {sxOpen && (
-              <div className="ff-sx-pop">
-简单检索用左侧「范围」下拉即可；高级可手写字段标签与布尔（不写默认全字段按相关度）：<br />
-                <code>心梗 [tiab] AND 心衰 [title]</code><br />
-                <code>Smith [author] AND apraxia [title]</code><br />
-                <code>[title]</code>/<code>[ti]</code> 标题 · <code>[abstract]</code>/<code>[ab]</code> 摘要 · <code>[tiab]</code> 标题+摘要 · <code>[author]</code>/<code>[au]</code> 作者 · <code>[journal]</code> 期刊/ISSN · <code>[mesh]</code> 主题词；布尔 <code>AND</code> / <code>OR</code>。DOI 直接粘贴自动直达。
+              <div className="ff-sx-pop" role="dialog" aria-label="检索语法帮助">
+                <p className="ff-sx-lead">日常检索用左侧「范围」即可；需要组合条件时再写布尔。</p>
+                <div className="ff-sx-ex">
+                  <code>心梗 [tiab] AND 心衰 [title]</code>
+                  <code>Smith [author] AND apraxia [title]</code>
+                </div>
+                <p className="ff-sx-foot">支持 <code>AND</code> / <code>OR</code> · 粘贴 DOI 自动直达 · 手写字段标签见左侧范围（含主题词 MeSH）</p>
               </div>
             )}
           </div>
@@ -570,11 +645,6 @@ export default function FindFetch({
             setSearchDepth(d);
             await persistSettings((cur) => ({ ...cur, searchDepth: d }));
           }} />
-          {pendingSort > 0 && (
-            <button type="button" className="ff-tool on" onClick={() => { setResults(adoptRanking(latestRanked.current)); setPendingSort(0); }}>
-              刷新排序 ({pendingSort})
-            </button>
-          )}
           {submitted && shown.length > 0 && (
             <div className="ff-sort">
               <ArrowUpDown size={13} /> 排序
@@ -604,7 +674,7 @@ export default function FindFetch({
             <input type="number" className="ff-yin" placeholder="至" value={yearTo} onChange={(e) => setYearTo(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") run(); }} />
             <button className="ff-chip" onClick={() => run()}>应用</button>
             {(yearFrom || yearTo) && <button className="ff-chip" onClick={() => { setYearFrom(""); setYearTo(""); }}>清除</button>}
-            <span className="ff-year-h">仅约束本次检索的发表年份——不是全库筛选；要筛你自己收藏的论文，请到「我的文献」。</span>
+            <span className="ff-year-h">仅过滤本次检索结果的发表年份。</span>
           </div>
         )}
       </div>
@@ -613,8 +683,10 @@ export default function FindFetch({
         {submitted && (
           <>
             <div className="ff-session-bar" role="status">
-              <span><strong>本次检索</strong> · {total} 条{sessionAge ? ` · ${sessionAge}` : ""}{loading ? " · 仍在补充…" : ""}</span>
-              <span className="ff-session-h">切换模块不会清空本次结果；要重新定位请点「新检索」。</span>
+              <span>
+                <strong>本次检索</strong> · 合并 {total} 篇{sessionAge ? ` · ${sessionAge}` : ""}{loading ? " · 仍在补充…" : ""}
+              </span>
+              <span className="ff-session-meta">各数据库各取最相关 {sourceLimit} 条后去重，非全库总数</span>
               <button type="button" className="ff-session-new" onClick={clear}>新检索</button>
             </div>
             {perSource && Object.keys(perSource).length > 0 && (
@@ -632,8 +704,8 @@ export default function FindFetch({
                 {locateMode === "disambig" && identifierError && (
                   <div className="ff-disambig">标识符解析未命中（{identifierError}）· 已回落关键词检索</div>
                 )}
-                <HitSources perSource={perSource} mergedCount={mergedCount ?? shown.length} needsKey={needsKey}
-                  onRetrySource={hasBackend() ? retrySource : null} retryingSource={retryingSource} />
+                <HitSources perSource={perSource} mergedCount={mergedCount ?? shown.length} sourceLimit={sourceLimit}
+                  needsKey={needsKey} onRetrySource={hasBackend() ? retrySource : null} retryingSource={retryingSource} />
                 {resolvedFrom && resolvedFrom.length > 0 && (
                   <p className="ff-resolved">标识符解析自：{resolvedFrom.join(" · ")}</p>
                 )}
@@ -648,11 +720,11 @@ export default function FindFetch({
           <div className="ff-empty">
             <Search size={28} strokeWidth={1.6} />
             <h2>找到那篇，然后拿来用</h2>
-            <p>同时检索 OpenAlex、Crossref、PubMed 等开放源，合并去重后帮你<b>锁定那一篇</b>——不是全库浏览，而是「找一篇拿来读」。粘贴 DOI 最快；或用标题、作者、关键词缩小范围（左侧可选检索字段）。看准结果后点「获取全文」，OA 与备用库会依次自动尝试。</p>
+            <p>同时问多个开放数据库，把最相关的文献<b>合并成一份清单</b>——不是浏览整个互联网或你本机收藏。粘贴 DOI 最快；看准结果后点「获取全文」。</p>
             <div className="ff-hint">
               <span className="ff-chip ff-hint-only">粘贴 DOI · 回车直达</span>
-              <span className="ff-chip ff-hint-only">标题 / 作者 / 关键词 · 可指定字段</span>
-              <span className="ff-chip ff-hint-only">看准再点「获取全文」</span>
+              <span className="ff-chip ff-hint-only">左侧可选检索范围</span>
+              <span className="ff-chip ff-hint-only">「快/广」控制每个库取多少条</span>
             </div>
           </div>
         ) : loading && results.length === 0 ? (
