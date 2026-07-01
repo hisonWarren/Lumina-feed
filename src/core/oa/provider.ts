@@ -16,7 +16,7 @@ import { makeTraceEmitter, traceStepForSource, type FetchTraceCallback } from ".
 import { attemptSignal } from "./timeout.ts";
 import { candidateKey, type PdfCandidate } from "./candidate.ts";
 import { verifyPdfIdentity, shouldVerifyPdfIdentity } from "./pdf-identity.ts";
-import { biorxivApiPdfCandidates, biorxivPdfCandidates, isBiorxivDoi } from "./biorxiv-resolve.ts";
+import { biorxivApiPdfCandidates, biorxivPdfCandidates, fetchBiorxivLatestVersion, isBiorxivDoi } from "./biorxiv-resolve.ts";
 import { chemrxivPdfCandidates, isChemrxivDoi } from "./chemrxiv-resolve.ts";
 import { figsharePdfCandidates, isFigshareDoi } from "./figshare-resolve.ts";
 
@@ -169,8 +169,21 @@ export async function fetchPaperPdf(paper: Paper, deps: OaFullTextDeps = {}): Pr
   trace?.patch("identifiers", immediate.length ? "ok" : "skip", immediate.length ? `${immediate.length} 个` : undefined);
 
   const doiNorm = String(paper.doi || "").toLowerCase().replace(/^https?:\/\/(dx\.)?doi\.org\//, "");
+  let biorxivLatest: { version: number; server: "biorxiv" | "medrxiv" } | null = null;
+  if (isBiorxivDoi(doiNorm)) {
+    const apiAttempt = attemptSignal(deps.signal, deps.oaAttemptTimeoutMs ?? 10_000);
+    try {
+      biorxivLatest = await fetchBiorxivLatestVersion(doiNorm, deps.fetchImpl, apiAttempt.signal);
+    } catch { /* API 超时/失败走版本回退 */ }
+    finally { apiAttempt.clear(); }
+  }
   const earlyApis: { step: string; run: () => Promise<import("./candidate.ts").UrlCandidate[]> }[] = [];
-  if (isBiorxivDoi(doiNorm)) earlyApis.push({ step: "biorxiv_api", run: () => biorxivApiPdfCandidates(doiNorm, deps.fetchImpl, deps.signal) });
+  if (isBiorxivDoi(doiNorm)) {
+    earlyApis.push({
+      step: "biorxiv_api",
+      run: () => biorxivApiPdfCandidates(doiNorm, deps.fetchImpl, deps.signal, biorxivLatest),
+    });
+  }
   if (isChemrxivDoi(doiNorm)) earlyApis.push({ step: "chemrxiv_api", run: () => chemrxivPdfCandidates(doiNorm, deps.fetchImpl, deps.signal) });
   if (isFigshareDoi(doiNorm)) earlyApis.push({ step: "figshare_api", run: () => figsharePdfCandidates(doiNorm, deps.fetchImpl, deps.signal) });
   for (const { step, run } of earlyApis) {
@@ -187,12 +200,19 @@ export async function fetchPaperPdf(paper: Paper, deps: OaFullTextDeps = {}): Pr
     }
   }
 
-  // bioRxiv API 失败时：按版本降序同步候选（绕开 Unpaywall 过期 v1 链）
+  // bioRxiv API 直链失败后：从已知最新版本向下扫（避免 v10→v1 全量阻塞）
   if (isBiorxivDoi(doiNorm)) {
-    const syncCands = biorxivPdfCandidates(doiNorm).filter((c) => !tried.has(candidateKey(c)));
+    const maxV = biorxivLatest?.version ?? 10;
+    const syncCands = biorxivPdfCandidates(doiNorm, maxV)
+      .filter((c) => !tried.has(candidateKey(c)))
+      .slice(0, 8);
     if (syncCands.length) {
-      trace?.patch("biorxiv_api", "running", "版本回退");
+      trace?.patch("biorxiv_api", "running", `版本回退≤v${maxV}`);
+      const tSweep = Date.now();
       const { hit, publisherBlocked: pb, identityRejected: idRej } = await tryCandidateList(syncCands, paper, deps, trace, dlMs, tried);
+      // #region agent log
+      fetch('http://127.0.0.1:7739/ingest/f72715b3-174b-4276-af51-ebbb6cf6f9e2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'07b43d'},body:JSON.stringify({sessionId:'07b43d',location:'provider.ts:versionSweep',message:'sweep done',data:{maxV,candCount:syncCands.length,hit:!!hit,source:hit?.source,ms:Date.now()-tSweep},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
+      // #endregion
       if (pb) publisherBlocked = true;
       if (idRej) identityRejected = true;
       if (hit) {

@@ -1,6 +1,7 @@
 // lumina-feed · bioRxiv / medRxiv DOI → 最新版 PDF 直链
 import { biorxivPdfUrl } from "./oa-url-normalize.ts";
 import type { UrlCandidate } from "./candidate.ts";
+import { attemptSignal } from "./timeout.ts";
 
 const BIORXIV_DOI = /^10\.1101\//i;
 
@@ -31,34 +32,42 @@ export async function fetchBiorxivLatestVersion(
   const d = doi.toLowerCase().replace(/^https?:\/\/(dx\.)?doi\.org\//, "");
   if (!isBiorxivDoi(d)) return null;
   const f = fetchImpl ?? fetch;
-  for (const server of ["biorxiv", "medrxiv"] as const) {
-    try {
-      const res = await f(`https://api.biorxiv.org/details/${server}/${d}/na/json`, {
-        headers: { accept: "application/json" },
-        signal,
-      });
-      if (!res.ok) continue;
-      const json = await res.json();
-      const rows: BiorxivApiRow[] = json?.collection ?? [];
-      let best = 0;
-      for (const row of rows) {
-        const v = Number(row.version ?? 0);
-        if (v > best) best = v;
-      }
-      if (best > 0) return { version: best, server };
-    } catch { /* try next server */ }
+  const attempt = attemptSignal(signal, 10_000);
+  try {
+    for (const server of ["biorxiv", "medrxiv"] as const) {
+      try {
+        const res = await f(`https://api.biorxiv.org/details/${server}/${d}/na/json`, {
+          headers: { accept: "application/json" },
+          signal: attempt.signal,
+        });
+        if (!res.ok) continue;
+        const json = await res.json();
+        const rows: BiorxivApiRow[] = json?.collection ?? [];
+        let best = 0;
+        for (const row of rows) {
+          const v = Number(row.version ?? 0);
+          if (v > best) best = v;
+        }
+        if (best > 0) return { version: best, server };
+      } catch { /* try next server */ }
+    }
+    return null;
+  } finally {
+    attempt.clear();
   }
-  return null;
 }
 
-/** API 解析最新版 → 高优先级 PDF 候选。 */
+/** API 解析最新版 → 高优先级 PDF 候选。prefetchedLatest 可避免重复请求 details API。 */
 export async function biorxivApiPdfCandidates(
   doi: string,
   fetchImpl?: typeof fetch,
   signal?: AbortSignal,
+  prefetchedLatest?: { version: number; server: "biorxiv" | "medrxiv" } | null,
 ): Promise<UrlCandidate[]> {
   const d = doi.toLowerCase().replace(/^https?:\/\/(dx\.)?doi\.org\//, "");
-  const latest = await fetchBiorxivLatestVersion(d, fetchImpl, signal);
+  const latest = prefetchedLatest !== undefined
+    ? prefetchedLatest
+    : await fetchBiorxivLatestVersion(d, fetchImpl, signal);
   if (!latest) return [];
   const url = biorxivPdfUrl(d, latest.version, latest.server);
   const alt = latest.server === "biorxiv"

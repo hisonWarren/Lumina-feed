@@ -282,14 +282,23 @@ export default function ReaderModule({ pushToast, incoming, onIncomingHandled, r
 
   useEffect(() => {
     if (!bridge.onPapersChanged) return undefined;
+    let debounce = null;
     const stop = bridge.onPapersChanged((payload) => {
       const action = payload && payload.action;
       if (action === "pdf_deleted" || action === "library_detached") {
-        void refreshContinue();
-        void refreshDownloaded();
+        if (debounce) clearTimeout(debounce);
+        debounce = setTimeout(() => {
+          debounce = null;
+          const t0 = Date.now();
+          Promise.all([refreshContinue(), refreshDownloaded()]).then(() => {
+            // #region agent log
+            fetch('http://127.0.0.1:7739/ingest/f72715b3-174b-4276-af51-ebbb6cf6f9e2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'07b43d'},body:JSON.stringify({sessionId:'07b43d',location:'ReadHub.jsx:papersChanged',message:'refresh done',data:{action,ms:Date.now()-t0},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
+            // #endregion
+          });
+        }, 120);
       }
     });
-    return () => stop && stop();
+    return () => { if (debounce) clearTimeout(debounce); stop && stop(); };
   }, [refreshContinue, refreshDownloaded]);
 
   useEffect(() => {
