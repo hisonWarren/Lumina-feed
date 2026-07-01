@@ -13,6 +13,8 @@ export interface AppSettings {
   altMirrors?: { libgen?: string[]; annas?: string[]; scihub?: string[] };
   /** 取文后自动加入我的文献（工作集）；关则仅落盘，需手动收藏 */
   autoIngestOnFetch?: boolean;
+  /** 自定义 PDF 存储目录（绝对路径）；省略则用 userData/pdfs */
+  pdfStorageDir?: string;
   /** P10 · 标识符定位后后台预取（默认关，须用户在设置中开启） */
   prefetchOnIdentifier?: boolean;
   /** OA 检索命中后台预取（默认关） */

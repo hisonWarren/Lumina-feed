@@ -1,5 +1,5 @@
 // lumina-feed · IPC（干净基线：检索 · 总结 · OA · 设置）+ reader_engine（OA 取/存/读回 · 阅读器接地 AI）
-import { ipcMain, app, Notification, BrowserWindow, type WebContents } from "electron";
+import { ipcMain, app, Notification, BrowserWindow, dialog, shell, type WebContents } from "electron";
 import fs from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -43,6 +43,16 @@ import {
   type ReadingHistoryRow,
 } from "../src/core/reader/reading-history.ts";
 import { loadAppSettings, saveAppSettings, loadAppSettingsView, hydrateLlmSettings, type AppSettings } from "./settings.ts";
+import {
+  activePdfStorageDir,
+  pdfPathForId,
+  defaultPdfStorageDir,
+  validatePdfStorageDir,
+  countPdfsInDir,
+  migratePdfStorageDir,
+  clearPdfStorageDir,
+  readPdfStorageDirSetting,
+} from "./pdf-storage.ts";
 import type { SummarizeOptions } from "../src/core/summarize/types.ts";
 import { DEFAULT_SUMMARIZE } from "../src/core/summarize/types.ts";
 import { setPoliteIdentity } from "../src/core/sources/adapter.ts";
@@ -191,8 +201,8 @@ export function registerIpc(deps: IpcDeps): void {
     return s.contactEmail ?? process.env.LUMINA_CONTACT_EMAIL;
   }
 
-  const pdfDir = (): string => { const d = path.join(app.getPath("userData"), "pdfs"); fs.mkdirSync(d, { recursive: true }); return d; };
-  const pdfPath = (id: string): string => path.join(pdfDir(), encodeURIComponent(id) + ".pdf");
+  const pdfDir = (): string => activePdfStorageDir(store);
+  const pdfPath = (id: string): string => pdfPathForId(id, store);
   const prefetchInflight = new Set<string>();
   const prefetchQueued = new Set<string>();
   const PREFETCH_CONCURRENCY = 4;
@@ -1594,6 +1604,57 @@ export function registerIpc(deps: IpcDeps): void {
   });
   ipcMain.handle("papers:fetchQueueStatus", () => fetchQueueStatus());
 
+  ipcMain.handle("pdf:getStorageInfo", async () => {
+    const defaultDir = defaultPdfStorageDir();
+    const activeDir = activePdfStorageDir(store);
+    const custom = readPdfStorageDirSetting(store);
+    return {
+      activeDir,
+      defaultDir,
+      isCustom: !!custom,
+      fileCount: countPdfsInDir(activeDir),
+    };
+  });
+
+  ipcMain.handle("pdf:pickStorageDir", async (e) => {
+    const w = BrowserWindow.fromWebContents(e.sender);
+    const { canceled, filePaths } = await dialog.showOpenDialog(w && !w.isDestroyed() ? w : undefined, {
+      properties: ["openDirectory", "createDirectory"],
+      title: "选择 PDF 存储文件夹",
+      defaultPath: activePdfStorageDir(store),
+    });
+    if (canceled || !filePaths?.[0]) return null;
+    return filePaths[0];
+  });
+
+  ipcMain.handle("pdf:setStorageDir", async (_e, opts: { dir?: string | null; migrate?: boolean } = {}) => {
+    const prevDir = activePdfStorageDir(store);
+    const raw = typeof opts.dir === "string" ? opts.dir.trim() : "";
+    if (!raw) {
+      await saveAppSettings(store, { pdfStorageDir: "" });
+      broadcastPapersChanged({ action: "pdf_storage_reset" });
+      return { ok: true, activeDir: defaultPdfStorageDir() };
+    }
+    const valid = validatePdfStorageDir(raw);
+    if (!valid.ok) return { ok: false as const, error: valid.error || "invalid_path" };
+    const nextDir = path.resolve(raw);
+    let moved = 0;
+    if (opts.migrate && path.resolve(prevDir) !== nextDir) {
+      const r = migratePdfStorageDir(prevDir, nextDir);
+      moved = r.moved;
+      if (r.errors) return { ok: false as const, error: "migrate_partial", moved, activeDir: nextDir };
+    }
+    await saveAppSettings(store, { pdfStorageDir: nextDir });
+    broadcastPapersChanged({ action: "pdf_storage_changed", moved });
+    return { ok: true as const, activeDir: nextDir, moved };
+  });
+
+  ipcMain.handle("pdf:openStorageDir", async () => {
+    const dir = activePdfStorageDir(store);
+    const err = await shell.openPath(dir);
+    return { ok: !err, error: err || undefined };
+  });
+
   // 清除本机文献数据（库 + 已下载 PDF + 缓存表）；设置与钥匙串密钥保留。完成后重启应用。
   ipcMain.handle("app:resetLocalData", () => {
     try {
@@ -1602,12 +1663,8 @@ export function registerIpc(deps: IpcDeps): void {
       for (const f of ["lumina.db", "lumina.db-wal", "lumina.db-shm"]) {
         try { fs.unlinkSync(path.join(ud, f)); } catch { /* ignore */ }
       }
-      const pd = path.join(ud, "pdfs");
-      try {
-        for (const name of fs.readdirSync(pd)) {
-          try { fs.unlinkSync(path.join(pd, name)); } catch { /* ignore */ }
-        }
-      } catch { /* ignore */ }
+      const dirs = new Set<string>([defaultPdfStorageDir(), activePdfStorageDir(store)]);
+      for (const pd of dirs) clearPdfStorageDir(pd);
       app.relaunch();
       app.quit();
       return { ok: true };

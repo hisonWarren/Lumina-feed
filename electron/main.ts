@@ -13,6 +13,7 @@ import { loadAppSettings, saveAppSettings } from "./settings.ts";
 import { installDefaultLimiters } from "../src/core/sources/rate-limit.ts";
 import { installContextMenuBridge, runContextAction } from "./context-menu.ts";
 import { installTrayMenuController, type AppNavigatePayload } from "./tray-menu.ts";
+import { bindPdfStorageStore, activePdfStorageDir, pdfPathForId } from "./pdf-storage.ts";
 
 function appVersion(): string {
   try {
@@ -36,12 +37,10 @@ let isQuiting = false;
 let disposeTrayMenu: (() => void) | null = null;
 
 function pdfDirPath(): string {
-  const d = path.join(app.getPath("userData"), "pdfs");
-  try { mkdirSync(d, { recursive: true }); } catch { /* ignore */ }
-  return d;
+  return activePdfStorageDir(store);
 }
 function pdfPathForPaper(id: string): string {
-  return path.join(pdfDirPath(), encodeURIComponent(id) + ".pdf");
+  return pdfPathForId(id, store);
 }
 
 function showMainWindow(): void {
@@ -233,6 +232,7 @@ app.whenReady().then(async () => {
   if (!gotLock) return;
   installDefaultLimiters();
   store = initStore(await openBetterSqlite(path.join(app.getPath("userData"), "lumina.db")));
+  bindPdfStorageStore(store);
   try {
     const settings = await loadAppSettings(store);
     setPoliteIdentity({ tool: "lumina-feed", email: settings.contactEmail ?? process.env.LUMINA_CONTACT_EMAIL });

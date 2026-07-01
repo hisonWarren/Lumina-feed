@@ -2,7 +2,7 @@
 // 复用引擎既有 settings:get/save + secrets:set（密钥仅入系统钥匙串，绝不写配置/代码 = 红线3）。
 // 主题切换由壳层 onTheme 即时应用 + 持久化；视觉读图归「隐私」；阅读偏好归「阅读」。豆包模型框支持 Model ID 或推理接入点 ep-。
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Cpu, Palette, Bell, Mail, KeyRound, Check, Save, Info, Eye, EyeOff, Plug, ChevronDown, RefreshCw, Loader, X, BookOpen, Shield, Trash2, Database } from "lucide-react";
+import { Cpu, Palette, Bell, Mail, KeyRound, Check, Save, Info, Eye, EyeOff, Plug, ChevronDown, RefreshCw, Loader, X, BookOpen, Shield, Trash2, Database, FolderOpen } from "lucide-react";
 import { bridge, hasBackend } from "../lumina-bridge.js";
 import { persistSettings } from "../settings-persist.js";
 import { THEMES } from "../themes.js";
@@ -187,6 +187,11 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
   const [pruneDetachedOpen, setPruneDetachedOpen] = useState(false);
   const [pruningDetached, setPruningDetached] = useState(false);
   const [detachedSummary, setDetachedSummary] = useState({ count: 0, bytes: 0 });
+  const [pdfStoragePath, setPdfStoragePath] = useState("");
+  const [pdfStorageIsCustom, setPdfStorageIsCustom] = useState(false);
+  const [pdfStorageSaving, setPdfStorageSaving] = useState(false);
+  const [pdfMigrateOpen, setPdfMigrateOpen] = useState(false);
+  const [pdfMigrateTarget, setPdfMigrateTarget] = useState(null);
   const [userDataPath, setUserDataPath] = useState("");
   const [appVersion, setAppVersion] = useState("");
   const [searchDepth, setSearchDepth] = useState("standard");
@@ -451,6 +456,76 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
   useEffect(() => {
     if (activeCat === "general") void refreshDetachedSummary();
   }, [activeCat, refreshDetachedSummary]);
+
+  const refreshPdfStorageInfo = useCallback(async () => {
+    if (!backend) { setPdfStoragePath(""); setPdfStorageIsCustom(false); return; }
+    try {
+      const info = await bridge.pdfGetStorageInfo();
+      if (info?.activeDir) setPdfStoragePath(String(info.activeDir));
+      setPdfStorageIsCustom(!!info?.isCustom);
+    } catch {
+      setPdfStoragePath("");
+      setPdfStorageIsCustom(false);
+    }
+  }, [backend]);
+
+  useEffect(() => {
+    if (activeCat === "general") void refreshPdfStorageInfo();
+  }, [activeCat, refreshPdfStorageInfo]);
+
+  const applyPdfStorageDir = useCallback(async (dir, migrate) => {
+    setPdfStorageSaving(true);
+    try {
+      const r = await bridge.pdfSetStorageDir({ dir, migrate: !!migrate });
+      if (!r?.ok) {
+        const msg = r?.error === "not_writable" ? "该文件夹不可写，请换一个位置"
+          : r?.error === "migrate_partial" ? "部分 PDF 未能迁移，请检查目标文件夹权限"
+            : "PDF 存储路径保存失败";
+        pushToast && pushToast(msg);
+        return false;
+      }
+      if (r.activeDir) setPdfStoragePath(r.activeDir);
+      setPdfStorageIsCustom(!!dir);
+      if (typeof r.moved === "number" && r.moved > 0) {
+        pushToast && pushToast(`已迁移 ${r.moved} 个 PDF 到新目录`);
+      } else {
+        pushToast && pushToast(dir ? "PDF 存储路径已更新" : "已恢复默认 PDF 存储位置");
+      }
+      void refreshDetachedSummary();
+      return true;
+    } finally {
+      setPdfStorageSaving(false);
+    }
+  }, [pushToast, refreshDetachedSummary]);
+
+  const onPickPdfStorageDir = useCallback(async () => {
+    if (!backend) return;
+    const picked = await bridge.pdfPickStorageDir();
+    if (!picked) return;
+    const info = await bridge.pdfGetStorageInfo();
+    const same = info?.activeDir && pathNorm(picked) === pathNorm(info.activeDir);
+    if (same) return;
+    if (info?.fileCount > 0) {
+      setPdfMigrateTarget({ dir: picked, count: info.fileCount });
+      setPdfMigrateOpen(true);
+      return;
+    }
+    await applyPdfStorageDir(picked, false);
+  }, [backend, applyPdfStorageDir]);
+
+  const onResetPdfStorageDir = useCallback(async () => {
+    if (!backend || !pdfStorageIsCustom) return;
+    await applyPdfStorageDir(null, false);
+  }, [backend, pdfStorageIsCustom, applyPdfStorageDir]);
+
+  const onOpenPdfStorageDir = useCallback(() => {
+    if (!backend) return;
+    void bridge.pdfOpenStorageDir();
+  }, [backend]);
+
+  function pathNorm(p) {
+    return String(p || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  }
 
   const onPruneDetachedPdfs = useCallback(async () => {
     setPruneDetachedOpen(false);
@@ -873,6 +948,27 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                   <button role="switch" aria-checked={autoIngest} className={"set-switch" + (autoIngest ? " on" : "")} onClick={() => void onToggleAutoIngest()} aria-label="自动入库开关" title="获取全文成功时自动写入「我的文献」工作集"><i /></button>
                 </div>
                 <span className="set-hint">开启后，获取全文成功时会自动写入工作集并记录来源；关闭则仅保存 PDF 到本机，需手动收藏。切换后立即保存。</span>
+                <div className="set-row" style={{ marginTop: 14 }}>
+                  <span className="set-lbl"><FolderOpen size={13} style={{ verticalAlign: "-2px", marginRight: 5 }} />PDF 存储位置</span>
+                  <p className="set-mono" style={{ margin: "6px 0 0", fontSize: 12.5, wordBreak: "break-all", lineHeight: 1.45 }}>
+                    {pdfStoragePath || "（加载中…）"}
+                    {pdfStorageIsCustom ? " · 自定义" : pdfStoragePath ? " · 默认" : ""}
+                  </p>
+                  <div className="set-btnrow" style={{ marginTop: 8 }}>
+                    <button type="button" className="set-btn" disabled={!backend || pdfStorageSaving} onClick={() => void onPickPdfStorageDir()}>
+                      <FolderOpen size={15} /> {pdfStorageSaving ? "保存中…" : "更改文件夹"}
+                    </button>
+                    <button type="button" className="set-btn" disabled={!backend || !pdfStoragePath} onClick={onOpenPdfStorageDir}>
+                      在资源管理器中打开
+                    </button>
+                    {pdfStorageIsCustom ? (
+                      <button type="button" className="set-btn" disabled={!backend || pdfStorageSaving} onClick={() => void onResetPdfStorageDir()}>
+                        恢复默认
+                      </button>
+                    ) : null}
+                  </div>
+                  <span className="set-hint">获取全文下载的 PDF 保存在此目录。更改时可选择是否把已有 PDF 一并迁移；数据库与索引仍在应用数据目录。</span>
+                </div>
                 <div className="set-note" style={{ marginTop: 12 }}>
                   <Info size={15} />
                   <span className="set-note-t">
@@ -958,6 +1054,27 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
           </div>
         </div>
       </div>
+      <ConfirmDialog
+        open={pdfMigrateOpen}
+        title="迁移已有 PDF？"
+        detail={pdfMigrateTarget
+          ? `当前目录约有 ${pdfMigrateTarget.count} 个 PDF。是否一并移动到新文件夹？\n\n新位置：${pdfMigrateTarget.dir}\n\n选「迁移」会移动文件；选「仅更改路径」则旧文件留在原处，之后新下载的 PDF 存到新位置。`
+          : ""}
+        confirmLabel="迁移 PDF"
+        cancelLabel="仅更改路径"
+        onConfirm={() => {
+          const t = pdfMigrateTarget;
+          setPdfMigrateOpen(false);
+          setPdfMigrateTarget(null);
+          if (t) void applyPdfStorageDir(t.dir, true);
+        }}
+        onCancel={() => {
+          const t = pdfMigrateTarget;
+          setPdfMigrateOpen(false);
+          setPdfMigrateTarget(null);
+          if (t) void applyPdfStorageDir(t.dir, false);
+        }}
+      />
       <ConfirmDialog
         open={pruneDetachedOpen}
         title="清理未收藏 PDF？"
