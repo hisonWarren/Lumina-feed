@@ -584,6 +584,10 @@ export const bridge = {
     const api = A(); if (!api || !api.papersHydrate) return {};
     try { return (await api.papersHydrate()) || {}; } catch { return {}; }
   },
+  async paperAsset(paperId) {
+    const api = A(); if (!api || !api.papersAsset) return null;
+    try { return (await api.papersAsset(paperId)) || null; } catch { return null; }
+  },
   async papersUpdateTitle(paperId, title) {
     const api = A(); if (!api || !api.papersUpdateTitle) return false;
     try { return !!(await api.papersUpdateTitle(paperId, title)); } catch { return false; }

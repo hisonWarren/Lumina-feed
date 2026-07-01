@@ -226,6 +226,10 @@ export default function LuminaApp() {
         scheduleRefreshLib();
         return;
       }
+      if (action === "pdf_deleted" || action === "library_detached") {
+        scheduleRefreshLib();
+        return;
+      }
       if (action === "queue_enqueued") return;
       scheduleHydrateFetchedMeta();
     });
@@ -518,11 +522,11 @@ export default function LuminaApp() {
     if (p && p._fetched) return true;
     if (!hasBackend()) return false;
     try {
-      const bytes = await bridge.readPdf(id);
-      if (bytes && bytes.byteLength) {
+      const asset = await bridge.paperAsset(id);
+      if (asset && asset.hasPdf) {
         setFetchedMeta((m) => {
           if (m[id]) return m;
-          const meta = buildFetchedMeta({ ok: true, source: (p && p.fetchSource) || "cached", cached: true });
+          const meta = buildFetchedMeta({ ok: true, source: asset.fetchSource || (p && p.fetchSource) || "cached", cached: true });
           return meta ? { ...m, [id]: meta } : m;
         });
         return true;

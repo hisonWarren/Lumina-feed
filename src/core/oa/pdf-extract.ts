@@ -72,6 +72,55 @@ export function extractPdfTextBasic(
   return text.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+/** 异步版内置抽取：每处理若干 stream 让出事件循环，避免 FTS 阻塞主进程 IPC。 */
+export async function extractPdfTextBasicAsync(
+  bytes: Uint8Array,
+  opts?: { maxScanBytes?: number; maxOutputChars?: number; yieldEvery?: number },
+): Promise<string> {
+  const maxScan = opts?.maxScanBytes ?? bytes.byteLength;
+  const maxOut = opts?.maxOutputChars;
+  const yieldEvery = opts?.yieldEvery ?? 4;
+  const buf = Buffer.from(bytes.subarray(0, Math.min(bytes.byteLength, maxScan)));
+  const latin = buf.toString("latin1");
+  let text = "";
+  let idx = 0;
+  let streamCount = 0;
+  while (true) {
+    const sIdx = latin.indexOf("stream", idx);
+    if (sIdx < 0) break;
+    if (latin.slice(sIdx - 3, sIdx) === "end") { idx = sIdx + 6; continue; }
+    const dictStart = latin.lastIndexOf("<<", sIdx);
+    const dict = dictStart >= 0 ? latin.slice(dictStart, sIdx) : "";
+    let dataStart = sIdx + "stream".length;
+    if (latin[dataStart] === "\r") dataStart++;
+    if (latin[dataStart] === "\n") dataStart++;
+    const eIdx = latin.indexOf("endstream", dataStart);
+    if (eIdx < 0) break;
+    let end = eIdx;
+    while (end > dataStart && (buf[end - 1] === 0x0a || buf[end - 1] === 0x0d)) end--;
+    const raw = buf.subarray(dataStart, end);
+    idx = eIdx + "endstream".length;
+    streamCount++;
+
+    let content = "";
+    if (/\/FlateDecode/.test(dict)) {
+      try { content = zlib.inflateSync(raw).toString("latin1"); }
+      catch { try { content = zlib.inflateRawSync(raw).toString("latin1"); } catch { content = ""; } }
+    } else if (!/\/(DCTDecode|JPXDecode|CCITTFaxDecode|Image)/.test(dict)) {
+      content = raw.toString("latin1");
+    }
+    if (content) {
+      const t = textFromContentStream(content);
+      if (t.trim()) text += t + "\n";
+      if (maxOut && text.length >= maxOut) break;
+    }
+    if (streamCount % yieldEvery === 0) {
+      await new Promise<void>((r) => setImmediate(r));
+    }
+  }
+  return text.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 // ── ① pdfjs 包装（生产；loadDocument 注入 pdfjs-dist 的 getDocument(...).promise） ──
 export interface PdfTextItem { str: string }
 export interface PdfPageLike { getTextContent(): Promise<{ items: PdfTextItem[] }> }
@@ -94,11 +143,13 @@ export interface ExtractDeps { pdfjsLoad?: PdfjsLoad; maxPages?: number }
 
 /** 统一入口：有 pdfjs 用 pdfjs，否则用内置抽取器（并在 pdfjs 抽取过短时回退）。 */
 export async function extractText(bytes: Uint8Array, deps: ExtractDeps = {}): Promise<string> {
+  const pageCap = deps.maxPages;
+  const scanCap = pageCap ? Math.min(bytes.byteLength, 450_000) : undefined;
   if (deps.pdfjsLoad) {
     try {
-      const t = await extractWithPdfjs(bytes, deps.pdfjsLoad, deps.maxPages);
+      const t = await extractWithPdfjs(bytes, deps.pdfjsLoad, pageCap);
       if (t && t.replace(/\s+/g, "").length >= 200) return t;
     } catch { /* 落到内置抽取器 */ }
   }
-  return extractPdfTextBasic(bytes);
+  return extractPdfTextBasicAsync(bytes, { maxScanBytes: scanCap, yieldEvery: 3 });
 }

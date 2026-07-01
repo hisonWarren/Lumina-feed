@@ -335,9 +335,9 @@ const READER_CSS = `
 .rd-ai-q{font-size:12.5px;font-weight:600;color:var(--ink);background:var(--surf2);border-radius:8px;padding:7px 10px}
 .rd-ai-a{font-size:13px;line-height:1.7;color:var(--ink);padding:2px 2px 0}
 .rd-ai-load{display:inline-flex;align-items:center;gap:6px;color:var(--ink3);font-size:12.5px}
-.rd-ai-input{display:flex;gap:8px;align-items:center;width:100%;max-width:100%;background:var(--surf);padding:0;margin:0;box-sizing:border-box}
-.rd-ai-input input{flex:1;min-width:0;width:0;border:1px solid var(--line2);border-radius:9px;padding:8px 10px;font-size:12.5px;font-family:inherit;background:var(--surf);color:var(--ink);outline:none}
-.rd-ai-input input:focus{border-color:var(--gold)}
+.rd-ai-input{display:flex;gap:8px;align-items:flex-end;width:100%;max-width:100%;background:var(--surf);padding:0;margin:0;box-sizing:border-box}
+.rd-ai-input textarea{flex:1;min-width:0;width:0;min-height:36px;max-height:132px;border:1px solid var(--line2);border-radius:9px;padding:8px 10px;font-size:12.5px;line-height:1.45;font-family:inherit;background:var(--surf);color:var(--ink);outline:none;resize:none;overflow-y:auto;field-sizing:content}
+.rd-ai-input textarea:focus{border-color:var(--gold)}
 .rd-ai-send{flex:0 0 36px;width:36px;height:36px;border:none;background:var(--gold);color:#fff;border-radius:9px;padding:0;cursor:pointer;display:grid;place-items:center}
 .rd-ai-send:disabled{opacity:.5;cursor:default}
 .lf-cite{display:inline;border:none;background:rgba(14,124,111,.12);color:var(--gold);border-radius:5px;padding:0 5px;margin:0 1px;font-family:'Space Mono',monospace;font-size:11px;cursor:pointer}
@@ -650,6 +650,53 @@ function PageView({ doc, pageNum, scale, rotation, find, curOnThisPage, annos, s
         <div key={a.id + "-" + i} className={"rd-hl hl-" + a.color} title={a.note || a.anchoredText || ""}
           style={{ left: r.x * scale + "px", top: r.y * scale + "px", width: r.w * scale + "px", height: r.h * scale + "px" }} />
       )))}
+    </div>
+  );
+}
+
+const CONT_PAGE_IO_MARGIN = "1400px 0px";
+
+/** 连续模式占位：保留页高供滚动探测，不渲染 canvas/文本层 */
+function PageSizePlaceholder({ doc, pageNum, scale, rotation }) {
+  const [box, setBox] = useState(null);
+  useEffect(() => {
+    if (!doc) { setBox(null); return; }
+    let cancelled = false;
+    doc.getPage(pageNum).then((page) => {
+      if (cancelled) return;
+      const vp = page.getViewport({ scale, rotation });
+      setBox({ w: Math.floor(vp.width), h: Math.floor(vp.height) });
+    }).catch(() => { if (!cancelled) setBox(null); });
+    return () => { cancelled = true; };
+  }, [doc, pageNum, scale, rotation]);
+  if (!box) return <div className="rd-pg-ph" style={{ minHeight: 720, width: "100%", maxWidth: 720 }} />;
+  return <div className="rd-pg-ph" style={{ width: box.w + "px", height: box.h + "px" }} aria-hidden="true" />;
+}
+
+/** 连续模式单页槽：视口附近才挂载 PageView，避免 30 页同时 canvas 渲染卡死 */
+function ContinuousPageSlot({ doc, pageNum, scale, rotation, find, curOnThisPage, annos, scrollRootRef }) {
+  const wrapRef = useRef(null);
+  const [active, setActive] = useState(false);
+  useEffect(() => {
+    const el = wrapRef.current;
+    const root = scrollRootRef?.current;
+    if (!el) return;
+    if (!root || typeof IntersectionObserver === "undefined") { setActive(true); return; }
+    const io = new IntersectionObserver((ents) => {
+      for (const e of ents) {
+        if (e.target === el) setActive(e.isIntersecting);
+      }
+    }, { root, rootMargin: CONT_PAGE_IO_MARGIN, threshold: 0 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [scrollRootRef, doc, pageNum]);
+  return (
+    <div ref={wrapRef} id={"rd-pg-" + pageNum} className="rd-pg-wrap">
+      {active ? (
+        <PageView doc={doc} pageNum={pageNum} scale={scale} rotation={rotation} find={find} curOnThisPage={curOnThisPage} annos={annos} scrollRootRef={scrollRootRef} />
+      ) : (
+        <PageSizePlaceholder doc={doc} pageNum={pageNum} scale={scale} rotation={rotation} />
+      )}
     </div>
   );
 }
@@ -1547,6 +1594,23 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [outlineView, setOutlineView] = useState("map");
   const qaEndRef = useRef(null);
+  const assistScrollRef = useRef(null);
+  const qInputRef = useRef(null);
+
+  const scrollAssistToBottom = useCallback((smooth = true) => {
+    const root = assistScrollRef.current;
+    if (!root) return;
+    requestAnimationFrame(() => {
+      root.scrollTo({ top: root.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+    });
+  }, []);
+
+  const resizeQInput = useCallback(() => {
+    const el = qInputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = Math.min(132, Math.max(36, el.scrollHeight)) + "px";
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -1598,7 +1662,9 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
     if (!qq || asking) return;
     if (!(await ensureLlmReady(pushToast))) return;
     setQ(""); setAsking(true);
+    resizeQInput();
     setQa((list) => [...list, { q: qq, a: null, loading: true }]);
+    scrollAssistToBottom(true);
     try {
       const pages = await ensurePages();
       const r = await bridge.readerAsk(pages, qq);
@@ -1610,18 +1676,23 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
         if (key && next.length) saveCachedAnalysis(source, { kind: "qa", lane: "evidence", model: (r && r.model) || "", title: "接地问答", claims: [], messages: next });
         return next;
       });
+      scrollAssistToBottom(true);
     } catch (e) {
       setQa((list) => list.map((x, i) => (i === list.length - 1 ? { q: qq, a: "（出错，请稍后重试）", loading: false } : x)));
     } finally { setAsking(false); }
-  }, [ensurePages, asking, source]);
+  }, [ensurePages, asking, source, scrollAssistToBottom, resizeQInput, pushToast]);
+
+  useEffect(() => {
+    resizeQInput();
+  }, [q, resizeQInput]);
+
+  useEffect(() => {
+    scrollAssistToBottom(qa.length > 1);
+  }, [qa, asking, scrollAssistToBottom]);
 
   useEffect(() => {
     if (explainReq && explainReq.text) doAsk("请在本文语境中解释这段：" + explainReq.text);
   }, [explainReq && explainReq.id]); // eslint-disable-line
-
-  useEffect(() => {
-    if (qa.length && qaEndRef.current) qaEndRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [qa.length, asking]);
 
   const AnswerMeta = ({ basis, ratio, pagesUsed, pageCount }) => (
     <div className="rd-ai-meta">
@@ -1633,7 +1704,7 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
   const outlinePreview = outlineEnv && (outlineEnv.claims && outlineEnv.claims[0] ? summaryPreview(outlineEnv.claims[0].text) : "已提取，点击展开");
 
   return (
-    <div className="rd-assist-root">
+    <div className="rd-assist-root" ref={assistScrollRef}>
       <div className="rd-assist-main">
         <div className="rd-assist-block">
           <div className="rd-assist-block-h">我这次为什么读？（据此推荐深读工具）</div>
@@ -1718,7 +1789,16 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
             {PRESET_Q.map((pq, i) => <button key={i} className="rd-ai-chip" onClick={() => doAsk(pq)} disabled={asking}>{pq}</button>)}
           </div>
           <div className="rd-ai-input">
-            <input value={q} placeholder="输入问题，回车提问…" onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") doAsk(q); }} />
+            <textarea
+              ref={qInputRef}
+              rows={1}
+              value={q}
+              placeholder="输入问题，回车提问…"
+              onChange={(e) => { setQ(e.target.value); resizeQInput(); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); doAsk(q); }
+              }}
+            />
             <button className="rd-ai-send" onClick={() => doAsk(q)} disabled={asking || !q.trim()} title="提问"><Send size={15} /></button>
           </div>
         </div>
@@ -2173,6 +2253,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
   const suppressPageScroll = useRef(false); // true 时跳过一次 page→scrollIntoView（滚动联动改 page 时用，避免与用户滚动打架）
   const scrollSpyRaf = useRef(0);
   const scrollSpyTailRef = useRef(0);
+  const scrollSpyLastSetRef = useRef(0);
   const pageRef = useRef(1);
   const syncSidePanelScrollToRef = useRef(() => {});
   const spreadManualZoomRef = useRef(false); // 双页下用户手动缩放后，不再被自动 fit 覆盖
@@ -2393,12 +2474,15 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
   }, [sidebar, sidePanel]);
   syncSidePanelScrollToRef.current = syncSidePanelScrollTo;
 
-  const runScrollSpy = useCallback(() => {
+  const runScrollSpy = useCallback((force = false) => {
     if (view !== "continuous") return;
     const root = viewRef.current;
     if (!root || !numPages) return;
     const best = detectContinuousPage(root, numPages);
     if (best === pageRef.current) return;
+    const now = Date.now();
+    if (!force && now - scrollSpyLastSetRef.current < 140) return;
+    scrollSpyLastSetRef.current = now;
     suppressPageScroll.current = true;
     pageRef.current = best;
     setPage(best);
@@ -2428,8 +2512,8 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
     if (scrollSpyTailRef.current) clearTimeout(scrollSpyTailRef.current);
     scrollSpyTailRef.current = setTimeout(() => {
       scrollSpyTailRef.current = 0;
-      runScrollSpy();
-    }, 80);
+      runScrollSpy(true);
+    }, 120);
   }, [sel, view, runScrollSpy]);
 
   useEffect(() => {
@@ -2956,7 +3040,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
             <div className="rd-err"><AlertTriangle size={24} /><div>{err}</div></div>
           ) : !doc ? null : view === "continuous" ? (
             Array.from({ length: numPages }, (_, i) => i + 1).map((n) => (
-              <div key={n} id={"rd-pg-" + n}><PageView doc={doc} pageNum={n} scale={scale} rotation={rotation} find={find} curOnThisPage={curFor(n)} annos={annos.filter((a) => a.page === n)} scrollRootRef={viewRef} /></div>
+              <ContinuousPageSlot key={n} doc={doc} pageNum={n} scale={scale} rotation={rotation} find={find} curOnThisPage={curFor(n)} annos={annos.filter((a) => a.page === n)} scrollRootRef={viewRef} />
             ))
           ) : view === "two" ? (
             <div className="rd-spread">

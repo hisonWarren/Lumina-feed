@@ -501,14 +501,11 @@ export default function ReaderModule({ pushToast, incoming, onIncomingHandled, r
     let alive = true;
     (async () => {
       try {
-        const bytes = await bridge.readPdf(readTarget.paperId);
-        if (!alive) return;
-        if (!bytes || !bytes.byteLength) { pushToast && pushToast("无法读取该已下载全文"); return; }
         const title = readTarget.title || readTarget.paperId || "document.pdf";
         const rec = await bridge.recordReadingOpen({ paperId: readTarget.paperId, title, page: 1 });
+        if (!alive) return;
         await openWithPayload({
           name: title,
-          data: bytes,
           paperId: readTarget.paperId,
           entryKey: rec?.entry?.entryKey || ("paper:" + readTarget.paperId),
           startPage: rec?.entry?.page || 1,

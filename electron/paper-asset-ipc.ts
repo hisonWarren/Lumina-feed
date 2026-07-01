@@ -31,7 +31,7 @@ import {
   isGarbledTitle,
 } from "../src/core/store/local-import.ts";
 import { migrateDocKeys } from "../src/core/store/doc-migrate.ts";
-import { normalizeLocalPath, recordReadingOpen } from "../src/core/reader/reading-history.ts";
+import { normalizeLocalPath, recordReadingOpen, removeReadingHistory } from "../src/core/reader/reading-history.ts";
 import { readerDocKeyCandidates } from "../src/core/reader/doc-key.ts";
 import { fetchResultForIpc } from "../src/core/oa/fetch-result-ipc.ts";
 
@@ -81,10 +81,21 @@ export function broadcastPapersChanged(payload: Record<string, unknown> = {}): v
   }
 }
 
+async function waitFetchQueueIdle(maxMs = 90_000): Promise<void> {
+  const t0 = Date.now();
+  for (;;) {
+    const { pending, active } = fetchQueueStatus();
+    if (pending === 0 && active === 0) return;
+    if (Date.now() - t0 >= maxMs) return;
+    await new Promise<void>((r) => setTimeout(r, 400));
+  }
+}
+
 export async function indexPdfFulltext(deps: PaperAssetDeps, paperId: string, bytes: Uint8Array): Promise<void> {
   try {
-    await new Promise<void>((r) => setTimeout(r, 50));
-    const text = await extractText(bytes.subarray(0, Math.min(bytes.byteLength, 2_000_000)), { maxPages: 8 });
+    await waitFetchQueueIdle();
+    await new Promise<void>((r) => setTimeout(r, 80));
+    const text = await extractText(bytes.subarray(0, Math.min(bytes.byteLength, 800_000)), { maxPages: 8 });
     if (!text || text.replace(/\s+/g, "").length < 400) return;
     deps.ensureFts();
     deps.store.db.prepare("DELETE FROM fulltext_fts WHERE paper_id=?").run(paperId);
@@ -109,10 +120,11 @@ export async function postFetchSuccess(
     ensureStubPaper(deps, paperId);
     libraryAdd(deps.store.db, paperId, ctx.provenance || "find_fetch", !libraryHas(deps.store.db, paperId));
   }
-  const ftsDelayMs = 10_000;
+  const ftsDelayMs = 15_000;
   setTimeout(() => {
     void (async () => {
       try {
+        await waitFetchQueueIdle();
         const { readFile: readFileAsync } = await import("node:fs/promises");
         const buf = await readFileAsync(deps.pdfPath(paperId));
         await indexPdfFulltext(deps, paperId, new Uint8Array(buf));
@@ -202,6 +214,7 @@ export function deleteLocalPdf(deps: PaperAssetDeps, paperId: string, removeFrom
       deps.store.db.prepare("DELETE FROM library WHERE paper_id=?").run(paperId);
     } catch { /* ignore */ }
   }
+  try { removeReadingHistory(deps.store.db, `paper:${paperId}`); } catch { /* ignore */ }
   broadcastPapersChanged({ paperId, action: "pdf_deleted", removeFromLibrary });
   return true;
 }

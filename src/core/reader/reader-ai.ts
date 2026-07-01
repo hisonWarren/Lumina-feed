@@ -91,6 +91,7 @@ function multiTokens(s: string): { anchors: string[]; cjk: string[] } {
   const t = norm(s).replace(/\[p\.\d+\]/g, " ").replace(/\*\*/g, "");
   const anchors: string[] = [];
   for (const w of (t.toLowerCase().match(/[a-z][a-z0-9+\-]{2,}/g) || [])) anchors.push(w);
+  for (const n of (t.match(/\d+(?:\.\d+)?(?:ms|s|hz|khz|mhz|%)?/gi) || [])) anchors.push(n.toLowerCase());
   for (const n of (t.match(/\d+(?:\.\d+)?%?/g) || [])) anchors.push(n);
   const cjk: string[] = [];
   for (const run of (t.match(/[\u3400-\u9FFF]+/g) || [])) {
@@ -148,8 +149,72 @@ function groundReaderAnswer(answer: string, pages: ReaderPage[], opts: { hi?: nu
   const total = scored || 1;
   const groundedRatio = Math.round((grounded / total) * 100) / 100;
   const bannerThreshold = opts.bannerThreshold ?? 0.5;
-  const banner = groundedRatio < bannerThreshold ? `⚠ 接地偏低（${grounded}/${total} 处可在所引页面核到）——请核对原文` : undefined;
+  const uncertainty = /依据所给页面无法确定|无法从所给|文本不足以回答/.test(answer || "");
+  const banner = !uncertainty && groundedRatio < bannerThreshold ? `⚠ 接地偏低（${grounded}/${total} 处可在所引页面核到）——请核对原文` : undefined;
   return { groundedRatio, banner };
+}
+
+/** 从定位类问题中抽取可在 PDF 文本里检索的锚点（数值+单位、引号内短语、英文专名）。 */
+export function extractSearchNeedles(question: string): string[] {
+  const out = new Set<string>();
+  const q = question || "";
+  for (const m of q.matchAll(/\d+(?:\.\d+)?\s*(?:ms|s|sec|seconds?|Hz|kHz|MHz|%|mm|cm|m|分钟|秒)?/gi)) {
+    const raw = m[0].trim();
+    if (!raw) continue;
+    out.add(raw);
+    out.add(raw.replace(/\s+/g, "").toLowerCase());
+  }
+  for (const m of q.matchAll(/[「"']([^」"']{2,48})[」"']/g)) out.add(m[1].trim());
+  if (/(哪里|何处|哪一|提到|出现|在哪)/i.test(q)) {
+    for (const m of q.matchAll(/\b[A-Za-z][A-Za-z0-9+\-]{2,}\b/g)) {
+      if (m[0].length <= 24) out.add(m[0]);
+    }
+  }
+  return [...out].filter((x) => x.replace(/\s/g, "").length >= 2);
+}
+
+function compactForMatch(s: string): string {
+  return norm(s).toLowerCase().replace(/\s+/g, "");
+}
+
+export function findNeedlesInPages(pages: ReaderPage[], needles: string[]): Array<{ page: number; snippet: string; needle: string }> {
+  const hits: Array<{ page: number; snippet: string; needle: string }> = [];
+  const seen = new Set<string>();
+  for (const p of pages) {
+    const compact = compactForMatch(p.text || "");
+    if (!compact) continue;
+    for (const needle of needles) {
+      const n = compactForMatch(needle);
+      if (n.length < 2) continue;
+      const idx = compact.indexOf(n);
+      if (idx < 0) continue;
+      const key = `${p.page}:${n}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const raw = p.text || "";
+      const approx = Math.max(0, Math.min(raw.length - 1, Math.floor((idx / Math.max(1, compact.length)) * raw.length)));
+      const start = Math.max(0, approx - 48);
+      hits.push({ page: p.page, snippet: raw.slice(start, start + 140).trim(), needle });
+      break;
+    }
+  }
+  return hits.sort((a, b) => a.page - b.page);
+}
+
+function isLocateQuestion(question: string): boolean {
+  return /(哪里|何处|哪一|哪页|提到|出现|在哪|where|mention|locat)/i.test(question || "");
+}
+
+/** 定位类问题：先在全文检索锚点，命中则直接返回带页码的接地回答，避免 LLM 误报「无法确定」。 */
+export function tryLocateAnswer(pages: ReaderPage[], question: string): string | null {
+  if (!isLocateQuestion(question)) return null;
+  const needles = extractSearchNeedles(question);
+  if (!needles.length) return null;
+  const hits = findNeedlesInPages(pages, needles);
+  if (!hits.length) return null;
+  const uniq = [...new Set(hits.map((h) => h.needle))];
+  const lines = hits.map((h) => `第 ${h.page} 页附近：「${norm(h.snippet)}」[p.${h.page}]`);
+  return `在文中找到与「${uniq.join("、")}」相关的表述：\n` + lines.join("\n");
 }
 
 const ONE_PASS_CAP = 16000; // 单次直送字符上限（小文档一次过即可）
@@ -247,7 +312,8 @@ export async function askReader(
   llm: LlmClient,
   opts: { signal?: AbortSignal } = {},
 ): Promise<ReaderAnswer> {
-  const answer = await composeAnswerText(pages, question, llm, opts.signal);
+  const located = tryLocateAnswer(pages, question);
+  const answer = located ?? await composeAnswerText(pages, question, llm, opts.signal);
   const g = groundReaderAnswer(answer, pages);
   return {
     text: answer,
