@@ -687,6 +687,22 @@ export const bridge = {
     const api = A(); if (!api || !api.onOpenLocalPdf) return;
     try { api.onOpenLocalPdf(cb); } catch (e) { /* noop */ }
   },
+  async pullPendingOpenPdf() {
+    const api = A(); if (!api || !api.pullPendingOpenPdf) return null;
+    try {
+      const r = await api.pullPendingOpenPdf();
+      if (!r) return null;
+      const raw = r.data ?? r.bytes;
+      if (!raw) return null;
+      let data;
+      if (raw instanceof ArrayBuffer) data = raw;
+      else if (ArrayBuffer.isView(raw)) data = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
+      else if (raw && typeof raw === "object" && raw.type === "Buffer" && Array.isArray(raw.data)) data = new Uint8Array(raw.data).buffer;
+      else data = new Uint8Array(raw).buffer;
+      if (!data || !data.byteLength) return null;
+      return { name: r.name || "document.pdf", data, localPath: r.localPath };
+    } catch { return null; }
+  },
   // 后台/启动设置 → 主进程（关窗最小化到托盘 + 开机自启）。无后端 no-op。
   async setBackground(minimizeToTray, openAtLogin) {
     const api = A(); if (!api || !api.setBackground) return { ok: false, error: "no_backend" };

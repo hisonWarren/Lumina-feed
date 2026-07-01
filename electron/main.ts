@@ -154,19 +154,24 @@ function ensureTray(): boolean {
 // ── 本地 PDF 打开（OS 右键关联 / 命令行 / 拖到 Dock）：单实例 + open-file(mac) + second-instance(win/linux) ──
 const gotLock = app.requestSingleInstanceLock();
 let pendingPdf: string | null = null;
+let coldOpenPdfPath: string | null = null;
 function pdfFromArgv(argv: string[]): string | null {
   for (const a of (argv || []).slice(1)) { if (typeof a === "string" && !a.startsWith("-") && /\.pdf$/i.test(a)) return a; }
   return null;
 }
+async function readPdfOpenPayload(p: string) {
+  const buf = await readFile(p);
+  return {
+    name: p.split(/[\\/]/).pop() || "document.pdf",
+    data: buf,
+    localPath: path.resolve(p),
+  };
+}
 async function sendOpenPdf(p: string | null) {
   if (!p || !win) return;
   try {
-    const buf = await readFile(p);
-    win.webContents.send("open-local-pdf", {
-      name: p.split(/[\\/]/).pop() || "document.pdf",
-      data: buf,
-      localPath: path.resolve(p),
-    });
+    const payload = await readPdfOpenPayload(p);
+    win.webContents.send("open-local-pdf", payload);
     if (win.isMinimized()) win.restore();
     win.show(); win.focus();
   } catch { /* 文件不可读则忽略 */ }
@@ -195,9 +200,16 @@ async function createWindow() {
     },
   });
   installTextEditingSupport(win);
-  await win.loadURL(process.env.VITE_DEV_SERVER_URL ?? `file://${path.join(__dirname, "../dist/index.html")}`);
+  // 须在 loadURL 之前注册：await 返回时 did-finish-load 已触发，晚挂监听会漏掉冷启动 PDF
   let firstLoad = true;
-  win.webContents.on("did-finish-load", () => { if (!firstLoad) return; firstLoad = false; const p = pendingPdf || pdfFromArgv(process.argv); pendingPdf = null; if (p) void sendOpenPdf(p); });
+  win.webContents.on("did-finish-load", () => {
+    if (!firstLoad) return;
+    firstLoad = false;
+    const p = pendingPdf || pdfFromArgv(process.argv);
+    pendingPdf = null;
+    if (p) coldOpenPdfPath = p;
+  });
+  await win.loadURL(process.env.VITE_DEV_SERVER_URL ?? `file://${path.join(__dirname, "../dist/index.html")}`);
   win.on("close", (e) => {
     if (!minimizeToTray || isQuiting) return;
     if (!ensureTray()) {
@@ -258,6 +270,12 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle("app:getUserDataPath", () => app.getPath("userData"));
   ipcMain.handle("app:getVersion", () => appVersion());
+  ipcMain.handle("app:pullPendingOpenPdf", async () => {
+    const p = coldOpenPdfPath;
+    coldOpenPdfPath = null;
+    if (!p) return null;
+    try { return await readPdfOpenPayload(p); } catch { return null; }
+  });
   ipcMain.handle("lumina:context-action", (_e, action: string, extra?: string) => {
     runContextAction(win?.webContents, action, extra);
   });

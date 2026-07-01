@@ -39,11 +39,12 @@ ok(has(main, "app.requestSingleInstanceLock()"), "单实例锁");
 ok(has(main, 'app.on("second-instance"') && has(main, "pdfFromArgv"), "second-instance（win/linux argv）");
 ok(has(main, 'app.on("open-file"'), "open-file（macOS）");
 ok(has(main, "async function sendOpenPdf") && has(main, 'webContents.send("open-local-pdf"') && has(main, "readFile"), "读取文件 → 发 open-local-pdf");
-ok(has(main, "did-finish-load") && has(main, "firstLoad"), "首次加载后冲洗 argv（命令行/关联启动）");
+ok(has(main, "coldOpenPdfPath") && has(main, "app:pullPendingOpenPdf"), "冷启动 pull 待打开 PDF（避免首屏丢事件）");
 ok(has(main, "if (!gotLock) return;"), "非主实例不重复初始化");
 ok(has(preload, 'onOpenLocalPdf:') && has(preload, 'ipcRenderer.on("open-local-pdf"'), "preload 暴露 onOpenLocalPdf");
+ok(has(preload, "pullPendingOpenPdf"), "preload pullPendingOpenPdf");
 ok(has(bridge, "onOpenLocalPdf(cb)") && has(bridge, "!api.onOpenLocalPdf"), "bridge 防御式 onOpenLocalPdf（无后端 no-op）");
-ok(has(app, "const [incomingPdf, setIncomingPdf]") && has(app, "bridge.onOpenLocalPdf("), "LuminaApp 监听打开事件");
+ok(has(bridge, "pullPendingOpenPdf") && has(app, "pullPendingOpenPdf"), "LuminaApp 冷启动 pull + 监听打开事件");
 ok(has(app, 'setMode("read")') && has(app, "incoming={incomingPdf}") && has(app, "onIncomingHandled"), "切到阅读 + 传入 ReaderModule 开标签");
 
 console.log("\n[3] 链路完整性（前置未回退）");

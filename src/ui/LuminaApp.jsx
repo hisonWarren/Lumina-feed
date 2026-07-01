@@ -263,18 +263,19 @@ export default function LuminaApp() {
     ctxEditTarget.current = null;
   }, []);
   useEffect(() => {
-    if (!bridge.onOpenLocalPdf) return;
-    bridge.onOpenLocalPdf((payload) => {
-      if (payload && payload.data) {
-        setIncomingPdf({
-          name: payload.name,
-          data: payload.data,
-          localPath: payload.localPath,
-          _t: Date.now(),
-        });
-        setMode("read");
-      }
-    });
+    if (!bridge.onOpenLocalPdf && !bridge.pullPendingOpenPdf) return;
+    const handleOpenLocalPdf = (payload) => {
+      if (!payload || !payload.data) return;
+      setIncomingPdf({
+        name: payload.name,
+        data: payload.data,
+        localPath: payload.localPath,
+        _t: Date.now(),
+      });
+      setMode("read");
+    };
+    if (bridge.onOpenLocalPdf) bridge.onOpenLocalPdf(handleOpenLocalPdf);
+    void bridge.pullPendingOpenPdf().then(handleOpenLocalPdf);
   }, []);
 
   useEffect(() => {

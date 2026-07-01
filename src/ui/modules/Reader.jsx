@@ -2143,6 +2143,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
   const sideBodyRef = useRef(null);
   const suppressPageScroll = useRef(false); // true 时跳过一次 page→scrollIntoView（滚动联动改 page 时用，避免与用户滚动打架）
   const scrollSpyRaf = useRef(0);
+  const pageRef = useRef(1);
   const spreadManualZoomRef = useRef(false); // 双页下用户手动缩放后，不再被自动 fit 覆盖
   const rootRef = useRef(null);
   const strCache = useRef({});
@@ -2267,7 +2268,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
   }, []);
   const addMark = useCallback(() => setNavmarks((m) => { if (m.includes(page)) return m; const next = [...m, page].sort((a, b) => a - b); bridge.saveNavmarks(docKey, next); return next; }), [page, docKey]);
   const removeMark = useCallback((n) => setNavmarks((m) => { const next = m.filter((x) => x !== n); bridge.saveNavmarks(docKey, next); return next; }), [docKey]);
-  useEffect(() => { setPageInput(String(page)); }, [page]);
+  useEffect(() => { setPageInput(String(page)); pageRef.current = page; }, [page]);
   const step = view === "two" ? 2 : 1;
 
   const fitPage = useCallback(async () => {
@@ -2351,14 +2352,18 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
   }, [page, view]);
 
   // 侧栏缩略图/书签：当前页超出可视区时在 .rd-sidebody 内滚入视区（不用 scrollIntoView）
-  const syncSidePanelScroll = useCallback(() => {
+  const syncSidePanelScrollTo = useCallback((p) => {
     if (!sidebar || (sidePanel !== "thumbs" && sidePanel !== "marks")) return;
     const container = sideBodyRef.current;
     if (!container) return;
-    const sel = sidePanel === "thumbs" ? `#rd-thumb-${page}` : ".rd-mark.active";
+    const sel = sidePanel === "thumbs" ? `#rd-thumb-${p}` : ".rd-mark.active";
     const el = container.querySelector(sel);
-    scrollItemInContainer(container, el);
-  }, [page, sidebar, sidePanel]);
+    if (el) scrollItemInContainer(container, el);
+  }, [sidebar, sidePanel]);
+
+  const syncSidePanelScroll = useCallback(() => {
+    syncSidePanelScrollTo(page);
+  }, [page, syncSidePanelScrollTo]);
 
   useLayoutEffect(() => {
     syncSidePanelScroll();
@@ -2371,20 +2376,30 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
     if (sel) setSel(null);
     if (view !== "continuous") return;
     const root = viewRef.current;
-    if (!root || scrollSpyRaf.current) return;
+    if (!root) return;
+    if (scrollSpyRaf.current) cancelAnimationFrame(scrollSpyRaf.current);
     scrollSpyRaf.current = requestAnimationFrame(() => {
       scrollSpyRaf.current = 0;
       const r0 = root.getBoundingClientRect();
-      const line = r0.top + root.clientHeight * 0.3; // 视区上三分之一处为「当前页」判定线
+      const line = r0.top + root.clientHeight * 0.28;
       let best = 1;
+      let bestDist = Infinity;
       for (let nn = 1; nn <= (numPages || 1); nn++) {
         const el = document.getElementById("rd-pg-" + nn);
         if (!el) continue;
-        if (el.getBoundingClientRect().top <= line) best = nn; else break; // 页按序排列：越过判定线的最后一页即当前页
+        const rect = el.getBoundingClientRect();
+        const mid = rect.top + rect.height / 2;
+        const dist = Math.abs(mid - line);
+        if (dist < bestDist) { bestDist = dist; best = nn; }
       }
-      setPage((p) => { if (p !== best) { suppressPageScroll.current = true; return best; } return p; });
+      if (best !== pageRef.current) {
+        suppressPageScroll.current = true;
+        pageRef.current = best;
+        setPage(best);
+        syncSidePanelScrollTo(best);
+      }
     });
-  }, [sel, view, numPages]);
+  }, [sel, view, numPages, syncSidePanelScrollTo]);
 
   const zoomOut = () => {
     if (view === "two") spreadManualZoomRef.current = true;

@@ -3,6 +3,17 @@ import { contextBridge, ipcRenderer } from "electron";
 
 const invoke = (ch: string, ...args: unknown[]) => ipcRenderer.invoke(ch, ...args);
 
+type OpenLocalPdfPayload = { name: string; data: ArrayBuffer; localPath?: string };
+let pendingOpenLocalPdf: OpenLocalPdfPayload | null = null;
+let openLocalPdfHandler: ((payload: OpenLocalPdfPayload) => void) | null = null;
+ipcRenderer.on("open-local-pdf", (_e, payload: OpenLocalPdfPayload) => {
+  if (openLocalPdfHandler) {
+    try { openLocalPdfHandler(payload); } catch { /* ignore */ }
+  } else {
+    pendingOpenLocalPdf = payload;
+  }
+});
+
 contextBridge.exposeInMainWorld("luminaApi", {
   searchOnline: (raw: string, filters?: unknown) => invoke("search:online", raw, filters),
   resolveIdentifier: (raw: string) => invoke("search:resolve-identifier", raw),
@@ -17,11 +28,19 @@ contextBridge.exposeInMainWorld("luminaApi", {
   testLlm: (cfg) => invoke("llm:test", cfg),
   listModels: (cfg) => invoke("llm:listModels", cfg),
   llmStatus: () => invoke("llm:status"),
-  onOpenLocalPdf: (cb: (payload: { name: string; data: ArrayBuffer }) => void) => { ipcRenderer.on("open-local-pdf", (_e, payload) => cb(payload)); },
+  onOpenLocalPdf: (cb: (payload: OpenLocalPdfPayload) => void) => {
+    openLocalPdfHandler = cb;
+    if (pendingOpenLocalPdf) {
+      const p = pendingOpenLocalPdf;
+      pendingOpenLocalPdf = null;
+      try { cb(p); } catch { /* ignore */ }
+    }
+  },
   setBackground: (opts: { minimizeToTray?: boolean; openAtLogin?: boolean }) => invoke("app:setBackground", opts),
   resetLocalData: () => invoke("app:resetLocalData"),
   getUserDataPath: () => invoke("app:getUserDataPath"),
   getAppVersion: () => invoke("app:getVersion"),
+  pullPendingOpenPdf: () => invoke("app:pullPendingOpenPdf"),
   platform: process.platform,
   onContextMenu: (cb: (payload: unknown) => void) => {
     const handler = (_e: unknown, payload: unknown) => cb(payload);
