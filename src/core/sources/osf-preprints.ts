@@ -5,43 +5,17 @@ import { searchContext } from "../search/search-context.ts";
 import { osf as buildOsf } from "../search/query-spec-ext.ts";
 import type { SourceAdapter, SearchOpts } from "./adapter.ts";
 import { fetchWithRetry } from "./rate-limit.ts";
+import { osfPreprintDownloadUrl, osfDoiDownloadUrl, normalizeOsfFetchUrl } from "../oa/oa-url-normalize.ts";
+
+export { osfPreprintDownloadUrl, osfDoiDownloadUrl, normalizeOsfFetchUrl };
 
 const API = "https://api.osf.io/v2/preprints/";
-
-/** OSF 预印本 id（如 jfrwu_v1）→ 项目直链下载（经 302 到 files.osf.io PDF） */
-export function osfPreprintDownloadUrl(preprintId?: string): string | undefined {
-  if (!preprintId) return undefined;
-  const guid = String(preprintId).replace(/_v\d+$/i, "");
-  return /^[a-z0-9]+$/i.test(guid) ? `https://osf.io/${guid}/download` : undefined;
-}
-
-/** PsyArXiv / OSF 预印本 DOI（10.31234/osf.io/…）→ 同上 */
-export function osfDoiDownloadUrl(doi?: string): string | undefined {
-  const d = String(doi || "").toLowerCase().replace(/^https?:\/\/(dx\.)?doi\.org\//, "");
-  const m = /^10\.31234\/osf\.io\/([a-z0-9]+)(?:_v\d+)?$/i.exec(d);
-  return m ? `https://osf.io/${m[1]}/download` : undefined;
-}
-
-/** 检索/合并阶段误存的 OSF 落地页 HTML → 可抓取的 download 直链 */
-export function normalizeOsfFetchUrl(url?: string): string | undefined {
-  if (!url) return undefined;
-  try {
-    const u = new URL(url);
-    if (!/(^|\.)osf\.io$/i.test(u.host)) return url;
-    const fromPreprint = /\/preprints\/[^/]+\/([a-z0-9]+)_v\d+/i.exec(u.pathname);
-    if (fromPreprint) return `https://osf.io/${fromPreprint[1]}/download`;
-    if (/\/preprints\//i.test(u.pathname) && !/download/i.test(u.pathname)) return undefined;
-    return url;
-  } catch {
-    return url;
-  }
-}
 
 export function parseOsf(json: any): SearchHit[] {
   const embeds = json?.embeds?.contributors?.data ?? [];
   const embedAuthors = embeds.map((c: any) => c?.attributes?.full_name).filter(Boolean);
 
-  return (json?.data ?? []).map((item: any, i: number) => {
+  return (json?.data ?? []).map((item: any) => {
     const a = item.attributes ?? {};
     const links = item.links ?? {};
     const rel = item.relationships?.contributors?.data ?? [];

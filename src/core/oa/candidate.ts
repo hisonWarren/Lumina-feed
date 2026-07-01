@@ -1,4 +1,6 @@
 // lumina-feed · PDF 候选（OA + 备选渠道统一排序，不区分类别）
+import { normalizeOaFetchUrl } from "./oa-url-normalize.ts";
+
 export interface UrlCandidate {
   kind: "url";
   url: string;
@@ -29,10 +31,16 @@ export function dedupeCandidates(cands: PdfCandidate[]): PdfCandidate[] {
   const seen = new Set<string>();
   const out: PdfCandidate[] = [];
   for (const c of [...cands].sort((a, b) => a.priority - b.priority)) {
-    const key = candidateKey(c);
+    let item = c;
+    if (c.kind === "url") {
+      const url = normalizeOaFetchUrl(c.url);
+      if (!url) continue;
+      if (url !== c.url) item = { ...c, url };
+    }
+    const key = candidateKey(item);
     if (!key || seen.has(key)) continue;
     seen.add(key);
-    out.push(c);
+    out.push(item);
   }
   return out;
 }

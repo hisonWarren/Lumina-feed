@@ -34,7 +34,7 @@ export function parseOpenalex(json: any): SearchHit[] {
       retracted: !!w.is_retracted,
       citationCount: w.cited_by_count,
       oaStatus: w.open_access?.oa_status,
-      oaUrl: w.open_access?.oa_url || w.best_oa_location?.pdf_url || undefined,
+      oaUrl: w.best_oa_location?.pdf_url || w.primary_location?.pdf_url || w.open_access?.oa_url || undefined,
     } as SearchHit;
   }).filter((h) => h.title);
 }

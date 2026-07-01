@@ -12,8 +12,11 @@ async function waitCdp(ms = 25000) {
   const t0 = Date.now();
   while (Date.now() - t0 < ms) {
     try {
-      const list = await (await fetch(`${CDP}/json/list`)).json();
-      const page = list.find((t) => t.type === "page");
+      const ac = new AbortController();
+      const tid = setTimeout(() => ac.abort(), 2000);
+      const list = await (await fetch(`${CDP}/json/list`, { signal: ac.signal })).json();
+      clearTimeout(tid);
+      const page = list.find((t) => t.type === "page" && /index\.html/.test(t.url || ""));
       if (page) return page.webSocketDebuggerUrl;
     } catch { /* retry */ }
     await new Promise((r) => setTimeout(r, 400));

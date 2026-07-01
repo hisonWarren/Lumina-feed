@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /** 烟测：OSF PsyArXiv 预印本（10.31234/osf.io/*）应能经 download 直链取到 PDF */
 import { fetchPaperPdf } from "../src/core/oa/provider.ts";
-import { parseOsf, osfDoiDownloadUrl, normalizeOsfFetchUrl } from "../src/core/sources/osf-preprints.ts";
+import { parseOsf, osfDoiDownloadUrl } from "../src/core/sources/osf-preprints.ts";
+import { normalizeOaFetchUrl } from "../src/core/oa/oa-url-normalize.ts";
 
 const DOI = "10.31234/osf.io/jfrwu_v1";
 const pass = (m) => console.log("  ✓", m);
@@ -12,7 +13,7 @@ console.log("\n── smoke-osf-fetch ──\n");
 const dl = osfDoiDownloadUrl(DOI);
 dl === "https://osf.io/jfrwu/download" ? pass("DOI→download") : fail(`DOI→download got ${dl}`);
 
-const norm = normalizeOsfFetchUrl("https://osf.io/preprints/psyarxiv/jfrwu_v1/");
+const norm = normalizeOaFetchUrl("https://osf.io/preprints/psyarxiv/jfrwu_v1/");
 norm === "https://osf.io/jfrwu/download" ? pass("HTML→download") : fail(`normalize got ${norm}`);
 
 const hit = parseOsf({

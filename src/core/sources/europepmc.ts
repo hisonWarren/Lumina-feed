@@ -5,6 +5,7 @@ import type { QuerySpec } from "../querySpec.ts";
 import { SOURCE_BUILDERS } from "../search/query-spec.ts";
 import { searchContext } from "../search/search-context.ts";
 import { type SourceAdapter, type SearchOpts, getJson, getPoliteIdentity, yearOf } from "./adapter.ts";
+import { pickEuropePmcOaUrl } from "../oa/oa-url-normalize.ts";
 
 const API = "https://www.ebi.ac.uk/europepmc/webservices/rest";
 
@@ -13,7 +14,6 @@ export function parseEuropePmc(json: any): SearchHit[] {
   return results.map((r) => {
     const isPreprint = r.source === "PPR" || /preprint/i.test(r.pubType ?? "");
     const urls = r.fullTextUrlList?.fullTextUrl ?? [];
-    const oa = urls.find((u: any) => u.availabilityCode === "OA" && u.documentStyle === "html") ?? urls.find((u: any) => u.availabilityCode === "OA");
     return {
       source: "europepmc",
       doi: (r.doi ?? "").toLowerCase() || undefined,
@@ -28,7 +28,7 @@ export function parseEuropePmc(json: any): SearchHit[] {
       isPreprint,
       peerReviewed: !isPreprint,
       oaStatus: r.isOpenAccess === "Y" ? "open" : undefined,
-      oaUrl: oa?.url,
+      oaUrl: pickEuropePmcOaUrl(urls),
       citationCount: r.citedByCount != null && r.citedByCount !== "" ? Number(r.citedByCount) : undefined,
     } as SearchHit;
   }).filter((h) => h.title);

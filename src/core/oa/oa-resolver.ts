@@ -8,7 +8,8 @@ import { isLegitimateOaUrl } from "../summarize/oa-guard.ts";
 import {
   fromCore, fromDoaj, fromHal, fromZenodo, fromDatacite,
 } from "./oa-extended.ts";
-import { osfDoiDownloadUrl, normalizeOsfFetchUrl } from "../sources/osf-preprints.ts";
+import { osfDoiDownloadUrl } from "../sources/osf-preprints.ts";
+import { normalizeOaFetchUrl } from "./oa-url-normalize.ts";
 import publisherRules from "./config/publisher-rules.json" with { type: "json" };
 
 export interface ResolveDeps {
@@ -84,7 +85,7 @@ function fromPublisherRules(doi: string, paper: Paper): UrlCandidate[] {
 function fromIdentifiers(paper: Paper): UrlCandidate[] {
   const out: UrlCandidate[] = [];
   if (paper.oaUrl) {
-    const url = normalizeOsfFetchUrl(paper.oaUrl) || paper.oaUrl;
+    const url = normalizeOaFetchUrl(paper.oaUrl);
     if (url) out.push({ kind: "url", url, source: "paper_oa_url", priority: 4 });
   }
   if (paper.pmcid) {

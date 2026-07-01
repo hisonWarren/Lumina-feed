@@ -83,5 +83,6 @@ export function shouldVerifyPdfIdentity(cand: PdfCandidate, paper: Paper): boole
   if (paper.doi && cand.kind === "url" && urlImpliesDoi(cand.url, paper.doi)) return false;
   if (cand.kind === "url" && String(cand.source) === "osf_download") return false;
   if (cand.kind === "url" && /osf\.io\/[a-z0-9]+\/download/i.test(cand.url)) return false;
+  if (cand.kind === "url" && /(biorxiv|medrxiv)\.org\/content\/10\.1101\/.+\.full\.pdf/i.test(cand.url)) return false;
   return !!(paper.doi || paper.title?.trim());
 }

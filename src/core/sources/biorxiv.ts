@@ -6,6 +6,7 @@ import type { SearchHit } from "../model.ts";
 import type { QuerySpec } from "../querySpec.ts";
 import { toTermList } from "../querySpec.ts";
 import { type SourceAdapter, type SearchOpts, getJson, yearOf } from "./adapter.ts";
+import { biorxivPdfUrl } from "../oa/oa-url-normalize.ts";
 
 const API = "https://api.biorxiv.org/details";
 
@@ -30,7 +31,7 @@ export function parseBiorxiv(json: any, server = "biorxiv"): SearchHit[] {
       pubDate: c.date,
       isPreprint: true,
       peerReviewed: false,
-      oaUrl: c.doi ? `https://www.${server}.org/content/${c.doi}v${c.version ?? 1}` : undefined,
+      oaUrl: c.doi ? biorxivPdfUrl(c.doi, c.version ?? 1, server) : undefined,
       relatedDoi: publishedDoi, // 版本归并：已发表 DOI
     } as SearchHit;
   }).filter((h) => h.title);
