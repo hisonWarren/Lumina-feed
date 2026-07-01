@@ -17,6 +17,7 @@ export type FetchTraceCallback = (ev: {
 
 export const FETCH_TRACE_TEMPLATE: Omit<FetchTraceStep, "status">[] = [
   { id: "identifiers", label: "元数据 / 标识符" },
+  { id: "biorxiv_api", label: "bioRxiv API" },
   { id: "unpaywall", label: "Unpaywall" },
   { id: "openalex", label: "OpenAlex" },
   { id: "europepmc", label: "Europe PMC" },
@@ -64,6 +65,7 @@ export function traceStepForSource(source: string): string {
   if (/scihub|sci-hub/.test(s)) return "scihub";
   if (/annas/.test(s)) return "annas";
   if (/libgen/.test(s)) return "libgen";
+  if (/biorxiv|medrxiv/.test(s)) return "biorxiv_api";
   if (/unpaywall/.test(s)) return "unpaywall";
   if (/openalex/.test(s)) return "openalex";
   if (/europepmc|pmc/.test(s)) return "europepmc";

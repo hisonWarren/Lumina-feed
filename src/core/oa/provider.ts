@@ -16,7 +16,7 @@ import { makeTraceEmitter, traceStepForSource, type FetchTraceCallback } from ".
 import { attemptSignal } from "./timeout.ts";
 import { candidateKey, type PdfCandidate } from "./candidate.ts";
 import { verifyPdfIdentity, shouldVerifyPdfIdentity } from "./pdf-identity.ts";
-import { biorxivApiPdfCandidates, isBiorxivDoi } from "./biorxiv-resolve.ts";
+import { biorxivApiPdfCandidates, biorxivPdfCandidates, isBiorxivDoi } from "./biorxiv-resolve.ts";
 import { chemrxivPdfCandidates, isChemrxivDoi } from "./chemrxiv-resolve.ts";
 import { figsharePdfCandidates, isFigshareDoi } from "./figshare-resolve.ts";
 
@@ -184,6 +184,23 @@ export async function fetchPaperPdf(paper: Paper, deps: OaFullTextDeps = {}): Pr
     if (hit) {
       trace?.done("done", { ok: true, source: hit.source });
       return hit;
+    }
+  }
+
+  // bioRxiv API 失败时：按版本降序同步候选（绕开 Unpaywall 过期 v1 链）
+  if (isBiorxivDoi(doiNorm)) {
+    const syncCands = biorxivPdfCandidates(doiNorm).filter((c) => !tried.has(candidateKey(c)));
+    if (syncCands.length) {
+      trace?.patch("biorxiv_api", "running", "版本回退");
+      const { hit, publisherBlocked: pb, identityRejected: idRej } = await tryCandidateList(syncCands, paper, deps, trace, dlMs, tried);
+      if (pb) publisherBlocked = true;
+      if (idRej) identityRejected = true;
+      if (hit) {
+        trace?.patch("biorxiv_api", "ok", hit.source);
+        trace?.done("done", { ok: true, source: hit.source });
+        return hit;
+      }
+      trace?.patch("biorxiv_api", "fail", "版本回退未命中");
     }
   }
 

@@ -281,6 +281,18 @@ export default function ReaderModule({ pushToast, incoming, onIncomingHandled, r
   }, [refreshContinue, refreshDownloaded]);
 
   useEffect(() => {
+    if (!bridge.onPapersChanged) return undefined;
+    const stop = bridge.onPapersChanged((payload) => {
+      const action = payload && payload.action;
+      if (action === "pdf_deleted" || action === "library_detached") {
+        void refreshContinue();
+        void refreshDownloaded();
+      }
+    });
+    return () => stop && stop();
+  }, [refreshContinue, refreshDownloaded]);
+
+  useEffect(() => {
     if (st.activeId === null) {
       void refreshContinue();
       void refreshDownloaded();

@@ -154,15 +154,32 @@ function groundReaderAnswer(answer: string, pages: ReaderPage[], opts: { hi?: nu
   return { groundedRatio, banner };
 }
 
+/** 从长问题中抽出定位子句（用户常先贴背景再问「200ms在哪提到」）。 */
+export function extractLocateQuery(question: string): string {
+  const q = String(question || "").trim();
+  if (!q) return q;
+  const tail = q.match(/(?:^|[。！？\n])([^。！？\n]{0,120}(?:哪里|哪一|何处|在哪|哪页).{0,80}(?:提到|出现|写到)[^。！？\n]*)[。！？]?\s*$/);
+  if (tail?.[1]) return tail[1].trim();
+  const msTail = q.match(/(?:^|[。！？\n])([^。！？\n]*\d+\s*ms[^。！？\n]{0,60}(?:在哪|哪里|提到|出现)[^。！？\n]*)[。！？]?\s*$/i);
+  if (msTail?.[1]) return msTail[1].trim();
+  return q;
+}
+
+function normalizeAnswerCites(text: string): string {
+  return String(text || "").replace(/\bp\.\s*(\d+)\b/gi, "[p.$1]");
+}
+
 /** 从定位类问题中抽取可在 PDF 文本里检索的锚点（数值+单位、引号内短语、英文专名）。 */
 export function extractSearchNeedles(question: string): string[] {
+  const q = extractLocateQuery(question);
   const out = new Set<string>();
-  const q = question || "";
   for (const m of q.matchAll(/\d+(?:\.\d+)?\s*(?:ms|s|sec|seconds?|Hz|kHz|MHz|%|mm|cm|m|分钟|秒)?/gi)) {
     const raw = m[0].trim();
     if (!raw) continue;
     out.add(raw);
     out.add(raw.replace(/\s+/g, "").toLowerCase());
+    const num = raw.match(/\d+(?:\.\d+)?/);
+    if (num) out.add(num[0]);
   }
   for (const m of q.matchAll(/[「"']([^」"']{2,48})[」"']/g)) out.add(m[1].trim());
   if (/(哪里|何处|哪一|提到|出现|在哪)/i.test(q)) {
@@ -202,19 +219,21 @@ export function findNeedlesInPages(pages: ReaderPage[], needles: string[]): Arra
 }
 
 function isLocateQuestion(question: string): boolean {
-  return /(哪里|何处|哪一|哪页|提到|出现|在哪|where|mention|locat)/i.test(question || "");
+  const q = extractLocateQuery(question);
+  return /(哪里|何处|哪一|哪页|提到|出现|在哪|where|mention|locat)/i.test(q || "");
 }
 
 /** 定位类问题：先在全文检索锚点，命中则直接返回带页码的接地回答，避免 LLM 误报「无法确定」。 */
 export function tryLocateAnswer(pages: ReaderPage[], question: string): string | null {
-  if (!isLocateQuestion(question)) return null;
-  const needles = extractSearchNeedles(question);
+  const locateQ = extractLocateQuery(question);
+  if (!isLocateQuestion(locateQ)) return null;
+  const needles = extractSearchNeedles(locateQ);
   if (!needles.length) return null;
   const hits = findNeedlesInPages(pages, needles);
   if (!hits.length) return null;
   const uniq = [...new Set(hits.map((h) => h.needle))];
-  const lines = hits.map((h) => `第 ${h.page} 页附近：「${norm(h.snippet)}」[p.${h.page}]`);
-  return `在文中找到与「${uniq.join("、")}」相关的表述：\n` + lines.join("\n");
+  const lines = hits.map((h) => `第 ${h.page} 页原文：「${norm(h.snippet)}」[p.${h.page}]`);
+  return `关于「${uniq.join("、")}」在文中的位置：\n` + lines.join("\n");
 }
 
 const ONE_PASS_CAP = 16000; // 单次直送字符上限（小文档一次过即可）
@@ -278,10 +297,15 @@ async function mapChunkForQuestion(pages: ReaderPage[], question: string, llm: L
 /** 组装问答正文：小文档全文单次过；长文档 map-reduce 覆盖全篇（与总结同策略，避免只盯前 1–2 页）。 */
 async function composeAnswerText(pages: ReaderPage[], question: string, llm: LlmClient, signal?: AbortSignal): Promise<string> {
   const qq = (question || "").trim();
+  const locateQ = extractLocateQuery(qq);
+  const locateHint = isLocateQuestion(locateQ)
+    ? "\n这是定位类问题：只引用原文中与锚点词（如数值/单位）直接相关的句子，附 [p.X]；不要复述用户问题里的背景；找不到才说「依据所给页面无法确定」。"
+    : "";
   if (totalChars(pages) <= ONE_PASS_CAP) {
     const sys =
       SYS_BASE +
-      "\n任务：依据下方提供的论文页面文本，直接回答用户问题；每一处论断后标注信息实际所在的页码 [p.X]（信息在哪页就标哪页，不要把所有点都标第 1 页）。若文本不足以回答，请直说「依据所给页面无法确定」。";
+      "\n任务：依据下方提供的论文页面文本，直接回答用户问题；每一处论断后标注信息实际所在的页码 [p.X]（信息在哪页就标哪页，不要把所有点都标第 1 页）。若文本不足以回答，请直说「依据所给页面无法确定」。"
+      + locateHint;
     return await llm.complete(
       [
         { role: "system", content: sys },
@@ -295,7 +319,8 @@ async function composeAnswerText(pages: ReaderPage[], question: string, llm: Llm
   const notes = mapped.map((m) => (m && m !== "（无）" ? m : "")).filter(Boolean).join("\n");
   const reduceSys =
     SYS_BASE +
-    "\n下面是从全文各部分抽取的、与用户问题相关的要点清单（带页码）。请据此直接回答问题；每处论断保留并标注它所依据的真实页码 [p.X]（沿用要点里的页码，不要一律标第 1 页）；只用要点中的信息，不杜撰数字、不引入要点之外的内容。若要点不足以回答，请直说「依据所给页面无法确定」。";
+    "\n下面是从全文各部分抽取的、与用户问题相关的要点清单（带页码）。请据此直接回答问题；每处论断保留并标注它所依据的真实页码 [p.X]（沿用要点里的页码，不要一律标第 1 页）；只用要点中的信息，不杜撰数字、不引入要点之外的内容。若要点不足以回答，请直说「依据所给页面无法确定」。"
+    + locateHint;
   return await llm.complete(
     [
       { role: "system", content: reduceSys },
@@ -313,7 +338,8 @@ export async function askReader(
   opts: { signal?: AbortSignal } = {},
 ): Promise<ReaderAnswer> {
   const located = tryLocateAnswer(pages, question);
-  const answer = located ?? await composeAnswerText(pages, question, llm, opts.signal);
+  const raw = located ?? await composeAnswerText(pages, question, llm, opts.signal);
+  const answer = normalizeAnswerCites(raw);
   const g = groundReaderAnswer(answer, pages);
   return {
     text: answer,

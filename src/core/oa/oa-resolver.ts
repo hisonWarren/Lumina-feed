@@ -10,7 +10,7 @@ import {
 } from "./oa-extended.ts";
 import { osfDoiDownloadUrl } from "../sources/osf-preprints.ts";
 import { normalizeOaFetchUrl } from "./oa-url-normalize.ts";
-import { biorxivApiPdfCandidates } from "./biorxiv-resolve.ts";
+import { biorxivApiPdfCandidates, biorxivPdfCandidates, isBiorxivDoi } from "./biorxiv-resolve.ts";
 import { chemrxivPdfCandidates } from "./chemrxiv-resolve.ts";
 import { figsharePdfCandidates } from "./figshare-resolve.ts";
 import { isNonAutomatableLandingUrl } from "./landing-hosts.ts";
@@ -348,6 +348,13 @@ export async function resolvePdfCandidates(paper: Paper, deps: ResolveDeps = {})
   }
 
   let merged = dedupeCandidates(all);
+  if (doi && isBiorxivDoi(doi)) {
+    merged = merged.filter(
+      (c) => !(c.kind === "url" && /unpaywall/.test(c.source) && /biorxiv|medrxiv/i.test(c.url)),
+    );
+    for (const c of biorxivPdfCandidates(doi)) merged.push(c);
+    merged = dedupeCandidates(merged);
+  }
   if (!includeAlt) {
     merged = merged.filter((c) => c.kind === "scihub" ? false : isLegitimateOaUrl(c.url));
   }
