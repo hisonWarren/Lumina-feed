@@ -9,7 +9,8 @@ import {
   parseScimagoCsv, fetchScimagoCsv, SCIMAGO_CSV_URL, SCIMAGO_HOMEPAGE, type ScimagoDataset,
 } from "../src/core/journal/scimago.ts";
 import {
-  parseWarningJson, WARNING_HOMEPAGE, EMPTY_WARNING_DATASET, type WarningDataset,
+  parseWarningJson, WARNING_HOMEPAGE, EMPTY_WARNING_DATASET, builtinWarningDataset,
+  BUILTIN_WARNING_YEAR, BUILTIN_WARNING_SOURCE, type WarningDataset,
 } from "../src/core/journal/warning-list.ts";
 
 function dataDir(): string {
@@ -42,9 +43,14 @@ function loadFromDisk(): void {
     scimagoMeta = { year: sf.year, updatedAt: sf.updatedAt, source: sf.source, count: sf.count };
   }
   const wf = readJson<WarningFile>(warningPath());
-  if (wf && Array.isArray(wf.entries)) {
+  if (wf && Array.isArray(wf.entries) && wf.entries.length) {
+    // 用户导入的名单优先（覆盖内置）
     warningCache = parseWarningJson(wf.entries);
     warningMeta = { year: wf.year, updatedAt: wf.updatedAt, source: wf.source, count: warningCache.entries.length };
+  } else {
+    // 内置中科院 2025 名单（开箱即用）
+    warningCache = builtinWarningDataset();
+    warningMeta = { year: BUILTIN_WARNING_YEAR, updatedAt: undefined, source: BUILTIN_WARNING_SOURCE + "（内置）", count: warningCache.entries.length };
   }
 }
 

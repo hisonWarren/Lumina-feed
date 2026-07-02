@@ -3,7 +3,7 @@
 // 在线（best-effort）：OpenAlex 实时查 Nature。
 import { normalizeIssn, issnCompact, looksLikeIssn, isValidIssnChecksum } from "../src/core/journal/issn.ts";
 import { parseScimagoCsv, scimagoLookup } from "../src/core/journal/scimago.ts";
-import { parseWarningJson, warningLookup } from "../src/core/journal/warning-list.ts";
+import { parseWarningJson, warningLookup, builtinWarningDataset } from "../src/core/journal/warning-list.ts";
 import { lookupJournal } from "../src/core/journal/lookup.ts";
 import { fetchSourceByIssn } from "../src/core/journal/openalex-source.ts";
 
@@ -42,6 +42,13 @@ ok("预警解析 1 条", warn.entries.length === 1);
 ok("预警按 ISSN 命中", !!warningLookup(warn, ["1234-5679"], null));
 ok("预警按刊名命中", !!warningLookup(warn, [], "some predatory journal"));
 ok("预警未命中返回 null", warningLookup(warn, ["0028-0836"], "Nature") === null);
+
+// 3b) 内置中科院 2025 预警名单（5 本）
+const builtin = builtinWarningDataset();
+ok("内置 2025 名单 5 本", builtin.entries.length === 5);
+ok("内置按 ISSN 命中 Wireless Personal Communications", warningLookup(builtin, ["0929-6212"], null)?.title === "Wireless Personal Communications");
+ok("内置按刊名命中 Computers & Electrical Engineering", !!warningLookup(builtin, [], "Computers & Electrical Engineering"));
+ok("内置年度=2025", builtin.entries.every((e) => e.year === 2025));
 
 // 4) 编排合并（注入 fake fetch，离线）
 const fakeSource = {

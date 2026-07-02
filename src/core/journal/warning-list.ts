@@ -3,8 +3,9 @@
 // 默认空 → 用户从官方来源手动导入/更新；官方页见 WARNING_HOMEPAGE。
 import type { WarningEntry } from "./types.ts";
 import { normalizeIssn } from "./issn.ts";
+import { CAS_WARNING_2025, CAS_WARNING_YEAR, CAS_WARNING_SOURCE } from "./cas-warning-2025.ts";
 
-export const WARNING_HOMEPAGE = "https://earlywarning.fenqubiao.com/";
+export const WARNING_HOMEPAGE = "https://ewl.fenqubiao.com/";
 
 export interface WarningDataset {
   year?: number;
@@ -61,5 +62,13 @@ export function warningLookup(
   return null;
 }
 
-/** 内置默认数据集（空）——避免误标，需用户手动导入官方名单 */
+/** 内置默认数据集（空）——避免误标 */
 export const EMPTY_WARNING_DATASET: WarningDataset = { entries: [], byIssn: {}, byTitle: {} };
+
+export const BUILTIN_WARNING_YEAR = CAS_WARNING_YEAR;
+export const BUILTIN_WARNING_SOURCE = CAS_WARNING_SOURCE;
+
+/** 内置默认数据集：中科院 2025 预警名单（经多来源核对，开箱即用；可被用户导入覆盖） */
+export function builtinWarningDataset(): WarningDataset {
+  return parseWarningJson(CAS_WARNING_2025);
+}

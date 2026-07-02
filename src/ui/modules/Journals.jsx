@@ -318,7 +318,7 @@ export default function Journals({ pushToast }) {
               <div className="jr-ds-name">{d.label}</div>
               <div className="jr-ds-meta">
                 {d.present
-                  ? `${d.count != null ? d.count.toLocaleString() + " 条 · " : ""}${d.year ? d.year + " 版 · " : ""}更新于 ${fmtDate(d.updatedAt)}`
+                  ? `${d.count != null ? d.count.toLocaleString() + " 条 · " : ""}${d.year ? d.year + " 版 · " : ""}${d.updatedAt ? "更新于 " + fmtDate(d.updatedAt) : "内置"}`
                   : "未加载"}
               </div>
             </div>
@@ -349,7 +349,7 @@ export default function Journals({ pushToast }) {
           </div>
         ))}
         <div className="jr-note">
-          说明：官方 JIF、JCR 分区、中科院官方分区受商业授权约束，本工具不抓取其数值，仅提供官方页跳转。SCImago 数据（CC BY-NC）来源 scimagojr.com——「在线更新」若被其反爬拦截，可在官网点「Download data」得到 CSV 后用「导入 CSV」（最稳）。预警名单请从官方渠道导出 JSON 后导入（格式：{`[{ "title": "...", "issn": "1234-5678", "level": "高", "year": 2025 }]`}）。
+          说明：官方 JIF、JCR 分区、中科院官方分区受商业授权约束，本工具不抓取其数值，仅提供官方页跳转。SCImago 数据（CC BY-NC）来源 scimagojr.com——「在线更新」若被其反爬拦截，可在官网点「Download data」得到 CSV 后用「导入 CSV」（最稳）。预警名单已内置中科院 2025 版（5 本，经多来源核对）；来年更新可从官方门户整理为 JSON 后「导入 JSON」覆盖（格式：{`[{ "title": "...", "issn": "1234-5678", "reason": "论文工厂", "year": 2026 }]`}）。
         </div>
       </div>
     </div>
