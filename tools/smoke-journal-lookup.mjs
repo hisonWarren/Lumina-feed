@@ -3,6 +3,8 @@
 // 在线（best-effort）：OpenAlex 实时查 Nature。
 import { normalizeIssn, issnCompact, looksLikeIssn, isValidIssnChecksum } from "../src/core/journal/issn.ts";
 import { parseScimagoCsv, scimagoLookup } from "../src/core/journal/scimago.ts";
+import { parseWosJifTable, parseWosJifListingHtml, wosJifLookup } from "../src/core/journal/wos-jif.ts";
+import { parseCasPartitionTable, parseLetPubListHtml, casPartitionLookup } from "../src/core/journal/cas-partition.ts";
 import { parseWarningJson, warningLookup, builtinWarningDataset, isHistoricalWarning } from "../src/core/journal/warning-list.ts";
 import { lookupJournal } from "../src/core/journal/lookup.ts";
 import { fetchSourceByIssn } from "../src/core/journal/openalex-source.ts";
@@ -35,6 +37,21 @@ ok("SCImago bestQuartile Q1", nat?.bestQuartile === "Q1");
 const plos = scimagoLookup(ds, ["1932-6203"]);
 ok("SCImago 多学科分区解析", !!plos && (plos.categories?.length ?? 0) >= 2 && plos.categories.some((c) => c.name === "Medicine" && c.quartile === "Q1"));
 ok("SCImago 别名 ISSN(14764687) 命中", !!scimagoLookup(ds, ["1476-4687"]));
+
+// 2b) JIF 表格导入 + HTML 列表解析
+const JIF_CSV = "ISSN,JIF,Title\n0028-0836,56.1,Nature\n1932-6203,3.2,PLOS ONE\n";
+const jifDs = parseWosJifTable(JIF_CSV);
+ok("JIF 表格解析 2 条", jifDs.rows.length === 2);
+const natJif = wosJifLookup(jifDs, ["0028-0836"]);
+ok("JIF 按 ISSN 命中 Nature", !!natJif && natJif.jif === 56.1);
+const LIST_HTML = `<div class='title col-4 col-md-3'> ID:</div><div class='content col-8 col-md-9'> #1 </div><div class='title col-4 col-md-3'> Journal Title: </div><div class='content col-8 col-md-9 text-primary'> NATURE </div><div class='title col-4 col-md-3'> ISSN: </div><div class='content col-8 col-md-9'> 0028-0836 </div><div class='title col-4 col-md-3'> eISSN: </div><div class='content col-8 col-md-9'> 1476-4687 </div><div class='title col-4 col-md-3'> Journal Impact Factor (JIF): </div><div class='content col-8 col-md-9'> 56.1 </div><a href='journalid/99'>More</a>`;
+const listRows = parseWosJifListingHtml(LIST_HTML, 2026);
+ok("JIF HTML 列表解析", listRows.length === 1 && listRows[0].jif === 56.1);
+
+const CAS_CSV = "ISSN,大类分区,大类学科\n0028-0836,1区,综合性期刊\n";
+const casDs = parseCasPartitionTable(CAS_CSV);
+ok("中科院分区表格 1 条", casDs.rows.length === 1 && casDs.rows[0].majorZone === "1区");
+ok("中科院分区 ISSN 命中", casPartitionLookup(casDs, ["0028-0836"])?.majorCategory === "综合性期刊");
 
 // 3) 预警名单
 const warn = parseWarningJson([{ title: "Some Predatory Journal", issn: "1234-5679", level: "高", year: 2025 }]);
@@ -91,9 +108,11 @@ const fakeFetch = async (url) => ({
   status: 200,
   json: async () => (String(url).includes("issn:0028-0836") ? fakeSource : { error: "not found" }),
 });
-const merged = await lookupJournal("0028-0836", { fetchImpl: fakeFetch, scimago: ds, warning: warn });
+const merged = await lookupJournal("0028-0836", { fetchImpl: fakeFetch, scimago: ds, warning: warn, jif: jifDs, cas: casDs });
 ok("编排 ok", merged.ok === true);
 ok("编排 类影响因子来自 OpenAlex", merged.impact2yr === 18.5);
+ok("编排 合并 JIF", merged.jif?.jif === 56.1);
+ok("编排 合并中科院分区", merged.cas?.majorZone === "1区");
 ok("编排 合并 SCImago 分区", merged.scimago?.bestQuartile === "Q1");
 ok("编排 未预警", merged.warning === null);
 ok("编排 provenance 标注 SCImago 年度", merged.provenance?.scimago?.year === 2023);

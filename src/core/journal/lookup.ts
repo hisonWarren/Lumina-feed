@@ -3,8 +3,12 @@
 import type { JournalProfile, FieldProvenance } from "./types.ts";
 import type { ScimagoDataset } from "./scimago.ts";
 import type { WarningDataset } from "./warning-list.ts";
+import type { WosJifDataset } from "./wos-jif.ts";
 import { scimagoLookup } from "./scimago.ts";
 import { warningLookup, isHistoricalWarning } from "./warning-list.ts";
+import { wosJifLookup, WOS_JIF_HOMEPAGE } from "./wos-jif.ts";
+import type { CasPartitionDataset } from "./cas-partition.ts";
+import { casPartitionLookup, LETPUB_HOMEPAGE } from "./cas-partition.ts";
 import { fetchSourceByIssn, searchSourcesByName, type OaSource } from "./openalex-source.ts";
 import { looksLikeIssn } from "./issn.ts";
 
@@ -13,6 +17,8 @@ export interface LookupDeps {
   signal?: AbortSignal;
   scimago?: ScimagoDataset | null;
   warning?: WarningDataset | null;
+  jif?: WosJifDataset | null;
+  cas?: CasPartitionDataset | null;
 }
 
 function buildProfile(query: string, src: OaSource, deps: LookupDeps): JournalProfile {
@@ -62,6 +68,42 @@ function buildProfile(query: string, src: OaSource, deps: LookupDeps): JournalPr
     profile.warning = wn;
     profile.warningHistorical = isHistoricalWarning(deps.warning, wn);
     provenance.warning = { source: "国际期刊预警名单", year: wn.year };
+  }
+
+  const jf = wosJifLookup(deps.jif, issns);
+  if (jf && (jf.jif != null || jf.jif5yr != null)) {
+    profile.jif = {
+      jif: jf.jif,
+      jif5yr: jf.jif5yr,
+      wosIndexes: jf.wosIndexes,
+      year: jf.year ?? deps.jif?.year,
+      wosId: jf.wosId,
+      sourceHomepage: jf.wosId ? `${WOS_JIF_HOMEPAGE}journalid/${jf.wosId}` : WOS_JIF_HOMEPAGE,
+    };
+    provenance.jif = {
+      source: "WoS Journal Info (wos-journal.info)",
+      year: profile.jif.year,
+      note: "第三方汇总，非 Clarivate 官方授权数据",
+    };
+  }
+
+  const cp = casPartitionLookup(deps.cas, issns);
+  if (cp && cp.majorZone) {
+    profile.cas = {
+      majorZone: cp.majorZone,
+      majorCategory: cp.majorCategory,
+      minorCategories: cp.minorCategories,
+      isTop: cp.isTop,
+      year: cp.year ?? deps.cas?.year,
+      sourceHomepage: cp.letpubId
+        ? `${LETPUB_HOMEPAGE}&view=detail&journalid=${cp.letpubId}`
+        : LETPUB_HOMEPAGE,
+    };
+    provenance.cas = {
+      source: "中科院分区（LetPub 第三方汇总）",
+      year: profile.cas.year,
+      note: "非 fenqubiao 官方授权，投稿请以机构订阅版核实",
+    };
   }
 
   return profile;

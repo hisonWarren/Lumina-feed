@@ -12,6 +12,12 @@ import {
   parseWarningJson, WARNING_HOMEPAGE, EMPTY_WARNING_DATASET,
   BUILTIN_WARNING_YEAR, BUILTIN_WARNING_SOURCE, BUILTIN_WARNING_ENTRIES, type WarningDataset,
 } from "../src/core/journal/warning-list.ts";
+import {
+  parseWosJifTable, crawlWosJifDataset, WOS_JIF_HOMEPAGE, WOS_JIF_SOURCE, type WosJifDataset,
+} from "../src/core/journal/wos-jif.ts";
+import {
+  parseCasPartitionTable, crawlCasPartitionDataset, LETPUB_HOMEPAGE, LETPUB_SOURCE, type CasPartitionDataset,
+} from "../src/core/journal/cas-partition.ts";
 import { structureWarningEntries } from "../src/core/journal/warning-structure.ts";
 import { llmFromConfig } from "../src/core/summarize/llm-client.ts";
 import { PROVIDER_DEFAULT_MODEL } from "../src/core/summarize/model-presets.ts";
@@ -25,14 +31,22 @@ function dataDir(): string {
 }
 const scimagoPath = () => path.join(dataDir(), "scimago.json");
 const warningPath = () => path.join(dataDir(), "warning.json");
+const jifPath = () => path.join(dataDir(), "jif.json");
+const casPath = () => path.join(dataDir(), "cas.json");
 
 interface ScimagoFile { year?: number; updatedAt: string; source: string; count: number; byIssn: Record<string, unknown>; }
 interface WarningFile { year?: number; updatedAt: string; source: string; entries: unknown[]; }
+interface JifFile { year?: number; updatedAt: string; source: string; count: number; byIssn: Record<string, unknown>; }
+interface CasFile { year?: number; updatedAt: string; source: string; count: number; byIssn: Record<string, unknown>; }
 
 let scimagoCache: ScimagoDataset | null = null;
 let scimagoMeta: { year?: number; updatedAt?: string; source?: string; count?: number } | null = null;
 let warningCache: WarningDataset | null = null;
 let warningMeta: { year?: number; updatedAt?: string; source?: string; count?: number } | null = null;
+let jifCache: WosJifDataset | null = null;
+let jifMeta: { year?: number; updatedAt?: string; source?: string; count?: number } | null = null;
+let casCache: CasPartitionDataset | null = null;
+let casMeta: { year?: number; updatedAt?: string; source?: string; count?: number } | null = null;
 let loaded = false;
 
 function readJson<T>(p: string): T | null {
@@ -50,6 +64,16 @@ function loadFromDisk(): void {
   const wf = readJson<WarningFile>(warningPath());
   const userEntries = wf && Array.isArray(wf.entries) ? (wf.entries as WarningEntry[]) : [];
   rebuildWarning(userEntries, wf?.source, wf?.updatedAt);
+  const jf = readJson<JifFile>(jifPath());
+  if (jf && jf.byIssn) {
+    jifCache = { year: jf.year, rows: [], byIssn: jf.byIssn as WosJifDataset["byIssn"] };
+    jifMeta = { year: jf.year, updatedAt: jf.updatedAt, source: jf.source, count: jf.count };
+  }
+  const cf = readJson<CasFile>(casPath());
+  if (cf && cf.byIssn) {
+    casCache = { year: cf.year, rows: [], byIssn: cf.byIssn as CasPartitionDataset["byIssn"] };
+    casMeta = { year: cf.year, updatedAt: cf.updatedAt, source: cf.source, count: cf.count };
+  }
 }
 
 /**
@@ -90,6 +114,26 @@ function datasetInfos(): DatasetInfo[] {
       updatedAt: warningMeta?.updatedAt,
       source: warningMeta?.source || "手动导入（官方无机读接口）",
       sourceHomepage: WARNING_HOMEPAGE,
+    },
+    {
+      id: "jif",
+      label: "Journal Impact Factor (JIF)",
+      present: !!jifCache,
+      count: jifMeta?.count,
+      year: jifMeta?.year,
+      updatedAt: jifMeta?.updatedAt,
+      source: jifMeta?.source || WOS_JIF_SOURCE,
+      sourceHomepage: WOS_JIF_HOMEPAGE,
+    },
+    {
+      id: "cas",
+      label: "中科院期刊分区",
+      present: !!casCache,
+      count: casMeta?.count,
+      year: casMeta?.year,
+      updatedAt: casMeta?.updatedAt,
+      source: casMeta?.source || LETPUB_SOURCE,
+      sourceHomepage: LETPUB_HOMEPAGE,
     },
   ];
 }
@@ -135,6 +179,86 @@ function importScimagoFromText(text: string): { ok: boolean; info?: DatasetInfo;
     const ds = parseScimagoCsv(String(text || ""));
     if (!ds.rows.length) return { ok: false, error: "empty_or_parse_failed" };
     const info = saveScimagoDataset(ds, "手动导入（本地 CSV/XLS）");
+    return { ok: true, info };
+  } catch (e) {
+    return { ok: false, error: String((e as Error)?.message || e) };
+  }
+}
+
+function saveJifDataset(ds: WosJifDataset, source: string): DatasetInfo | undefined {
+  const journalCount = ds.rows.length || Object.keys(ds.byIssn).length;
+  const file: JifFile = {
+    year: ds.year,
+    updatedAt: new Date().toISOString(),
+    source,
+    count: journalCount,
+    byIssn: ds.byIssn,
+  };
+  fs.writeFileSync(jifPath(), JSON.stringify(file), "utf-8");
+  jifCache = { year: ds.year, rows: [], byIssn: ds.byIssn };
+  jifMeta = { year: ds.year, updatedAt: file.updatedAt, source: file.source, count: journalCount };
+  return datasetInfos().find((d) => d.id === "jif");
+}
+
+function importJifFromText(text: string): { ok: boolean; info?: DatasetInfo; error?: string } {
+  try {
+    const ds = parseWosJifTable(String(text || ""));
+    if (!ds.rows.length) return { ok: false, error: "empty_or_parse_failed" };
+    const info = saveJifDataset(ds, "手动导入（本地表格）");
+    return { ok: true, info };
+  } catch (e) {
+    return { ok: false, error: String((e as Error)?.message || e) };
+  }
+}
+
+async function updateJif(
+  onProgress?: (p: { phase: string; page: number; rows: number; label: string }) => void,
+): Promise<{ ok: boolean; info?: DatasetInfo; error?: string }> {
+  try {
+    try { await sessionFetch(WOS_JIF_HOMEPAGE, { headers: { accept: "text/html,*/*" } }); } catch { /* 预热失败仍尝试 */ }
+    const ds = await crawlWosJifDataset(sessionFetch as unknown as typeof fetch, (p) => onProgress?.(p));
+    if (!ds.rows.length) return { ok: false, error: "empty_or_parse_failed" };
+    const info = saveJifDataset(ds, WOS_JIF_HOMEPAGE);
+    return { ok: true, info };
+  } catch (e) {
+    return { ok: false, error: String((e as Error)?.message || e) };
+  }
+}
+
+function saveCasDataset(ds: CasPartitionDataset, source: string): DatasetInfo | undefined {
+  const journalCount = ds.rows.length || Object.keys(ds.byIssn).length;
+  const file: CasFile = {
+    year: ds.year,
+    updatedAt: new Date().toISOString(),
+    source,
+    count: journalCount,
+    byIssn: ds.byIssn,
+  };
+  fs.writeFileSync(casPath(), JSON.stringify(file), "utf-8");
+  casCache = { year: ds.year, rows: [], byIssn: ds.byIssn };
+  casMeta = { year: ds.year, updatedAt: file.updatedAt, source: file.source, count: journalCount };
+  return datasetInfos().find((d) => d.id === "cas");
+}
+
+function importCasFromText(text: string): { ok: boolean; info?: DatasetInfo; error?: string } {
+  try {
+    const ds = parseCasPartitionTable(String(text || ""));
+    if (!ds.rows.length) return { ok: false, error: "empty_or_parse_failed" };
+    const info = saveCasDataset(ds, "手动导入（本地表格）");
+    return { ok: true, info };
+  } catch (e) {
+    return { ok: false, error: String((e as Error)?.message || e) };
+  }
+}
+
+async function updateCas(
+  onProgress?: (p: { phase: string; page: number; rows: number; label: string }) => void,
+): Promise<{ ok: boolean; info?: DatasetInfo; error?: string }> {
+  try {
+    try { await sessionFetch(LETPUB_HOMEPAGE, { headers: { accept: "text/html,*/*" } }); } catch { /* 预热失败仍尝试 */ }
+    const ds = await crawlCasPartitionDataset(sessionFetch as unknown as typeof fetch, (p) => onProgress?.(p));
+    if (!ds.rows.length) return { ok: false, error: "empty_or_parse_failed" };
+    const info = saveCasDataset(ds, LETPUB_HOMEPAGE);
     return { ok: true, info };
   } catch (e) {
     return { ok: false, error: String((e as Error)?.message || e) };
@@ -200,6 +324,8 @@ export function registerJournalIpc(deps: IpcDeps): void {
         fetchImpl: fetch,
         scimago: scimagoCache,
         warning: warningCache || EMPTY_WARNING_DATASET,
+        jif: jifCache,
+        cas: casCache,
       });
     } catch (e) {
       return { ok: false, query, warning: null, provenance: {}, error: String((e as Error)?.message || e) };
@@ -208,6 +334,14 @@ export function registerJournalIpc(deps: IpcDeps): void {
   ipcMain.handle("journal:datasets", () => datasetInfos());
   ipcMain.handle("journal:updateScimago", () => updateScimago());
   ipcMain.handle("journal:importScimago", (_e, text: string) => importScimagoFromText(text));
+  ipcMain.handle("journal:updateJif", async (e) => updateJif((p) => {
+    try { e.sender.send("journal:jifProgress", p); } catch { /* 渲染层已关 */ }
+  }));
+  ipcMain.handle("journal:importJif", (_e, text: string) => importJifFromText(text));
+  ipcMain.handle("journal:updateCas", async (e) => updateCas((p) => {
+    try { e.sender.send("journal:casProgress", p); } catch { /* 渲染层已关 */ }
+  }));
+  ipcMain.handle("journal:importCas", (_e, text: string) => importCasFromText(text));
   ipcMain.handle("journal:updateWarningUrl", (_e, url: string) => updateWarningFromUrl(url));
   ipcMain.handle("journal:importWarning", (_e, text: string) => importWarningFromText(text));
   // 粘贴官方文本 → AI 结构化（仅排版，不臆造）→ 返回条目供预览（不落盘）

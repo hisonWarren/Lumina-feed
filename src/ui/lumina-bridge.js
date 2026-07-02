@@ -761,6 +761,32 @@ export const bridge = {
     const j = J(); if (!j || !j.importScimago) return { ok: false, error: "no_backend" };
     try { return await j.importScimago(text); } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
   },
+  async journalUpdateJif() {
+    const j = J(); if (!j || !j.updateJif) return { ok: false, error: "no_backend" };
+    try { return await j.updateJif(); } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+  },
+  async journalImportJif(text) {
+    const j = J(); if (!j || !j.importJif) return { ok: false, error: "no_backend" };
+    try { return await j.importJif(text); } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+  },
+  async journalUpdateCas() {
+    const j = J(); if (!j || !j.updateCas) return { ok: false, error: "no_backend" };
+    try { return await j.updateCas(); } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+  },
+  async journalImportCas(text) {
+    const j = J(); if (!j || !j.importCas) return { ok: false, error: "no_backend" };
+    try { return await j.importCas(text); } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+  },
+  onJournalJifProgress(cb) {
+    const j = J();
+    if (j && j.onJifProgress) return j.onJifProgress(cb);
+    return () => {};
+  },
+  onJournalCasProgress(cb) {
+    const j = J();
+    if (j && j.onCasProgress) return j.onCasProgress(cb);
+    return () => {};
+  },
   async journalUpdateWarningUrl(url) {
     const j = J(); if (!j || !j.updateWarningUrl) return { ok: false, error: "no_backend" };
     try { return await j.updateWarningUrl(url); } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }

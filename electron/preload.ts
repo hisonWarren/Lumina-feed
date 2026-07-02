@@ -177,9 +177,23 @@ contextBridge.exposeInMainWorld("luminaJournal", {
   datasets: () => invoke("journal:datasets"),
   updateScimago: () => invoke("journal:updateScimago"),
   importScimago: (text: string) => invoke("journal:importScimago", text),
+  updateJif: () => invoke("journal:updateJif"),
+  importJif: (text: string) => invoke("journal:importJif", text),
+  updateCas: () => invoke("journal:updateCas"),
+  importCas: (text: string) => invoke("journal:importCas", text),
   updateWarningUrl: (url: string) => invoke("journal:updateWarningUrl", url),
   importWarning: (text: string) => invoke("journal:importWarning", text),
   structureWarningText: (text: string) => invoke("journal:structureWarningText", text),
+  onJifProgress: (cb: (p: unknown) => void) => {
+    const handler = (_e: unknown, payload: unknown) => cb(payload);
+    ipcRenderer.on("journal:jifProgress", handler);
+    return () => ipcRenderer.removeListener("journal:jifProgress", handler);
+  },
+  onCasProgress: (cb: (p: unknown) => void) => {
+    const handler = (_e: unknown, payload: unknown) => cb(payload);
+    ipcRenderer.on("journal:casProgress", handler);
+    return () => ipcRenderer.removeListener("journal:casProgress", handler);
+  },
 });
 
 contextBridge.exposeInMainWorld("luminaReader", {

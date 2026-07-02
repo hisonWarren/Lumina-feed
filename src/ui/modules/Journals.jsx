@@ -1,5 +1,5 @@
 // Lumina Feed · 期刊信息（尽职调查 / 避坑工具）
-// 定位：分区 + 预警 + OA 正规性为主；影响因子仅给 OpenAlex 类指标 + 官方页跳转（不伪造 JIF）。
+// 定位：分区 + 预警 + OA 正规性 + JIF（wos-journal.info 数据集，可导入/在线拉取）
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { bridge } from "../lumina-bridge.js";
 import {
@@ -29,13 +29,30 @@ const CSS = `
 .jr-name{font-family:'Source Serif 4',Georgia,serif;font-size:20px;font-weight:600;color:var(--ink);line-height:1.3}
 .jr-pub{font-size:12.5px;color:var(--ink3);margin-top:5px;display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center}
 .jr-issn{font-family:'Space Mono',monospace;font-size:11.5px;color:var(--ink2)}
-.jr-tags{display:flex;flex-wrap:wrap;gap:7px;padding:12px 20px 4px}
+.jr-tags{display:flex;flex-wrap:wrap;gap:7px;padding:8px 20px 0}
 .jr-q{display:inline-flex;align-items:center;gap:5px;font-family:'Space Mono',monospace;font-size:12px;font-weight:700;border-radius:8px;padding:4px 10px;color:#fff}
 .jr-q.Q1{background:#2C8A60}.jr-q.Q2{background:#2f7db8}.jr-q.Q3{background:#BE7A18}.jr-q.Q4{background:#BC3B2B}
 .jr-tag{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-family:'Space Mono',monospace;border-radius:8px;padding:4px 9px;border:1px solid var(--line2);color:var(--ink2);background:var(--surf2)}
 .jr-tag.oa{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 35%,transparent)}
 .jr-tag.doaj{color:var(--gold);border-color:var(--gold-line)}
-.jr-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin-top:14px}
+.jr-spotlight{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:16px 20px 6px}
+@media(max-width:720px){.jr-spotlight{grid-template-columns:1fr}}
+.jr-hero{position:relative;border-radius:16px;padding:18px 20px 16px;overflow:hidden;border:1px solid var(--line);background:var(--surf2);min-height:118px;display:flex;flex-direction:column;justify-content:flex-end;text-decoration:none}
+.jr-hero.clickable:hover{border-color:var(--gold);cursor:pointer}
+.jr-hero::before{content:'';position:absolute;inset:0 auto 0 0;width:4px;border-radius:16px 0 0 16px;background:var(--gold);opacity:.9}
+.jr-hero.jr-hero-jif::before{background:linear-gradient(180deg,#C9A227,#8B6914)}
+.jr-hero.jr-hero-cas::before{background:var(--hero-cas-accent,#C41E3A)}
+.jr-hero.jr-hero-q::before{background:var(--hero-q-accent,#2C8A60)}
+.jr-hero.dim{opacity:.88;background:var(--surf2)}
+.jr-hero.dim .jr-hero-val,.jr-hero.dim .jr-hero-qbadge{color:var(--ink4)}
+.jr-hero-lbl{font-size:10.5px;font-family:'Space Mono',monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);margin-bottom:8px}
+.jr-hero-val{font-family:'Source Serif 4',Georgia,serif;font-size:clamp(34px,5.5vw,48px);font-weight:700;color:var(--ink);line-height:1;letter-spacing:-.02em}
+.jr-hero-qbadge{font-family:'Source Serif 4',Georgia,serif;font-size:clamp(36px,6vw,52px);font-weight:700;line-height:1;letter-spacing:-.03em;color:var(--hero-q-accent,#2C8A60)}
+.jr-hero-sub{font-size:12px;color:var(--ink2);margin-top:6px;font-family:'Space Mono',monospace;line-height:1.4}
+.jr-hero-src{font-size:10px;color:var(--ink4);font-family:'Space Mono',monospace;margin-top:auto;padding-top:8px;line-height:1.4}
+.jr-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:1px;background:var(--line);border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin-top:12px}
+.jr-metrics-sub .jr-m{padding:12px 16px}
+.jr-metrics-sub .jr-mv{font-size:18px}
 .jr-m{background:var(--surf);padding:14px 18px}
 .jr-mv{font-family:'Space Mono',monospace;font-size:22px;font-weight:700;color:var(--ink);line-height:1}
 .jr-mv.dim{color:var(--ink4);font-size:15px;font-weight:500}
@@ -60,7 +77,15 @@ const CSS = `
 .jr-ds{max-width:920px;margin:18px auto 0;width:100%;border:1px solid var(--line);border-radius:14px;background:var(--surf2);padding:14px 16px}
 .jr-ds-h{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--ink);margin-bottom:4px}
 .jr-ds-hint{font-size:11.5px;color:var(--ink3);line-height:1.5;margin-bottom:12px}
-.jr-ds-row{display:flex;align-items:center;gap:12px;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surf);margin-bottom:8px}
+.jr-ds-row{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px 12px;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surf);margin-bottom:8px}
+.jr-ds-actions{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-left:auto}
+@media(max-width:640px){.jr-ds-actions{margin-left:0;width:100%}}
+.jr-ds-prog{width:100%;font-size:11px;color:var(--ink3);font-family:'Space Mono',monospace;line-height:1.5;padding:2px 2px 0}
+.jr-spotlight-legend{font-size:11px;color:var(--ink4);text-align:center;margin-top:4px;padding:0 20px;font-family:'Space Mono',monospace}
+.jr-ds-wrap{max-width:920px;margin:18px auto 0;width:100%;border:1px solid var(--line);border-radius:14px;background:var(--surf2);padding:0;overflow:hidden}
+.jr-ds-toggle{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;font-weight:600;color:var(--ink);padding:14px 16px;cursor:pointer;user-select:none;background:var(--surf2)}
+.jr-ds-toggle:hover{color:var(--gold)}
+.jr-ds-body{padding:0 16px 14px;border-top:1px dashed var(--line2)}
 .jr-ds-info{flex:1;min-width:0}
 .jr-ds-name{font-size:13px;color:var(--ink);font-weight:500}
 .jr-ds-meta{font-size:11px;color:var(--ink4);font-family:'Space Mono',monospace;margin-top:3px}
@@ -71,6 +96,7 @@ const CSS = `
 .jr-btn:disabled{opacity:.6;cursor:default}
 .jr-spin{animation:jrspin .8s linear infinite}
 @keyframes jrspin{to{transform:rotate(360deg)}}
+.jr-jifprog{font-size:11px;color:var(--ink3);font-family:'Space Mono',monospace;margin-top:6px;line-height:1.5}
 .jr-note{font-size:11px;color:var(--ink4);line-height:1.6;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}
 .jr-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.42);display:flex;align-items:center;justify-content:center;z-index:60;padding:24px}
 .jr-modal{width:min(640px,100%);max-height:86vh;display:flex;flex-direction:column;background:var(--surf);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
@@ -91,6 +117,7 @@ const CSS = `
 `;
 
 const Q_COLOR = { Q1: "#2C8A60", Q2: "#2f7db8", Q3: "#BE7A18", Q4: "#BC3B2B" };
+const CAS_ZONE_COLOR = { "1区": "#C41E3A", "2区": "#D35400", "3区": "#2E86C1", "4区": "#7F8C8D" };
 const EXAMPLES = ["Nature", "0028-0836", "PLOS ONE", "1932-6203"];
 
 function fmtDate(iso) {
@@ -112,18 +139,88 @@ function Metric({ value, label, hint, source, dim }) {
   );
 }
 
+function HeroJif({ jif }) {
+  const has = jif?.jif != null;
+  const val = has
+    ? jif.jif.toLocaleString(undefined, { maximumFractionDigits: 1 })
+    : "—";
+  const src = jif?.year
+    ? `wos-journal.info · ${jif.year}`
+    : (has ? "wos-journal.info" : "需更新 JIF 数据集");
+  return (
+    <div className={"jr-hero jr-hero-jif" + (has ? "" : " dim") + (!has ? " clickable" : "")} title="Journal Impact Factor · 第三方汇总，非 Clarivate 官方授权"
+      onClick={() => { if (!has) document.getElementById('jr-ds-toggle')?.click(); }}
+    >
+      <div className="jr-hero-lbl">JIF</div>
+      <div className="jr-hero-val">{val}</div>
+      {has && jif.jif5yr != null ? (
+        <div className="jr-hero-sub">5 年 IF · {jif.jif5yr.toLocaleString(undefined, { maximumFractionDigits: 1 })}</div>
+      ) : null}
+      <div className="jr-hero-src">{has ? src : "去导入或在线拉取"}</div>
+    </div>
+  );
+}
+
+function HeroCas({ cas }) {
+  const zone = cas?.majorZone;
+  const zColor = zone ? (CAS_ZONE_COLOR[zone] || "#C41E3A") : null;
+  const has = !!zone;
+  const src = cas?.year ? `LetPub · ${cas.year}` : (has ? "LetPub 第三方" : "需导入或在线拉取");
+  return (
+    <div
+      className={"jr-hero jr-hero-cas" + (has ? "" : " dim") + (!has ? " clickable" : "")}
+      style={zColor ? { "--hero-cas-accent": zColor, background: `color-mix(in srgb, ${zColor} 10%, var(--surf2))`, borderColor: `color-mix(in srgb, ${zColor} 30%, var(--line))` } : undefined}
+      title="中科院期刊分区 · LetPub 第三方汇总，非 fenqubiao 官方授权"
+      onClick={() => { if (!has) document.getElementById('jr-ds-toggle')?.click(); }}
+    >
+      <div className="jr-hero-lbl">中科院分区</div>
+      <div className="jr-hero-qbadge" style={zColor ? { color: zColor } : undefined}>{zone || "—"}</div>
+      {cas?.majorCategory ? <div className="jr-hero-sub">大类 · {cas.majorCategory}{cas.isTop ? " · Top" : ""}</div> : null}
+      <div className="jr-hero-src">{has ? src : "去导入或在线拉取"}</div>
+    </div>
+  );
+}
+
+function HeroQuartile({ sj, bestQ }) {
+  const qColor = bestQ ? Q_COLOR[bestQ] : null;
+  const has = !!bestQ;
+  const src = sj?.year ? `SCImago ${sj.year}` : (has ? "SCImago" : "需更新分区数据");
+  return (
+    <div
+      className={"jr-hero jr-hero-q" + (has ? "" : " dim") + (!has ? " clickable" : "")}
+      style={qColor ? { "--hero-q-accent": qColor, background: `color-mix(in srgb, ${qColor} 9%, var(--surf2))`, borderColor: `color-mix(in srgb, ${qColor} 28%, var(--line))` } : undefined}
+      title="SCImago Journal Rank 最佳学科分区"
+      onClick={() => { if (!has) document.getElementById('jr-ds-toggle')?.click(); }}
+    >
+      <div className="jr-hero-lbl">SCImago</div>
+      <div className="jr-hero-qbadge">{bestQ || "—"}</div>
+      {sj?.sjr != null ? (
+        <div className="jr-hero-sub">SJR · {sj.sjr.toFixed(3)}{sj.rank != null ? ` · 排名 #${sj.rank.toLocaleString()}` : ""}</div>
+      ) : null}
+      <div className="jr-hero-src">{has ? src : "去导入或在线拉取"}</div>
+    </div>
+  );
+}
+
 export default function Journals({ pushToast }) {
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
   const [profile, setProfile] = useState(null);
   const [datasets, setDatasets] = useState([]);
-  const [busy, setBusy] = useState("");
+  const [busy, setBusy] = useState({});
   const fileRef = useRef(null);
   const sjFileRef = useRef(null);
+  const jifFileRef = useRef(null);
+  const casFileRef = useRef(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiText, setAiText] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
   const [aiPreview, setAiPreview] = useState(null);
+  const [jifProgress, setJifProgress] = useState("");
+  const [casProgress, setCasProgress] = useState("");
+  const [dsOpen, setDsOpen] = useState(false);
+
+  const setBusyState = useCallback((id, isBusy) => setBusy((prev) => ({ ...prev, [id]: isBusy })), []);
 
   const refreshDatasets = useCallback(async () => {
     const ds = await bridge.journalDatasets();
@@ -131,6 +228,12 @@ export default function Journals({ pushToast }) {
   }, []);
 
   useEffect(() => { void refreshDatasets(); }, [refreshDatasets]);
+
+  useEffect(() => {
+    const offJif = bridge.onJournalJifProgress((p) => { if (p?.label) setJifProgress(String(p.label)); });
+    const offCas = bridge.onJournalCasProgress((p) => { if (p?.label) setCasProgress(String(p.label)); });
+    return () => { if (typeof offJif === "function") offJif(); if (typeof offCas === "function") offCas(); };
+  }, []);
 
   const run = useCallback(async (query) => {
     const term = String(query ?? q).trim();
@@ -150,36 +253,81 @@ export default function Journals({ pushToast }) {
   const onExample = useCallback((ex) => { setQ(ex); void run(ex); }, [run]);
 
   const updateScimago = useCallback(async () => {
-    setBusy("scimago");
+    setBusyState("scimago", true);
     const r = await bridge.journalUpdateScimago();
-    setBusy("");
+    setBusyState("scimago", false);
     if (r?.ok) { pushToast && pushToast("分区数据已更新"); await refreshDatasets(); }
     else pushToast && pushToast("更新失败：" + (r?.error || "网络错误"));
-  }, [pushToast, refreshDatasets]);
+  }, [pushToast, refreshDatasets, setBusyState]);
 
   const importScimagoFile = useCallback(async (file) => {
     if (!file) return;
-    setBusy("scimago");
+    setBusyState("scimago", true);
     try {
       const text = await file.text();
       const r = await bridge.journalImportScimago(text);
       if (r?.ok) { pushToast && pushToast("分区数据已导入 · " + (r.info?.count || 0) + " 条"); await refreshDatasets(); }
       else pushToast && pushToast("导入失败：" + (r?.error || "格式错误"));
     } catch { pushToast && pushToast("读取文件失败"); }
-    finally { setBusy(""); }
-  }, [pushToast, refreshDatasets]);
+    finally { setBusyState("scimago", false); }
+  }, [pushToast, refreshDatasets, setBusyState]);
 
   const importWarningFile = useCallback(async (file) => {
     if (!file) return;
-    setBusy("warning");
+    setBusyState("warning", true);
     try {
       const text = await file.text();
       const r = await bridge.journalImportWarning(text);
       if (r?.ok) { pushToast && pushToast("预警名单已导入 · " + (r.info?.count || 0) + " 条"); await refreshDatasets(); }
       else pushToast && pushToast("导入失败：" + (r?.error || "格式错误"));
     } catch { pushToast && pushToast("读取文件失败"); }
-    finally { setBusy(""); }
-  }, [pushToast, refreshDatasets]);
+    finally { setBusyState("warning", false); }
+  }, [pushToast, refreshDatasets, setBusyState]);
+
+  const updateJif = useCallback(async () => {
+    setBusyState("jif", true);
+    setJifProgress("正在连接 wos-journal.info…");
+    const r = await bridge.journalUpdateJif();
+    setBusyState("jif", false);
+    setJifProgress("");
+    if (r?.ok) { pushToast && pushToast("JIF 数据已更新 · " + (r.info?.count || 0).toLocaleString() + " 条"); await refreshDatasets(); }
+    else pushToast && pushToast("更新失败：" + (r?.error || "网络错误"));
+  }, [pushToast, refreshDatasets, setBusyState]);
+
+  const importJifFile = useCallback(async (file) => {
+    if (!file) return;
+    setBusyState("jif", true);
+    try {
+      const text = await file.text();
+      const r = await bridge.journalImportJif(text);
+      if (r?.ok) { pushToast && pushToast("JIF 数据已导入 · " + (r.info?.count || 0).toLocaleString() + " 条"); await refreshDatasets(); }
+      else pushToast && pushToast("导入失败：" + (r?.error || "格式错误"));
+    } catch { pushToast && pushToast("读取文件失败"); }
+    finally { setBusyState("jif", false); }
+  }, [pushToast, refreshDatasets, setBusyState]);
+
+  const updateCas = useCallback(async () => {
+    if (!window.confirm("LetPub 在线全库拉取约需数十分钟且可能有反爬限制，通常建议优先从学校/课题组 Excel「导入表格」。\n\n确定要继续在线拉取吗？")) return;
+    setBusyState("cas", true);
+    setCasProgress("正在连接 LetPub…（全库较慢，建议优先导入表格）");
+    const r = await bridge.journalUpdateCas();
+    setBusyState("cas", false);
+    setCasProgress("");
+    if (r?.ok) { pushToast && pushToast("中科院分区已更新 · " + (r.info?.count || 0).toLocaleString() + " 条"); await refreshDatasets(); }
+    else pushToast && pushToast("更新失败：" + (r?.error || "网络错误"));
+  }, [pushToast, refreshDatasets, setBusyState]);
+
+  const importCasFile = useCallback(async (file) => {
+    if (!file) return;
+    setBusyState("cas", true);
+    try {
+      const text = await file.text();
+      const r = await bridge.journalImportCas(text);
+      if (r?.ok) { pushToast && pushToast("中科院分区已导入 · " + (r.info?.count || 0).toLocaleString() + " 条"); await refreshDatasets(); }
+      else pushToast && pushToast("导入失败：" + (r?.error || "格式错误"));
+    } catch { pushToast && pushToast("读取文件失败"); }
+    finally { setBusyState("cas", false); }
+  }, [pushToast, refreshDatasets, setBusyState]);
 
   const closeAi = useCallback(() => { setAiOpen(false); setAiText(""); setAiPreview(null); setAiBusy(false); }, []);
 
@@ -211,6 +359,8 @@ export default function Journals({ pushToast }) {
 
   const p = profile;
   const sj = p?.scimago;
+  const jf = p?.jif;
+  const cas = p?.cas;
   const bestQ = sj?.bestQuartile && Q_COLOR[sj.bestQuartile] ? sj.bestQuartile : null;
   const issn = p ? issnForUrl(p) : "";
 
@@ -220,7 +370,7 @@ export default function Journals({ pushToast }) {
       <div className="jr-head">
         <div className="jr-h1">期刊信息</div>
         <div className="jr-sub">
-          输入刊名或 ISSN，查看分区、预警状态、开放获取正规性与类影响因子。定位为投稿前尽职调查工具——分区/预警来自可溯来源，影响因子仅提供 OpenAlex 类指标与官方页跳转，不代替官方 JIF/中科院分区。
+          输入刊名或 ISSN，查看分区、预警状态、JIF、开放获取正规性与类影响因子。JIF 来自 wos-journal.info 数据集（可导入表格或在线拉取）；类影响因子为 OpenAlex 实时指标。
         </div>
         <div className="jr-bar">
           <Search size={17} color="var(--ink3)" />
@@ -280,26 +430,27 @@ export default function Journals({ pushToast }) {
               </div>
 
               <div className="jr-tags">
-                {bestQ && <span className={"jr-q " + bestQ}>{bestQ} · SCImago</span>}
                 {p.isOa && <span className="jr-tag oa"><ShieldCheck size={12} /> 开放获取</span>}
                 {p.isInDoaj && <span className="jr-tag doaj"><BadgeCheck size={12} /> DOAJ 收录</span>}
                 {!p.warning && <span className="jr-tag" style={{ color: "var(--ok)", borderColor: "color-mix(in srgb,var(--ok) 30%,transparent)" }}><BookOpenCheck size={12} /> 未在预警名单</span>}
               </div>
 
-              <div className="jr-metrics">
+              <div className="jr-spotlight">
+                <HeroJif jif={jf} />
+                <HeroCas cas={cas} />
+                <HeroQuartile sj={sj} bestQ={bestQ} />
+              </div>
+              <div className="jr-spotlight-legend">
+                三套独立分区体系，不可互相替代。投稿请以目标期刊所在官方源为准。
+              </div>
+
+              <div className="jr-metrics jr-metrics-sub">
                 <Metric
                   value={p.impact2yr != null ? p.impact2yr.toFixed(2) : "—"}
                   dim={p.impact2yr == null}
                   label="类影响因子"
                   hint="OpenAlex 近两年篇均被引（2yr mean citedness），非 Clarivate JIF"
                   source="OpenAlex · live"
-                />
-                <Metric
-                  value={sj?.sjr != null ? sj.sjr.toFixed(3) : "—"}
-                  dim={sj?.sjr == null}
-                  label="SJR"
-                  hint="SCImago Journal Rank"
-                  source={sj?.year ? `SCImago ${sj.year}` : (bestQ ? "SCImago" : "需更新分区数据")}
                 />
                 <Metric
                   value={p.hIndex != null ? p.hIndex : "—"}
@@ -315,6 +466,18 @@ export default function Journals({ pushToast }) {
                 />
               </div>
 
+              {cas?.minorCategories && cas.minorCategories.length > 0 && (
+                <div className="jr-cats">
+                  <div className="jr-cats-t">中科院小类分区{cas.year ? ` · ${cas.year}` : ""}</div>
+                  {cas.minorCategories.map((c, i) => (
+                    <span key={i} className="jr-cat">
+                      <i style={{ background: CAS_ZONE_COLOR[c.zone] || "var(--ink4)" }} />
+                      {c.name}{c.zone ? ` · ${c.zone}` : ""}
+                    </span>
+                  ))}
+                </div>
+              )}
+
               {sj?.categories && sj.categories.length > 0 && (
                 <div className="jr-cats">
                   <div className="jr-cats-t">学科分区 · SCImago{sj.year ? ` ${sj.year}` : ""}</div>
@@ -326,7 +489,9 @@ export default function Journals({ pushToast }) {
 
               <div className="jr-foot">
                 {p.homepage && <button className="jr-act" onClick={() => openExt(p.homepage)}><ExternalLink size={13} /> 期刊主页</button>}
-                {issn && <button className="jr-act" onClick={() => openExt(`https://mjl.clarivate.com/search-results?issn=${issn}`)}><ExternalLink size={13} /> 官方 JIF / JCR（Web of Science）</button>}
+                {jf?.sourceHomepage && <button className="jr-act" onClick={() => openExt(jf.sourceHomepage)}><ExternalLink size={13} /> wos-journal.info</button>}
+                {cas?.sourceHomepage && <button className="jr-act" onClick={() => openExt(cas.sourceHomepage)}><ExternalLink size={13} /> LetPub</button>}
+                {issn && <button className="jr-act" onClick={() => openExt(`https://mjl.clarivate.com/search-results?issn=${issn}`)}><ExternalLink size={13} /> Clarivate JCR 官方页</button>}
                 <button className="jr-act" onClick={() => openExt("https://www.scimagojr.com/journalsearch.php?q=" + encodeURIComponent(p.name || p.query))}><ExternalLink size={13} /> SCImago 官方页</button>
               </div>
             </div>
@@ -360,58 +525,91 @@ export default function Journals({ pushToast }) {
           <div className="jr-empty">
             <Database size={26} color="var(--ink4)" />
             <h3>查询任意期刊</h3>
-            <p>分区（SCImago）与预警名单为本地数据集，需手动更新以保证来源可靠；类影响因子、H 指数、OA/DOAJ 状态每次实时查询。</p>
+            <p>分区（SCImago）、JIF（wos-journal.info）与预警名单为本地数据集，需手动更新；类影响因子、H 指数、OA/DOAJ 状态每次实时查询。</p>
           </div>
         </div>
       )}
 
-      <div className="jr-ds">
-        <div className="jr-ds-h"><Database size={15} /> 数据集 · 手动更新</div>
-        <div className="jr-ds-hint">
-          在线拉取但不自动联网；由你决定何时更新，来源清晰可溯。类影响因子 / H 指数 / OA / DOAJ 无需更新（实时查询）。
+      <div className={"jr-ds-wrap" + (dsOpen ? " open" : "")}>
+        <div className="jr-ds-toggle" id="jr-ds-toggle" onClick={() => setDsOpen(!dsOpen)}>
+          <div style={{display:'flex', alignItems:'center', gap:'8px'}}><Database size={15} /> 数据集 · 手动更新</div>
+          <span style={{transform: dsOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', display: 'flex', alignItems: 'center'}}><ChevronDown size={14} /></span>
         </div>
-        {datasets.map((d) => (
-          <div key={d.id} className="jr-ds-row">
-            <span className={"jr-ds-dot " + (d.present ? "on" : "off")} />
-            <div className="jr-ds-info">
-              <div className="jr-ds-name">{d.label}</div>
-              <div className="jr-ds-meta">
-                {d.present
-                  ? `${d.count != null ? d.count.toLocaleString() + " 条 · " : ""}${d.year ? d.year + " 版 · " : ""}${d.updatedAt ? "更新于 " + fmtDate(d.updatedAt) : "内置"}`
-                  : "未加载"}
+        <div className="jr-ds-body">
+          <div className="jr-ds-hint">
+            在线拉取由你手动触发；同一数据集「导入」与「在线拉取」互不冲突——<b>后一次操作会整体覆盖该数据集</b>（不会与别的数据集混写）。类影响因子 / H 指数 / OA 为实时查询，无需更新。
+          </div>
+          {datasets.map((d) => (
+            <div key={d.id} className="jr-ds-row">
+              <span className={"jr-ds-dot " + (d.present ? "on" : "off")} />
+              <div className="jr-ds-info">
+                <div className="jr-ds-name">{d.label}</div>
+                <div className="jr-ds-meta">
+                  {d.present
+                    ? `${d.count != null ? d.count.toLocaleString() + " 条 · " : ""}${d.year ? d.year + " 版 · " : ""}${d.updatedAt ? "更新于 " + fmtDate(d.updatedAt) : "内置"}`
+                    : "未加载"}
+                </div>
+              </div>
+              <div className="jr-ds-actions">
+              {d.sourceHomepage && (
+                <button className="jr-btn" onClick={() => openExt(d.sourceHomepage)} title="官方/来源页"><ExternalLink size={12} /> 来源</button>
+              )}
+              {d.id === "scimago" && (
+                <>
+                  <input ref={sjFileRef} type="file" accept=".csv,.xls,text/csv,application/vnd.ms-excel" style={{ display: "none" }}
+                    onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; importScimagoFile(f); }} />
+                  <button className="jr-btn" onClick={() => sjFileRef.current && sjFileRef.current.click()} disabled={busy["scimago"]} title="从 scimagojr.com 下载的 CSV 导入（最稳）">
+                    <Upload size={12} /> 导入
+                  </button>
+                  <button className="jr-btn" onClick={updateScimago} disabled={busy["scimago"]}>
+                    {busy["scimago"] ? <Loader2 size={12} className="jr-spin" /> : <RefreshCw size={12} />} 在线
+                  </button>
+                </>
+              )}
+              {d.id === "jif" && (
+                <>
+                  <input ref={jifFileRef} type="file" accept=".csv,.tsv,.txt,.xls,text/csv" style={{ display: "none" }}
+                    onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; importJifFile(f); }} />
+                  <button className="jr-btn" onClick={() => jifFileRef.current && jifFileRef.current.click()} disabled={busy["jif"]} title="CSV/TSV：ISSN + JIF">
+                    <Upload size={12} /> 导入
+                  </button>
+                  <button className="jr-btn" onClick={updateJif} disabled={busy["jif"]} title="wos-journal.info 全库（数分钟）">
+                    {busy["jif"] ? <Loader2 size={12} className="jr-spin" /> : <RefreshCw size={12} />} 在线
+                  </button>
+                  {jifProgress && <div className="jr-ds-prog">{jifProgress}</div>}
+                </>
+              )}
+              {d.id === "cas" && (
+                <>
+                  <input ref={casFileRef} type="file" accept=".csv,.tsv,.txt,.xls,text/csv" style={{ display: "none" }}
+                    onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; importCasFile(f); }} />
+                  <button className="jr-btn" onClick={() => casFileRef.current && casFileRef.current.click()} disabled={busy["cas"]} title="CSV：ISSN + 大类分区/分区">
+                    <Upload size={12} /> 导入
+                  </button>
+                  <button className="jr-btn" onClick={updateCas} disabled={busy["cas"]} title="LetPub 全库（较慢，建议优先导入）">
+                    {busy["cas"] ? <Loader2 size={12} className="jr-spin" /> : <RefreshCw size={12} />} 在线
+                  </button>
+                  {casProgress && <div className="jr-ds-prog">{casProgress}</div>}
+                </>
+              )}
+              {d.id === "warning" && (
+                <>
+                  <input ref={fileRef} type="file" accept="application/json,.json" style={{ display: "none" }}
+                    onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; importWarningFile(f); }} />
+                  <button className="jr-btn" onClick={() => setAiOpen(true)} disabled={busy["warning"]} title="粘贴官方名单，AI 结构化">
+                    <Sparkles size={12} /> 粘贴
+                  </button>
+                  <button className="jr-btn" onClick={() => fileRef.current && fileRef.current.click()} disabled={busy["warning"]}>
+                    {busy["warning"] ? <Loader2 size={12} className="jr-spin" /> : <Upload size={12} />} JSON
+                  </button>
+                </>
+              )}
               </div>
             </div>
-            {d.sourceHomepage && (
-              <button className="jr-btn" onClick={() => openExt(d.sourceHomepage)} title="官方来源"><ExternalLink size={12} /> 来源</button>
-            )}
-            {d.id === "scimago" && (
-              <>
-                <input ref={sjFileRef} type="file" accept=".csv,.xls,text/csv,application/vnd.ms-excel" style={{ display: "none" }}
-                  onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; importScimagoFile(f); }} />
-                <button className="jr-btn" onClick={() => sjFileRef.current && sjFileRef.current.click()} disabled={busy === "scimago"} title="从 scimagojr.com 下载的 CSV 导入（最稳）">
-                  <Upload size={12} /> 导入 CSV
-                </button>
-                <button className="jr-btn" onClick={updateScimago} disabled={busy === "scimago"}>
-                  {busy === "scimago" ? <Loader2 size={12} className="jr-spin" /> : <RefreshCw size={12} />} 在线更新
-                </button>
-              </>
-            )}
-            {d.id === "warning" && (
-              <>
-                <input ref={fileRef} type="file" accept="application/json,.json" style={{ display: "none" }}
-                  onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; importWarningFile(f); }} />
-                <button className="jr-btn" onClick={() => setAiOpen(true)} disabled={busy === "warning"} title="粘贴官方名单文本，AI 只做结构化排版（不臆造），预览后导入">
-                  <Sparkles size={12} /> 粘贴导入
-                </button>
-                <button className="jr-btn" onClick={() => fileRef.current && fileRef.current.click()} disabled={busy === "warning"}>
-                  {busy === "warning" ? <Loader2 size={12} className="jr-spin" /> : <Upload size={12} />} 导入 JSON
-                </button>
-              </>
-            )}
+          ))}
+          <div className="jr-note" style={{marginTop:'12px', borderTop:'1px solid var(--line2)', paddingTop:'12px'}}>
+            中科院分区无个人官方 API：推荐从学校/课题组 Excel「导入」；「在线」走 <a href="https://www.letpub.com.cn/index.php?page=journalapp" target="_blank" rel="noreferrer">LetPub</a> 第三方汇总（非 fenqubiao 授权，约 4.4 万刊、耗时较长）。JIF 来源 <a href="https://wos-journal.info/" target="_blank" rel="noreferrer">wos-journal.info</a>。SCImago 可官网下 CSV 后导入。预警名单内置 2025 版。
           </div>
-        ))}
-        <div className="jr-note">
-          说明：官方 JIF、JCR 分区、中科院官方分区受商业授权约束，本工具不抓取其数值，仅提供官方页跳转。SCImago 数据（CC BY-NC）来源 scimagojr.com——「在线更新」若被其反爬拦截，可在官网点「Download data」得到 CSV 后用「导入 CSV」（最稳）。预警名单已内置中科院 2025 版（5 本，经多来源核对）。来年新版发布后：推荐「粘贴导入」——把官方名单文本粘进来，AI 只做结构化排版（不新增/不臆造），预览确认后导入；新旧年度会自动合并，旧年度降级为黄色「历史」提示（官方规则：整改移出后不再是预警期刊，故只保留最新年度为当前预警）。
         </div>
       </div>
 

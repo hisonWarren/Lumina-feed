@@ -28,6 +28,26 @@ export interface WarningEntry {
   reason?: string;
 }
 
+/** wos-journal.info JIF 条目（第三方汇总，非 Clarivate 官方授权数据） */
+export interface WosJifInfo {
+  jif?: number;
+  jif5yr?: number;
+  wosIndexes?: string;
+  year?: number;
+  wosId?: number;
+  sourceHomepage?: string;
+}
+
+/** 中科院期刊分区（通常为第三方汇总，非 fenqubiao 官方授权） */
+export interface CasPartitionInfo {
+  majorZone?: string;           // "1区" … "4区"
+  majorCategory?: string;
+  minorCategories?: Array<{ name: string; zone?: string }>;
+  isTop?: boolean;
+  year?: number;
+  sourceHomepage?: string;
+}
+
 /** 期刊完整画像（合并 live + 数据集） */
 export interface JournalProfile {
   ok: boolean;
@@ -47,6 +67,8 @@ export interface JournalProfile {
   isInDoaj?: boolean;
   // 数据集字段
   scimago?: ScimagoQuartile;
+  jif?: WosJifInfo;
+  cas?: CasPartitionInfo;
   warning?: WarningEntry | null;
   warningHistorical?: boolean;  // 命中的是历史年度名单（官方：整改后移出，不等于当前预警）
   // 溯源
@@ -58,7 +80,7 @@ export interface JournalProfile {
 
 /** 数据集缓存状态（供 UI 展示「来源 / 更新时间 / 年度」） */
 export interface DatasetInfo {
-  id: string;                   // "scimago" | "warning"
+  id: string;                   // "scimago" | "warning" | "jif" | "cas"
   label: string;
   present: boolean;
   count?: number;
