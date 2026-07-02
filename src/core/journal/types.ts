@@ -48,6 +48,7 @@ export interface JournalProfile {
   // 数据集字段
   scimago?: ScimagoQuartile;
   warning?: WarningEntry | null;
+  warningHistorical?: boolean;  // 命中的是历史年度名单（官方：整改后移出，不等于当前预警）
   // 溯源
   provenance: Record<string, FieldProvenance>;
   // 候选（名称检索命中多个时）

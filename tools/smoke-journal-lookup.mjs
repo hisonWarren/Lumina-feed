@@ -3,7 +3,7 @@
 // 在线（best-effort）：OpenAlex 实时查 Nature。
 import { normalizeIssn, issnCompact, looksLikeIssn, isValidIssnChecksum } from "../src/core/journal/issn.ts";
 import { parseScimagoCsv, scimagoLookup } from "../src/core/journal/scimago.ts";
-import { parseWarningJson, warningLookup, builtinWarningDataset } from "../src/core/journal/warning-list.ts";
+import { parseWarningJson, warningLookup, builtinWarningDataset, isHistoricalWarning } from "../src/core/journal/warning-list.ts";
 import { lookupJournal } from "../src/core/journal/lookup.ts";
 import { fetchSourceByIssn } from "../src/core/journal/openalex-source.ts";
 
@@ -49,6 +49,28 @@ ok("内置 2025 名单 5 本", builtin.entries.length === 5);
 ok("内置按 ISSN 命中 Wireless Personal Communications", warningLookup(builtin, ["0929-6212"], null)?.title === "Wireless Personal Communications");
 ok("内置按刊名命中 Computers & Electrical Engineering", !!warningLookup(builtin, [], "Computers & Electrical Engineering"));
 ok("内置年度=2025", builtin.entries.every((e) => e.year === 2025));
+
+// 3c) 多年度合并：当前 vs 历史（官方规则：只最新年度为当前预警）
+const multi = parseWarningJson([
+  { title: "Journal A", issn: "1111-2220", reason: "论文工厂", year: 2024 },
+  { title: "Journal B", issn: "3333-4440", reason: "论文工厂", year: 2025 },
+  { title: "Journal A", issn: "1111-2220", reason: "论文工厂", year: 2025 }, // A 连续两年 → 取 2025
+]);
+ok("多年度去重后 2 本", multi.entries.length === 2);
+ok("多年度 maxYear=2025", multi.maxYear === 2025);
+const a = warningLookup(multi, ["1111-2220"], null);
+ok("A 命中取最新年度 2025", a?.year === 2025);
+ok("A 非历史（当前）", isHistoricalWarning(multi, a) === false);
+// 仅 2024 命中的历史刊
+const histOnly = parseWarningJson([
+  { title: "Old Warned", issn: "5555-6660", reason: "论文工厂", year: 2023 },
+  { title: "Current", issn: "7777-8880", reason: "论文工厂", year: 2025 },
+]);
+const oldE = warningLookup(histOnly, ["5555-6660"], null);
+ok("历史刊命中 2023", oldE?.year === 2023);
+ok("历史刊判定为 historical", isHistoricalWarning(histOnly, oldE) === true);
+const curE = warningLookup(histOnly, ["7777-8880"], null);
+ok("当前刊非 historical", isHistoricalWarning(histOnly, curE) === false);
 
 // 4) 编排合并（注入 fake fetch，离线）
 const fakeSource = {

@@ -769,6 +769,10 @@ export const bridge = {
     const j = J(); if (!j || !j.importWarning) return { ok: false, error: "no_backend" };
     try { return await j.importWarning(text); } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
   },
+  async journalStructureWarningText(text) {
+    const j = J(); if (!j || !j.structureWarningText) return { ok: false, error: "no_backend" };
+    try { return await j.structureWarningText(text); } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+  },
   async exportCitation(items, fmt) {
     const api = A();
     if (api && api.exportCitation) {

@@ -115,6 +115,37 @@ try {
   `);
   ok("名称查询 PLOS ONE 命中", r2 && r2.hasCard && /plos/i.test(r2.name), r2);
 
+  // 预警刊：内置 CAS 2025（ISSN 0929-6212 → Wireless Personal Communications）应显示红色预警条
+  const r3 = await evalJs(cdp, `
+    const input = document.querySelector(".jr-bar input");
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+    setter.call(input, "0929-6212");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await new Promise((r)=>setTimeout(r,60));
+    document.querySelector(".jr-go").click();
+    for (let i=0;i<50;i++){ await new Promise((r)=>setTimeout(r,400)); if (document.querySelector(".jr-card")) break; }
+    const warn = document.querySelector(".jr-warn");
+    return { hasCard: !!document.querySelector(".jr-card"), hasWarn: !!warn, isHist: warn ? warn.classList.contains("hist") : null, warnText: warn?.textContent || "" };
+  `);
+  ok("预警刊命中卡片", r3 && r3.hasCard, r3);
+  ok("显示当前预警红条(非历史)", r3 && r3.hasWarn && r3.isHist === false, r3);
+  ok("预警文案含‘预警名单’", r3 && /预警名单/.test(r3.warnText), r3);
+
+  // 粘贴导入模态：点「粘贴导入」应打开含 textarea 的模态
+  const r4 = await evalJs(cdp, `
+    const btn = [...document.querySelectorAll(".jr-ds .jr-btn")].find((b)=>(b.textContent||"").includes("粘贴导入"));
+    if (!btn) return { ok:false, reason:"no_paste_btn" };
+    btn.click();
+    await new Promise((r)=>setTimeout(r,300));
+    const modal = document.querySelector(".jr-modal");
+    const ta = document.querySelector(".jr-modal .jr-ta");
+    const closed = (()=>{ const x = document.querySelector(".jr-modal-h .x"); if (x) x.click(); return true; })();
+    await new Promise((r)=>setTimeout(r,200));
+    return { ok: !!modal && !!ta, modalGone: !document.querySelector(".jr-modal") };
+  `);
+  ok("粘贴导入模态打开(含输入框)", r4 && r4.ok, r4);
+  ok("模态可关闭", r4 && r4.modalGone === true, r4);
+
   cdp.ws.close();
 } catch (e) {
   console.log("  ✗ 异常:", e.message);

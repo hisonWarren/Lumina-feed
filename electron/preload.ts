@@ -179,6 +179,7 @@ contextBridge.exposeInMainWorld("luminaJournal", {
   importScimago: (text: string) => invoke("journal:importScimago", text),
   updateWarningUrl: (url: string) => invoke("journal:updateWarningUrl", url),
   importWarning: (text: string) => invoke("journal:importWarning", text),
+  structureWarningText: (text: string) => invoke("journal:structureWarningText", text),
 });
 
 contextBridge.exposeInMainWorld("luminaReader", {

@@ -4,7 +4,7 @@ import type { JournalProfile, FieldProvenance } from "./types.ts";
 import type { ScimagoDataset } from "./scimago.ts";
 import type { WarningDataset } from "./warning-list.ts";
 import { scimagoLookup } from "./scimago.ts";
-import { warningLookup } from "./warning-list.ts";
+import { warningLookup, isHistoricalWarning } from "./warning-list.ts";
 import { fetchSourceByIssn, searchSourcesByName, type OaSource } from "./openalex-source.ts";
 import { looksLikeIssn } from "./issn.ts";
 
@@ -60,6 +60,7 @@ function buildProfile(query: string, src: OaSource, deps: LookupDeps): JournalPr
   const wn = warningLookup(deps.warning, issns, src.name);
   if (wn) {
     profile.warning = wn;
+    profile.warningHistorical = isHistoricalWarning(deps.warning, wn);
     provenance.warning = { source: "国际期刊预警名单", year: wn.year };
   }
 

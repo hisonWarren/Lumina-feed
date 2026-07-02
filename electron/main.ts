@@ -241,7 +241,7 @@ app.whenReady().then(async () => {
     setPoliteIdentity({ tool: "lumina-feed", email: process.env.LUMINA_CONTACT_EMAIL });
   }
   registerIpc({ store, secrets });
-  registerJournalIpc();
+  registerJournalIpc({ store, secrets });
   ipcMain.handle("shell:openExternal", (_e, url: string) => {
     if (typeof url === "string" && /^https?:\/\//.test(url)) return shell.openExternal(url);
   });

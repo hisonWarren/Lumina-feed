@@ -3,15 +3,20 @@
 import { ipcMain, app, session } from "electron";
 import fs from "node:fs";
 import path from "node:path";
-import type { DatasetInfo } from "../src/core/journal/types.ts";
+import type { DatasetInfo, WarningEntry } from "../src/core/journal/types.ts";
 import { lookupJournal } from "../src/core/journal/lookup.ts";
 import {
   parseScimagoCsv, fetchScimagoCsv, SCIMAGO_CSV_URL, SCIMAGO_HOMEPAGE, type ScimagoDataset,
 } from "../src/core/journal/scimago.ts";
 import {
-  parseWarningJson, WARNING_HOMEPAGE, EMPTY_WARNING_DATASET, builtinWarningDataset,
-  BUILTIN_WARNING_YEAR, BUILTIN_WARNING_SOURCE, type WarningDataset,
+  parseWarningJson, WARNING_HOMEPAGE, EMPTY_WARNING_DATASET,
+  BUILTIN_WARNING_YEAR, BUILTIN_WARNING_SOURCE, BUILTIN_WARNING_ENTRIES, type WarningDataset,
 } from "../src/core/journal/warning-list.ts";
+import { structureWarningEntries } from "../src/core/journal/warning-structure.ts";
+import { llmFromConfig } from "../src/core/summarize/llm-client.ts";
+import { PROVIDER_DEFAULT_MODEL } from "../src/core/summarize/model-presets.ts";
+import { hydrateLlmSettings } from "./settings.ts";
+import type { IpcDeps } from "./ipc.ts";
 
 function dataDir(): string {
   const d = path.join(app.getPath("userData"), "journal-data");
@@ -43,15 +48,24 @@ function loadFromDisk(): void {
     scimagoMeta = { year: sf.year, updatedAt: sf.updatedAt, source: sf.source, count: sf.count };
   }
   const wf = readJson<WarningFile>(warningPath());
-  if (wf && Array.isArray(wf.entries) && wf.entries.length) {
-    // 用户导入的名单优先（覆盖内置）
-    warningCache = parseWarningJson(wf.entries);
-    warningMeta = { year: wf.year, updatedAt: wf.updatedAt, source: wf.source, count: warningCache.entries.length };
-  } else {
-    // 内置中科院 2025 名单（开箱即用）
-    warningCache = builtinWarningDataset();
-    warningMeta = { year: BUILTIN_WARNING_YEAR, updatedAt: undefined, source: BUILTIN_WARNING_SOURCE + "（内置）", count: warningCache.entries.length };
-  }
+  const userEntries = wf && Array.isArray(wf.entries) ? (wf.entries as WarningEntry[]) : [];
+  rebuildWarning(userEntries, wf?.source, wf?.updatedAt);
+}
+
+/**
+ * 重建预警数据集：内置 2025 ∪ 用户导入（去重保留年度最新一条，见 parseWarningJson）。
+ * 好处：来年导入新版后，旧年度自动降级为“历史”（黄标），无需手动清理；官方规则得以遵守。
+ */
+function rebuildWarning(userEntries: WarningEntry[], source?: string, updatedAt?: string): void {
+  const merged = [...BUILTIN_WARNING_ENTRIES, ...(userEntries || [])];
+  warningCache = parseWarningJson(merged);
+  const hasUser = Array.isArray(userEntries) && userEntries.length > 0;
+  warningMeta = {
+    year: warningCache.maxYear ?? BUILTIN_WARNING_YEAR,
+    updatedAt: hasUser ? updatedAt : undefined,
+    source: hasUser ? (source || "手动导入") : BUILTIN_WARNING_SOURCE + "（内置）",
+    count: warningCache.entries.length,
+  };
 }
 
 function datasetInfos(): DatasetInfo[] {
@@ -151,23 +165,34 @@ function importWarningFromText(text: string): { ok: boolean; info?: DatasetInfo;
 }
 
 function saveWarning(raw: unknown, source: string): { ok: boolean; info?: DatasetInfo; error?: string } {
-  const ds = parseWarningJson(raw);
-  if (!ds.entries.length) return { ok: false, error: "empty_or_invalid_format" };
-  const file: WarningFile = {
-    year: ds.year,
-    updatedAt: new Date().toISOString(),
-    source,
-    entries: ds.entries,
-  };
+  const parsed = parseWarningJson(raw);
+  if (!parsed.entries.length) return { ok: false, error: "empty_or_invalid_format" };
+  const updatedAt = new Date().toISOString();
+  const file: WarningFile = { year: parsed.maxYear, updatedAt, source, entries: parsed.entries };
   try { fs.writeFileSync(warningPath(), JSON.stringify(file), "utf-8"); } catch (e) {
     return { ok: false, error: String((e as Error)?.message || e) };
   }
-  warningCache = ds;
-  warningMeta = { year: ds.year, updatedAt: file.updatedAt, source, count: ds.entries.length };
+  // 与内置 2025 合并后生效（含历史/当前分层）
+  rebuildWarning(parsed.entries, source, updatedAt);
   return { ok: true, info: datasetInfos().find((d) => d.id === "warning") };
 }
 
-export function registerJournalIpc(): void {
+/** 构建 LLM 客户端（复用设置页配置；未配置时抛出可读错误） */
+async function buildLlm(deps: IpcDeps) {
+  const { store, secrets } = deps;
+  const settings = await hydrateLlmSettings(store, async (k) => !!(await secrets.get(k)));
+  const llm = settings.llm;
+  const provider = llm?.provider;
+  if (!provider) throw new Error("请先在「设置 → 大模型」选择提供方并填写模型。");
+  const model = String(llm?.model || "").trim() || PROVIDER_DEFAULT_MODEL[provider] || "";
+  if (!model) throw new Error("请先在「设置 → 大模型」填写模型。");
+  if (provider !== "ollama" && !(await secrets.get(`${provider}_key`))) {
+    throw new Error("请先在「设置 → 大模型」保存 API Key。");
+  }
+  return llmFromConfig({ ...llm!, provider, model }, () => secrets.get(`${provider}_key`));
+}
+
+export function registerJournalIpc(deps: IpcDeps): void {
   ipcMain.handle("journal:search", async (_e, query: string) => {
     loadFromDisk();
     try {
@@ -185,4 +210,17 @@ export function registerJournalIpc(): void {
   ipcMain.handle("journal:importScimago", (_e, text: string) => importScimagoFromText(text));
   ipcMain.handle("journal:updateWarningUrl", (_e, url: string) => updateWarningFromUrl(url));
   ipcMain.handle("journal:importWarning", (_e, text: string) => importWarningFromText(text));
+  // 粘贴官方文本 → AI 结构化（仅排版，不臆造）→ 返回条目供预览（不落盘）
+  ipcMain.handle("journal:structureWarningText", async (_e, text: string) => {
+    const raw = String(text || "").trim();
+    if (!raw) return { ok: false, error: "empty_input" };
+    try {
+      const llm = await buildLlm(deps);
+      const entries = await structureWarningEntries(raw, llm);
+      if (!entries.length) return { ok: false, error: "no_entries_parsed" };
+      return { ok: true, entries };
+    } catch (e) {
+      return { ok: false, error: String((e as Error)?.message || e) };
+    }
+  });
 }

@@ -4,7 +4,7 @@ import React, { useState, useCallback, useEffect, useRef } from "react";
 import { bridge } from "../lumina-bridge.js";
 import {
   Search, RefreshCw, ExternalLink, AlertTriangle, ShieldCheck, BadgeCheck,
-  Loader2, Database, Upload, X, Info, BookOpenCheck,
+  Loader2, Database, Upload, X, Info, BookOpenCheck, Sparkles, Check,
 } from "lucide-react";
 
 const CSS = `
@@ -23,6 +23,7 @@ const CSS = `
 .jr-body{max-width:920px;margin:16px auto 0;width:100%}
 .jr-card{border:1px solid var(--line);border-radius:16px;background:var(--surf);overflow:hidden;box-shadow:var(--shadow)}
 .jr-warn{display:flex;gap:10px;align-items:flex-start;background:rgba(188,59,43,.08);border-bottom:1px solid rgba(188,59,43,.22);color:#9a2b1e;padding:12px 18px;font-size:13px;line-height:1.5}
+.jr-warn.hist{background:rgba(190,122,24,.09);border-bottom-color:rgba(190,122,24,.28);color:#8a5a10}
 .jr-warn b{font-weight:700}
 .jr-top{padding:18px 20px 6px}
 .jr-name{font-family:'Source Serif 4',Georgia,serif;font-size:20px;font-weight:600;color:var(--ink);line-height:1.3}
@@ -71,6 +72,22 @@ const CSS = `
 .jr-spin{animation:jrspin .8s linear infinite}
 @keyframes jrspin{to{transform:rotate(360deg)}}
 .jr-note{font-size:11px;color:var(--ink4);line-height:1.6;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}
+.jr-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.42);display:flex;align-items:center;justify-content:center;z-index:60;padding:24px}
+.jr-modal{width:min(640px,100%);max-height:86vh;display:flex;flex-direction:column;background:var(--surf);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
+.jr-modal-h{display:flex;align-items:center;gap:8px;padding:14px 18px;border-bottom:1px solid var(--line);font-size:14px;font-weight:600;color:var(--ink)}
+.jr-modal-h .x{margin-left:auto;cursor:pointer;color:var(--ink3);display:inline-flex}
+.jr-modal-b{padding:14px 18px;overflow-y:auto}
+.jr-modal-hint{font-size:11.5px;color:var(--ink3);line-height:1.6;margin-bottom:10px}
+.jr-ta{width:100%;min-height:140px;resize:vertical;border:1px solid var(--line2);border-radius:10px;padding:10px 12px;font-size:12.5px;font-family:'Space Mono',monospace;background:var(--surf2);color:var(--ink);outline:none;line-height:1.5}
+.jr-ta:focus{border-color:var(--gold)}
+.jr-prev{margin-top:12px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.jr-prev-h{font-size:11px;font-family:'Space Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);padding:8px 12px;background:var(--surf2);border-bottom:1px solid var(--line)}
+.jr-prev-i{display:flex;gap:10px;padding:7px 12px;border-top:1px solid var(--line);font-size:12.5px;color:var(--ink2)}
+.jr-prev-i:first-child{border-top:none}
+.jr-prev-i .t{flex:1;color:var(--ink)}
+.jr-prev-i .m{font-family:'Space Mono',monospace;font-size:11px;color:var(--ink4)}
+.jr-modal-f{display:flex;gap:8px;align-items:center;padding:12px 18px;border-top:1px solid var(--line)}
+.jr-modal-f .sp{flex:1;font-size:11px;color:var(--ink4)}
 `;
 
 const Q_COLOR = { Q1: "#2C8A60", Q2: "#2f7db8", Q3: "#BE7A18", Q4: "#BC3B2B" };
@@ -103,6 +120,10 @@ export default function Journals({ pushToast }) {
   const [busy, setBusy] = useState("");
   const fileRef = useRef(null);
   const sjFileRef = useRef(null);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiText, setAiText] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiPreview, setAiPreview] = useState(null);
 
   const refreshDatasets = useCallback(async () => {
     const ds = await bridge.journalDatasets();
@@ -160,6 +181,32 @@ export default function Journals({ pushToast }) {
     finally { setBusy(""); }
   }, [pushToast, refreshDatasets]);
 
+  const closeAi = useCallback(() => { setAiOpen(false); setAiText(""); setAiPreview(null); setAiBusy(false); }, []);
+
+  const aiStructure = useCallback(async () => {
+    const t = aiText.trim();
+    if (!t) return;
+    setAiBusy(true);
+    setAiPreview(null);
+    try {
+      const r = await bridge.journalStructureWarningText(t);
+      if (r?.ok && Array.isArray(r.entries) && r.entries.length) setAiPreview(r.entries);
+      else pushToast && pushToast("整理失败：" + (r?.error === "no_entries_parsed" ? "未从文本中解析出期刊" : (r?.error || "请检查大模型配置")));
+    } catch { pushToast && pushToast("整理失败"); }
+    finally { setAiBusy(false); }
+  }, [aiText, pushToast]);
+
+  const aiConfirmImport = useCallback(async () => {
+    if (!aiPreview || !aiPreview.length) return;
+    setAiBusy(true);
+    try {
+      const r = await bridge.journalImportWarning(JSON.stringify(aiPreview));
+      if (r?.ok) { pushToast && pushToast("预警名单已导入 · " + (r.info?.count || 0) + " 条"); await refreshDatasets(); closeAi(); }
+      else pushToast && pushToast("导入失败：" + (r?.error || "格式错误"));
+    } catch { pushToast && pushToast("导入失败"); }
+    finally { setAiBusy(false); }
+  }, [aiPreview, pushToast, refreshDatasets, closeAi]);
+
   const openExt = useCallback((url) => { if (url) bridge.openExternal(url); }, []);
 
   const p = profile;
@@ -198,7 +245,7 @@ export default function Journals({ pushToast }) {
         <>
           <div className="jr-body">
             <div className="jr-card">
-              {p.warning && (
+              {p.warning && !p.warningHistorical && (
                 <div className="jr-warn">
                   <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: 1 }} />
                   <div>
@@ -208,6 +255,18 @@ export default function Journals({ pushToast }) {
                     <div style={{ fontSize: 11, marginTop: 3, opacity: .85 }}>
                       来源：{p.provenance?.warning?.source || "国际期刊预警名单"}
                       {p.warning.year ? ` · ${p.warning.year} 版` : ""} · 投稿前请慎重核实
+                    </div>
+                  </div>
+                </div>
+              )}
+              {p.warning && p.warningHistorical && (
+                <div className="jr-warn hist">
+                  <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <div>
+                    <b>曾于 {p.warning.year} 年列入预警名单（已移出当前名单）</b>
+                    {p.warning.reason ? ` · ${p.warning.reason}` : ""}
+                    <div style={{ fontSize: 11, marginTop: 3, opacity: .85 }}>
+                      官方规则：期刊经整改移出下年度名单后不再是预警期刊，当前不等于预警；此处仅作历史/回溯参考。
                     </div>
                   </div>
                 </div>
@@ -341,6 +400,9 @@ export default function Journals({ pushToast }) {
               <>
                 <input ref={fileRef} type="file" accept="application/json,.json" style={{ display: "none" }}
                   onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; importWarningFile(f); }} />
+                <button className="jr-btn" onClick={() => setAiOpen(true)} disabled={busy === "warning"} title="粘贴官方名单文本，AI 只做结构化排版（不臆造），预览后导入">
+                  <Sparkles size={12} /> 粘贴导入
+                </button>
                 <button className="jr-btn" onClick={() => fileRef.current && fileRef.current.click()} disabled={busy === "warning"}>
                   {busy === "warning" ? <Loader2 size={12} className="jr-spin" /> : <Upload size={12} />} 导入 JSON
                 </button>
@@ -349,9 +411,51 @@ export default function Journals({ pushToast }) {
           </div>
         ))}
         <div className="jr-note">
-          说明：官方 JIF、JCR 分区、中科院官方分区受商业授权约束，本工具不抓取其数值，仅提供官方页跳转。SCImago 数据（CC BY-NC）来源 scimagojr.com——「在线更新」若被其反爬拦截，可在官网点「Download data」得到 CSV 后用「导入 CSV」（最稳）。预警名单已内置中科院 2025 版（5 本，经多来源核对）；来年更新可从官方门户整理为 JSON 后「导入 JSON」覆盖（格式：{`[{ "title": "...", "issn": "1234-5678", "reason": "论文工厂", "year": 2026 }]`}）。
+          说明：官方 JIF、JCR 分区、中科院官方分区受商业授权约束，本工具不抓取其数值，仅提供官方页跳转。SCImago 数据（CC BY-NC）来源 scimagojr.com——「在线更新」若被其反爬拦截，可在官网点「Download data」得到 CSV 后用「导入 CSV」（最稳）。预警名单已内置中科院 2025 版（5 本，经多来源核对）。来年新版发布后：推荐「粘贴导入」——把官方名单文本粘进来，AI 只做结构化排版（不新增/不臆造），预览确认后导入；新旧年度会自动合并，旧年度降级为黄色「历史」提示（官方规则：整改移出后不再是预警期刊，故只保留最新年度为当前预警）。
         </div>
       </div>
+
+      {aiOpen && (
+        <div className="jr-modal-bg" onClick={closeAi}>
+          <div className="jr-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="jr-modal-h">
+              <Sparkles size={16} color="var(--gold)" /> 粘贴官方名单 · AI 结构化导入
+              <span className="x" onClick={closeAi}><X size={16} /></span>
+            </div>
+            <div className="jr-modal-b">
+              <div className="jr-modal-hint">
+                把中科院《国际期刊预警名单》官方页面的文本整段粘贴到下方（含刊名/ISSN/原因均可）。AI 只把你提供的权威文本整理成结构化条目，<b>不会新增或臆造</b>任何期刊；生成后请先核对预览，再确认导入。需先在「设置 → 大模型」配置可用模型。
+              </div>
+              <textarea
+                className="jr-ta"
+                value={aiText}
+                onChange={(e) => setAiText(e.target.value)}
+                placeholder={"例如：\nWireless Personal Communications  0929-6212  论文工厂\nNatural Resources Forum  0165-0203  论文工厂\n……"}
+              />
+              {aiPreview && (
+                <div className="jr-prev">
+                  <div className="jr-prev-h">预览 · 共 {aiPreview.length} 条（确认无误再导入）</div>
+                  {aiPreview.map((e, i) => (
+                    <div key={i} className="jr-prev-i">
+                      <span className="t">{e.title}</span>
+                      <span className="m">{e.issn || "—"}{e.reason ? " · " + e.reason : ""}{e.year ? " · " + e.year : ""}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="jr-modal-f">
+              <span className="sp">来源须为官方权威文本，导入后覆盖既有导入项并与内置合并。</span>
+              <button className="jr-btn" onClick={aiStructure} disabled={aiBusy || !aiText.trim()}>
+                {aiBusy && !aiPreview ? <Loader2 size={12} className="jr-spin" /> : <Sparkles size={12} />} AI 整理预览
+              </button>
+              <button className="jr-go" onClick={aiConfirmImport} disabled={aiBusy || !aiPreview || !aiPreview.length}>
+                {aiBusy && aiPreview ? <Loader2 size={13} className="jr-spin" /> : <Check size={13} />} 确认导入
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
