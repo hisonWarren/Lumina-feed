@@ -4,7 +4,7 @@ import React, { useState, useCallback, useEffect, useRef } from "react";
 import { bridge } from "../lumina-bridge.js";
 import {
   Search, RefreshCw, ExternalLink, AlertTriangle, ShieldCheck, BadgeCheck,
-  Loader2, Database, Upload, X, Info, BookOpenCheck, Sparkles, Check,
+  Loader2, Database, Upload, X, Info, BookOpenCheck, Sparkles, Check, ChevronDown,
 } from "lucide-react";
 
 const CSS = `
@@ -85,7 +85,8 @@ const CSS = `
 .jr-ds-wrap{max-width:920px;margin:18px auto 0;width:100%;border:1px solid var(--line);border-radius:14px;background:var(--surf2);padding:0;overflow:hidden}
 .jr-ds-toggle{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;font-weight:600;color:var(--ink);padding:14px 16px;cursor:pointer;user-select:none;background:var(--surf2)}
 .jr-ds-toggle:hover{color:var(--gold)}
-.jr-ds-body{padding:0 16px 14px;border-top:1px dashed var(--line2)}
+.jr-ds-body{display:none;padding:0 16px 14px;border-top:1px dashed var(--line2)}
+.jr-ds-wrap.open .jr-ds-body{display:block}
 .jr-ds-info{flex:1;min-width:0}
 .jr-ds-name{font-size:13px;color:var(--ink);font-weight:500}
 .jr-ds-meta{font-size:11px;color:var(--ink4);font-family:'Space Mono',monospace;margin-top:3px}
@@ -597,7 +598,7 @@ export default function Journals({ pushToast }) {
                   <input ref={fileRef} type="file" accept="application/json,.json" style={{ display: "none" }}
                     onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; importWarningFile(f); }} />
                   <button className="jr-btn" onClick={() => setAiOpen(true)} disabled={busy["warning"]} title="粘贴官方名单，AI 结构化">
-                    <Sparkles size={12} /> 粘贴
+                    <Sparkles size={12} /> 粘贴导入
                   </button>
                   <button className="jr-btn" onClick={() => fileRef.current && fileRef.current.click()} disabled={busy["warning"]}>
                     {busy["warning"] ? <Loader2 size={12} className="jr-spin" /> : <Upload size={12} />} JSON

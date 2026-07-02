@@ -79,7 +79,7 @@ try {
     if (!btn) return { ok:false, reason:"no_tab" };
     btn.click();
     await new Promise((r)=>setTimeout(r,400));
-    return { ok: !!document.querySelector(".jr"), hasBar: !!document.querySelector(".jr-bar input"), hasDs: !!document.querySelector(".jr-ds") };
+    return { ok: !!document.querySelector(".jr"), hasBar: !!document.querySelector(".jr-bar input"), hasDs: !!document.querySelector(".jr-ds-wrap") };
   `);
   ok("期刊 tab 打开 + 面板渲染", tabbed && tabbed.ok && tabbed.hasBar && tabbed.hasDs, tabbed);
 
@@ -131,9 +131,11 @@ try {
   ok("显示当前预警红条(非历史)", r3 && r3.hasWarn && r3.isHist === false, r3);
   ok("预警文案含‘预警名单’", r3 && /预警名单/.test(r3.warnText), r3);
 
-  // 粘贴导入模态：点「粘贴导入」应打开含 textarea 的模态
+  // 粘贴导入模态：展开数据集面板后，点「粘贴导入」应打开含 textarea 的模态
   const r4 = await evalJs(cdp, `
-    const btn = [...document.querySelectorAll(".jr-ds .jr-btn")].find((b)=>(b.textContent||"").includes("粘贴导入"));
+    const toggle = document.querySelector("#jr-ds-toggle");
+    if (toggle && !document.querySelector(".jr-ds-wrap.open")) { toggle.click(); await new Promise((r)=>setTimeout(r,200)); }
+    const btn = [...document.querySelectorAll(".jr-ds-wrap .jr-btn")].find((b)=>(b.textContent||"").includes("粘贴导入"));
     if (!btn) return { ok:false, reason:"no_paste_btn" };
     btn.click();
     await new Promise((r)=>setTimeout(r,300));
