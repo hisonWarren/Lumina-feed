@@ -1545,22 +1545,7 @@ export function registerIpc(deps: IpcDeps): void {
     try {
       const deps = getPaperAssetDeps();
       if (!deps) return {};
-      const t0 = Date.now();
-      const out = hydrateAssets(deps);
-      const ms = Date.now() - t0;
-      if (ms > 50) {
-        // #region agent log
-        fetch("http://127.0.0.1:7739/ingest/f72715b3-174b-4276-af51-ebbb6cf6f9e2", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "07b43d" },
-          body: JSON.stringify({
-            sessionId: "07b43d", location: "ipc.ts:papers:hydrate", message: "slow hydrate",
-            data: { ms, count: Object.keys(out).length }, timestamp: Date.now(), hypothesisId: "H3",
-          }),
-        }).catch(() => {});
-        // #endregion
-      }
-      return out;
+      return hydrateAssets(deps);
     } catch { return {}; }
   });
   ipcMain.handle("papers:reconcile", async () => {

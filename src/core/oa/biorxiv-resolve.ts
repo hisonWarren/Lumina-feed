@@ -3,7 +3,7 @@ import { biorxivPdfUrl } from "./oa-url-normalize.ts";
 import type { UrlCandidate } from "./candidate.ts";
 import { attemptSignal } from "./timeout.ts";
 
-const BIORXIV_DOI = /^10\.1101\//i;
+const BIORXIV_DOI = /^10\.(1101|64898)\//i;
 
 export function isBiorxivDoi(doi?: string): boolean {
   return BIORXIV_DOI.test(String(doi || "").replace(/^https?:\/\/(dx\.)?doi\.org\//i, ""));

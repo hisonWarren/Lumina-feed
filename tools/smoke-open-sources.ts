@@ -104,7 +104,7 @@ t("parseOsf download url", parseOsf({ data: [{ id: "jfrwu_v1", attributes: { tit
 t("normalize biorxiv html→pdf", normalizeOaFetchUrl("https://www.biorxiv.org/content/10.1101/2020.01.01.123v1")?.endsWith(".full.pdf"));
 t("skip researchgate landing", normalizeOaFetchUrl("https://www.researchgate.net/publication/123") === undefined);
 t("isNonAutomatable RG", isNonAutomatableLandingUrl("https://www.researchgate.net/publication/123"));
-t("biorxivPdfUrl", biorxivPdfUrl("10.1101/2020.01.01.123", 1).includes(".full.pdf"));
+t("biorxivPdfUrl new prefix", biorxivPdfUrl("10.64898/2026.01.05.697634", 1).includes("10.64898"));
 t("epmc skip doi only", pickEuropePmcOaUrl([{ availabilityCode: "F", documentStyle: "doi", url: "https://doi.org/10.1/x" }]) === undefined);
 t("parseZenodo hit", parseZenodo({ hits: { hits: [{ metadata: { title: "Z T", creators: [{ name: "A" }] } }] } })[0]?.title === "Z T");
 t("parseOpenaire title", parseOpenaire({ response: { results: { result: [{ metadata: { title: [{ $: "OA T" }], creator: [{ name: { $: "A" } }] } }] } } })[0]?.title === "OA T");

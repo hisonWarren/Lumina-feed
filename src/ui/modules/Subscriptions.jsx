@@ -3,8 +3,9 @@
 // 诚实分层：订阅 CRUD 经 bridge（接引擎 subs:* / 无引擎走会话内存 mock）；今日命中需引擎调度真实检索——
 // 无引擎时简报为空并标注「需引擎调度」，绝不伪造命中（红线：不臆造、AI 不替判定纳入）。
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Rss, Clock, Plus, Inbox, Download, X, Check, Pause, Play, Pencil, Trash2, Sparkles, FileText, BookOpen, BookText, Loader, AlertTriangle, Info } from "lucide-react";
+import { Rss, Clock, Plus, Inbox, Download, X, Check, Pause, Play, Pencil, Trash2, Sparkles, FileText, BookOpen, BookText, Loader, AlertTriangle, Info, ExternalLink } from "lucide-react";
 import { bridge, hasBackend } from "../lumina-bridge.js";
+import { paperWebUrl } from "../lib/paper-web-url.js";
 import FetchBadges from "../FetchBadges.jsx";
 import DigestMatchWhy from "../components/DigestMatchWhy.jsx";
 import DigestAbstract from "../components/DigestAbstract.jsx";
@@ -64,6 +65,10 @@ const SUBS_CSS = `
 @keyframes dgItemFlash{0%{box-shadow:0 0 0 3px rgba(14,124,111,.45);border-color:var(--gold)}100%{box-shadow:0 0 0 0 rgba(14,124,111,0)}}
 @media (prefers-reduced-motion: reduce){.dg-item-flash{animation:none;box-shadow:0 0 0 2px rgba(14,124,111,.45)}}
 .dg-t{font-family:'Source Serif 4',Georgia,serif;font-size:15px;font-weight:600;line-height:1.4;color:var(--ink)}
+.dg-t-btn{display:block;width:100%;text-align:left;border:none;background:none;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer}
+.dg-t-btn:hover{color:var(--gold);text-decoration:underline;text-underline-offset:3px}
+.dg-doi{display:inline-flex;align-items:center;gap:4px;margin-top:6px;border:1px solid var(--line2);background:var(--surf2);border-radius:7px;padding:3px 8px;font-size:11px;font-family:'Space Mono',monospace;color:var(--ink3);cursor:pointer}
+.dg-doi:hover{border-color:var(--gold);color:var(--gold)}
 .dg-m{font-size:12.5px;color:var(--ink3);margin-top:5px}
 .dg-badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .dg-b{font-size:10.5px;font-family:'Space Mono',monospace;color:var(--ink3);background:var(--surf2);border:1px solid var(--line);border-radius:6px;padding:3px 7px}
@@ -135,10 +140,22 @@ function DigestItem({ p, query, subLabels, subIds, fetchedMeta, fetchingMeta, on
     } catch (e) { pushToast && pushToast("总结失败"); } finally { setSumming(false); }
   };
   const hasAutoSum = !!(sum && (p.digestSummary || p.digestSummaryBasis));
+  const webUrl = paperWebUrl(p);
+  const openWeb = () => {
+    if (!webUrl) { pushToast && pushToast("暂无网页链接"); return; }
+    bridge.openExternal(webUrl);
+  };
   return (
     <div className="dg-item" id={"digest-card-" + p.id}>
-      <div className="dg-t">{p.title}</div>
+      {webUrl ? (
+        <button type="button" className="dg-t-btn dg-t" onClick={openWeb} title="在浏览器打开原文页">{p.title}</button>
+      ) : (
+        <div className="dg-t">{p.title}</div>
+      )}
       <div className="dg-m">{(p.authors || [])[0]}{(p.authors || []).length > 1 ? " 等" : ""}{p.journal ? " · " + p.journal : ""}{p.year ? " · " + p.year : ""}</div>
+      {p.doi && webUrl && (
+        <button type="button" className="dg-doi" onClick={openWeb} title="在浏览器打开"><span>{p.doi}</span><ExternalLink size={11} /></button>
+      )}
       <DigestAbstract abstract={p.abstract} />
       <DigestMatchWhy paper={p} query={query} subLabels={subLabels} />
       <DigestSourceLine sources={p.hitSources} />
@@ -559,10 +576,17 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
     pushToast && pushToast("已全部标为已读");
   }, [activeSub, backend, pushToast, refreshSubs]);
 
+  const hasUsefulAbstract = (p) => String(p?.abstract || "").trim().length >= 40;
+  const hasStableId = (p) => !!(String(p?.doi || "").trim() || String(p?.pmid || "").trim());
   const todayPapers = (s) => Array.isArray(s.today) ? s.today.filter((p) => p && typeof p === "object") : [];
+  const visiblePapers = (s) => {
+    const papers = todayPapers(s);
+    if (!s?.hideNoAbstract) return papers;
+    return papers.filter((p) => hasUsefulAbstract(p) || hasStableId(p));
+  };
   const unread = (s) => {
     const read = new Set(Array.isArray(s.readIds) ? s.readIds.map(String) : []);
-    return todayPapers(s).filter((p) => !read.has(p.id));
+    return visiblePapers(s).filter((p) => !read.has(p.id));
   };
 
   const today = new Date();

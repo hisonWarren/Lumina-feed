@@ -31,7 +31,7 @@ function normalizeBiorxivUrl(url: string): string | undefined {
   try {
     const u = new URL(url);
     if (!/(^|\.)biorxiv\.org$|(^|\.)medrxiv\.org$/i.test(u.host)) return url;
-    if (!/\/content\/10\.1101\//i.test(u.pathname)) return url;
+    if (!/\/content\/10\.(1101|64898)\//i.test(u.pathname)) return url;
     if (/\.full\.pdf($|\?)/i.test(u.pathname)) return url;
     const base = url.split("#")[0].split("?")[0];
     return base.endsWith("/") ? `${base.slice(0, -1)}.full.pdf` : `${base}.full.pdf`;

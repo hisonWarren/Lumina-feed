@@ -1,12 +1,10 @@
-// 简报 · 摘要展示（2–3 行 + 展开）
+// 简报 · 摘要展示（2–3 行 + 展开）；无摘要时不占位
 import React, { useState } from "react";
 
 export default function DigestAbstract({ abstract }) {
   const [open, setOpen] = useState(false);
   const text = String(abstract || "").trim();
-  if (!text) {
-    return <div className="dg-abs dg-abs-empty">暂无摘要 · 仍可看标题与 DOI</div>;
-  }
+  if (!text) return null;
   const long = text.length > 180 || text.split(/\s+/).length > 35;
   return (
     <div className={"dg-abs" + (open ? " open" : "")}>

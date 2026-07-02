@@ -1,5 +1,6 @@
-// 渲染层卡片 → 引擎 Paper（取文前补库；流式检索应直接 upsert 引擎 Paper）
+// lumina-feed · 渲染层卡片 → 引擎 Paper（取文前补库；流式检索应直接 upsert 引擎 Paper）
 import type { Paper, StudyType } from "./model.ts";
+import { isBiorxivDoi } from "./oa/biorxiv-resolve.ts";
 
 const OA_UI: Record<string, string> = {
   gold: "gold",
@@ -28,9 +29,9 @@ export function paperFromCard(card: unknown): Paper | null {
   const doiNorm = c.doi
     ? String(c.doi).toLowerCase().replace(/^https?:\/\/(dx\.)?doi\.org\//, "")
     : "";
-  const isBiorxivDoi = /^10\.1101\//.test(doiNorm);
+  const preprintDoi = isBiorxivDoi(doiNorm);
   let oaStatus = OA_UI[oaRaw] || oaRaw;
-  if (isBiorxivDoi && (!oaStatus || oaStatus === "unknown" || oaStatus === "closed")) {
+  if (preprintDoi && (!oaStatus || oaStatus === "unknown" || oaStatus === "closed")) {
     oaStatus = "gold";
   }
   const versions = Array.isArray(c.versions) ? c.versions : [];
@@ -50,7 +51,7 @@ export function paperFromCard(card: unknown): Paper | null {
     pubDate: c.pubDate ? String(c.pubDate) : undefined,
     studyTypes: studyTypesFromCard(c),
     source,
-    isPreprint: !!(c.isPreprint ?? c.preprint ?? isBiorxivDoi),
+    isPreprint: !!(c.isPreprint ?? c.preprint ?? preprintDoi),
     peerReviewed: !!(c.peerReviewed ?? c.peer),
     retracted: !!c.retracted,
     citationCount: cites != null && cites !== "" ? Number(cites) : undefined,

@@ -46,7 +46,7 @@ export function isOaMarkedPaper(paper: Paper): boolean {
   const s = String(paper.oaStatus || "").toLowerCase();
   if (["gold", "green", "hybrid", "bronze"].includes(s)) return true;
   const doi = String(paper.doi || "").toLowerCase().replace(/^https?:\/\/(dx\.)?doi\.org\//, "");
-  if (/^10\.1101\//.test(doi)) return true;
+  if (isBiorxivDoi(doi)) return true;
   if (/^10\.26434\/chemrxiv/i.test(doi)) return true;
   if (/^10\.6084\/m9\.figshare/i.test(doi)) return true;
   if (paper.oaUrl || paper.pmcid || paper.arxivId) return true;
@@ -208,11 +208,7 @@ export async function fetchPaperPdf(paper: Paper, deps: OaFullTextDeps = {}): Pr
       .slice(0, 8);
     if (syncCands.length) {
       trace?.patch("biorxiv_api", "running", `版本回退≤v${maxV}`);
-      const tSweep = Date.now();
       const { hit, publisherBlocked: pb, identityRejected: idRej } = await tryCandidateList(syncCands, paper, deps, trace, dlMs, tried);
-      // #region agent log
-      fetch('http://127.0.0.1:7739/ingest/f72715b3-174b-4276-af51-ebbb6cf6f9e2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'07b43d'},body:JSON.stringify({sessionId:'07b43d',location:'provider.ts:versionSweep',message:'sweep done',data:{maxV,candCount:syncCands.length,hit:!!hit,source:hit?.source,ms:Date.now()-tSweep},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-      // #endregion
       if (pb) publisherBlocked = true;
       if (idRej) identityRejected = true;
       if (hit) {
