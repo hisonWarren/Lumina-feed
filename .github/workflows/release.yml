@@ -93,7 +93,6 @@ jobs:
         if: matrix.platform == 'win'
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK_SECRET: ${{ secrets.WIN_CSC_LINK }}
           CSC_KEY_PASSWORD_SECRET: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         run: |
@@ -103,13 +102,13 @@ jobs:
             export CSC_LINK="$CSC_LINK_SECRET"
             export CSC_KEY_PASSWORD="$CSC_KEY_PASSWORD_SECRET"
           fi
-          npm run dist
+          # Build locally only; the publish job uploads a single asset set.
+          npm run build:electron && npx electron-builder --publish never
 
       - name: Build installers (macOS)
         if: matrix.platform == 'mac'
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK_SECRET: ${{ secrets.MAC_CSC_LINK }}
           CSC_KEY_PASSWORD_SECRET: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -122,13 +121,12 @@ jobs:
           else
             export CSC_IDENTITY_AUTO_DISCOVERY=false
           fi
-          npm run dist
+          npm run build:electron && npx electron-builder --publish never
 
       - name: Build installers (Linux)
         if: matrix.platform == 'linux'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run dist
+        shell: bash
+        run: npm run build:electron && npx electron-builder --publish never
 
       - name: Upload platform artifacts
         uses: actions/upload-artifact@v4

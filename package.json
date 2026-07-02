@@ -93,6 +93,13 @@
     "appId": "com.hisonwarren.luminafeed",
     "productName": "Lumina Feed",
     "copyright": "© hisonWarren",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "hisonWarren",
+        "repo": "Lumina-feed"
+      }
+    ],
     "directories": {
       "buildResources": "assets",
       "output": "release"
@@ -118,9 +125,15 @@
     ],
     "win": {
       "target": [
-        "nsis"
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
-      "icon": "assets/icon.png"
+      "icon": "assets/icon.png",
+      "artifactName": "Lumina-Feed-${version}-windows-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -133,7 +146,8 @@
         "dmg"
       ],
       "icon": "assets/icon.png",
-      "category": "public.app-category.productivity"
+      "category": "public.app-category.productivity",
+      "artifactName": "Lumina-Feed-${version}-macos-${arch}.${ext}"
     },
     "linux": {
       "target": [
@@ -143,7 +157,8 @@
       "category": "Office",
       "mimeTypes": [
         "application/pdf"
-      ]
+      ],
+      "artifactName": "Lumina-Feed-${version}-linux-${arch}.${ext}"
     }
   }
 }
