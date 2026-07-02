@@ -3,11 +3,17 @@
 > 面向科研人员的桌面级「文献检索 · 取文 · 接地阅读」一体化工具。基于 Electron + React 构建，所有 AI 输出可溯源到原文页码，数据来源清晰可查、不伪造。
 
 ![Version](https://img.shields.io/badge/version-0.4.84-blue.svg)
-![Platform](https://img.shields.io/badge/platform-Windows%20x64-lightgrey.svg)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
 ![Electron](https://img.shields.io/badge/Electron-31-47848F.svg)
 ![License](https://img.shields.io/badge/license-Proprietary-red.svg)
 
-[**下载最新 Windows x64 安装包**](https://github.com/hisonWarren/Lumina-feed/releases/latest)
+| 平台 | 下载 |
+|------|------|
+| **Windows** | [Lumina Feed Setup `.exe`](https://github.com/hisonWarren/Lumina-feed/releases/latest) |
+| **macOS** | [`Lumina Feed-*.dmg`](https://github.com/hisonWarren/Lumina-feed/releases/latest) |
+| **Linux** | [`Lumina Feed-*.AppImage`](https://github.com/hisonWarren/Lumina-feed/releases/latest) |
+
+> 全平台安装包由 GitHub Actions 在推送 `v*` 标签时自动构建并发布。代码签名为可选项，见 [`.github/RELEASE_SIGNING.md`](.github/RELEASE_SIGNING.md)。
 
 ---
 
@@ -53,13 +59,30 @@ npm run start                                        # 构建并启动
 
 ## 📦 构建与发布
 
+### 本地构建（当前系统）
+
 ```bash
-npm run dist            # 构建 Windows x64 安装包到 release/ 目录
-npm run dist:release    # 打包 + 自动创建 GitHub Release 并上传（需已登录 GitHub CLI）
-npm run release:gh      # 仅发布当前版本安装包到 Release
+npm run dist            # 构建安装包到 release/
+npm run dist:release    # 打包 + 本地上传 GitHub Release（需 gh auth login）
+npm run release:gh      # 仅上传 release/ 已有资产
 ```
 
-> **跨平台说明**：Windows 环境默认只能构建 Windows 目标包。macOS `.dmg` 需在 Mac 环境上构建，Linux 包需在 Linux/WSL/Docker 环境下构建。全平台自动化发布建议使用 GitHub Actions CI。
+### CI 发版（推荐，三端并行）
+
+```bash
+# 1. 修改 package.json 的 version
+# 2. 打 tag 并推送（版本须与 package.json 一致）
+git tag v0.4.85
+git push origin v0.4.85
+```
+
+推送后 [GitHub Actions](https://github.com/hisonWarren/Lumina-feed/actions) 会自动构建 Windows / macOS / Linux 安装包，并发布到 [Releases](https://github.com/hisonWarren/Lumina-feed/releases)。
+
+PR 合并到 `main` 时仅跑结构校验（`ci.yml`），不产出安装包。
+
+### 代码签名（可选）
+
+未签名也可正常发版；配置证书后可消除 SmartScreen / Gatekeeper 警告。获取方式与 GitHub Secrets 配置见 [`.github/RELEASE_SIGNING.md`](.github/RELEASE_SIGNING.md)。
 
 ---
 

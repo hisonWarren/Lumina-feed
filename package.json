@@ -3,6 +3,10 @@
   "version": "0.4.84",
   "description": "Lumina Feed · 干净基线（检索取文 + 接地总结）",
   "author": "hisonWarren",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hisonWarren/Lumina-feed.git"
+  },
   "main": "build/main.cjs",
   "type": "module",
   "scripts": {
