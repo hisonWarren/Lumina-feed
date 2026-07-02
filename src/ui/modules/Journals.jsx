@@ -48,7 +48,10 @@ const CSS = `
 .jr-hero.jr-hero-q::before{background:var(--hero-q-accent,#2C8A60)}
 .jr-hero.dim{background:var(--surf2)}
 .jr-hero.dim::before{opacity:.35}
-.jr-hero-lbl{font-size:10px;font-family:'Space Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);margin-bottom:6px}
+.jr-hero-lbl{font-size:11px;font-weight:700;font-family:'Space Mono',monospace;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2);margin-bottom:7px}
+.jr-hero-jif .jr-hero-lbl{color:var(--gold)}
+.jr-hero-cas .jr-hero-lbl{color:#A82E22}
+.jr-hero-q .jr-hero-lbl{color:#217A52}
 .jr-hero-val{font-family:'Source Serif 4',Georgia,serif;font-size:clamp(24px,3vw,31px);font-weight:700;color:var(--ink);line-height:1;letter-spacing:-.02em}
 .jr-hero-qbadge{font-family:'Source Serif 4',Georgia,serif;font-size:clamp(26px,3.4vw,32px);font-weight:700;line-height:1;letter-spacing:-.02em;color:var(--hero-q-accent,#2C8A60)}
 .jr-hero-sub{font-size:11.5px;color:var(--ink2);margin-top:5px;font-family:'Space Mono',monospace;line-height:1.35}
