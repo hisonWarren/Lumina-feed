@@ -9,6 +9,7 @@ import { initStore, type Store } from "../src/core/store/index.ts";
 import { setPoliteIdentity } from "../src/core/sources/adapter.ts";
 import { keytarStore } from "../src/core/secrets/keyvault.ts";
 import { registerIpc, startSubsScheduler } from "./ipc.ts";
+import { registerJournalIpc } from "./journal-ipc.ts";
 import { loadAppSettings, saveAppSettings } from "./settings.ts";
 import { installDefaultLimiters } from "../src/core/sources/rate-limit.ts";
 import { installContextMenuBridge, runContextAction } from "./context-menu.ts";
@@ -240,6 +241,7 @@ app.whenReady().then(async () => {
     setPoliteIdentity({ tool: "lumina-feed", email: process.env.LUMINA_CONTACT_EMAIL });
   }
   registerIpc({ store, secrets });
+  registerJournalIpc();
   ipcMain.handle("shell:openExternal", (_e, url: string) => {
     if (typeof url === "string" && /^https?:\/\//.test(url)) return shell.openExternal(url);
   });

@@ -6,6 +6,7 @@ const A = () => (typeof window !== "undefined" ? window.luminaApi : null);
 const O = () => (typeof window !== "undefined" ? window.luminaOa : null);
 const R = () => (typeof window !== "undefined" ? window.luminaReader : null);
 const N = () => (typeof window !== "undefined" ? window.luminaAnno : null);
+const J = () => (typeof window !== "undefined" ? window.luminaJournal : null);
 const _annoMem = {}; // 无后端时的会话内回退
 const _subsMem = []; // 无后端时的会话内订阅
 const _libMem = []; // 无后端时的会话内工作集
@@ -741,6 +742,32 @@ export const bridge = {
       try { return api.searchOnlineStream(raw, filters, reqId, cb) || (() => {}); } catch (e) { return null; }
     }
     return null;
+  },
+  // ── 期刊信息工具（live OpenAlex + 手动更新 SCImago/预警数据集）──
+  async journalSearch(query) {
+    const j = J();
+    if (!j || !j.search) return { ok: false, query, error: "no_backend", provenance: {}, warning: null };
+    try { return await j.search(query); } catch (e) { return { ok: false, query, error: String((e && e.message) || e), provenance: {}, warning: null }; }
+  },
+  async journalDatasets() {
+    const j = J(); if (!j || !j.datasets) return [];
+    try { return (await j.datasets()) || []; } catch { return []; }
+  },
+  async journalUpdateScimago() {
+    const j = J(); if (!j || !j.updateScimago) return { ok: false, error: "no_backend" };
+    try { return await j.updateScimago(); } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+  },
+  async journalImportScimago(text) {
+    const j = J(); if (!j || !j.importScimago) return { ok: false, error: "no_backend" };
+    try { return await j.importScimago(text); } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+  },
+  async journalUpdateWarningUrl(url) {
+    const j = J(); if (!j || !j.updateWarningUrl) return { ok: false, error: "no_backend" };
+    try { return await j.updateWarningUrl(url); } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+  },
+  async journalImportWarning(text) {
+    const j = J(); if (!j || !j.importWarning) return { ok: false, error: "no_backend" };
+    try { return await j.importWarning(text); } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
   },
   async exportCitation(items, fmt) {
     const api = A();

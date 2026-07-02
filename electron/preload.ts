@@ -172,6 +172,15 @@ contextBridge.exposeInMainWorld("luminaOa", {
   },
 });
 
+contextBridge.exposeInMainWorld("luminaJournal", {
+  search: (query: string) => invoke("journal:search", query),
+  datasets: () => invoke("journal:datasets"),
+  updateScimago: () => invoke("journal:updateScimago"),
+  importScimago: (text: string) => invoke("journal:importScimago", text),
+  updateWarningUrl: (url: string) => invoke("journal:updateWarningUrl", url),
+  importWarning: (text: string) => invoke("journal:importWarning", text),
+});
+
 contextBridge.exposeInMainWorld("luminaReader", {
   summarize: (payload: unknown) => invoke("reader:summarize", payload),
   ask: (payload: unknown) => invoke("reader:ask", payload),

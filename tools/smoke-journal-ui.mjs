@@ -1,0 +1,127 @@
+#!/usr/bin/env node
+// lumina-feed · 期刊工具真机 UI 烟测（CDP）
+import { spawn } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const PORT = 9232;
+const CDP = `http://127.0.0.1:${PORT}`;
+
+async function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+async function waitCdp(ms = 30000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    try {
+      const list = await (await fetch(`${CDP}/json/list`)).json();
+      const page = list.find((t) => t.type === "page" && /index\.html/.test(t.url || ""));
+      if (page) return page.webSocketDebuggerUrl;
+    } catch { /* retry */ }
+    await sleep(400);
+  }
+  throw new Error("CDP timeout");
+}
+
+function cdpConnect(wsUrl) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(wsUrl);
+    let nextId = 1;
+    const pending = new Map();
+    ws.addEventListener("open", () => resolve({ ws, send }));
+    ws.addEventListener("error", reject);
+    ws.addEventListener("message", (ev) => {
+      const msg = JSON.parse(String(ev.data));
+      if (msg.id && pending.has(msg.id)) {
+        const { resolve: res, reject: rej } = pending.get(msg.id);
+        pending.delete(msg.id);
+        if (msg.error) rej(new Error(msg.error.message || JSON.stringify(msg.error)));
+        else res(msg.result);
+      }
+    });
+    function send(method, params = {}) {
+      const id = nextId++;
+      return new Promise((res, rej) => { pending.set(id, { resolve: res, reject: rej }); ws.send(JSON.stringify({ id, method, params })); });
+    }
+  });
+}
+
+async function evalJs(cdp, expr) {
+  const { result, exceptionDetails } = await cdp.send("Runtime.evaluate", {
+    expression: `(async()=>{ ${expr} })()`, awaitPromise: true, returnByValue: true,
+  });
+  if (exceptionDetails?.text) throw new Error(exceptionDetails.text);
+  return result.value;
+}
+
+console.log("\n── smoke-journal-ui ──\n");
+const child = spawn(path.join(ROOT, "node_modules/electron/dist/electron.exe"), [".", `--remote-debugging-port=${PORT}`], {
+  cwd: ROOT, stdio: "ignore", windowsHide: true,
+});
+
+let failed = 0;
+const ok = (name, cond, extra) => { if (cond) console.log("  ✓", name); else { console.log("  ✗", name, extra ? JSON.stringify(extra) : ""); failed++; } };
+
+try {
+  const ws = await waitCdp();
+  const cdp = await cdpConnect(ws);
+  await cdp.send("Runtime.enable");
+
+  for (let i = 0; i < 60; i++) {
+    const ready = await evalJs(cdp, `return !!document.querySelector(".lf-nav");`);
+    if (ready) break;
+    await sleep(400);
+  }
+
+  // 切到期刊 tab
+  const tabbed = await evalJs(cdp, `
+    const btn = [...document.querySelectorAll(".lf-nav .lf-tab")].find((b) => (b.textContent||"").includes("期刊"));
+    if (!btn) return { ok:false, reason:"no_tab" };
+    btn.click();
+    await new Promise((r)=>setTimeout(r,400));
+    return { ok: !!document.querySelector(".jr"), hasBar: !!document.querySelector(".jr-bar input"), hasDs: !!document.querySelector(".jr-ds") };
+  `);
+  ok("期刊 tab 打开 + 面板渲染", tabbed && tabbed.ok && tabbed.hasBar && tabbed.hasDs, tabbed);
+
+  // ISSN 查询 Nature（live OpenAlex）
+  const r1 = await evalJs(cdp, `
+    const input = document.querySelector(".jr-bar input");
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+    setter.call(input, "0028-0836");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await new Promise((r)=>setTimeout(r,60));
+    const go = document.querySelector(".jr-go");
+    go.click();
+    for (let i=0;i<50;i++){ await new Promise((r)=>setTimeout(r,400)); if (document.querySelector(".jr-card") || document.querySelector(".jr-empty h3")) break; }
+    const name = document.querySelector(".jr-name")?.textContent || "";
+    const metricVals = [...document.querySelectorAll(".jr-metrics .jr-mv")].map((e)=>e.textContent);
+    const impact = metricVals[0] || "";
+    return { name, impact, metricVals, hasCard: !!document.querySelector(".jr-card") };
+  `);
+  ok("ISSN 查询命中期刊卡片", r1 && r1.hasCard, r1);
+  ok("刊名为 Nature", r1 && /nature/i.test(r1.name), r1);
+  ok("类影响因子有实时数值(非—)", r1 && r1.impact && r1.impact !== "—", r1);
+
+  // 名称查询 PLOS ONE
+  const r2 = await evalJs(cdp, `
+    const input = document.querySelector(".jr-bar input");
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+    setter.call(input, "PLOS ONE");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await new Promise((r)=>setTimeout(r,60));
+    document.querySelector(".jr-go").click();
+    for (let i=0;i<50;i++){ await new Promise((r)=>setTimeout(r,400)); if (document.querySelector(".jr-card")) break; }
+    return { name: document.querySelector(".jr-name")?.textContent || "", hasCard: !!document.querySelector(".jr-card") };
+  `);
+  ok("名称查询 PLOS ONE 命中", r2 && r2.hasCard && /plos/i.test(r2.name), r2);
+
+  cdp.ws.close();
+} catch (e) {
+  console.log("  ✗ 异常:", e.message);
+  failed++;
+} finally {
+  try { child.kill(); } catch { /* ignore */ }
+}
+console.log(failed ? `\n  FAIL ${failed}` : "\n  PASS");
+console.log("\n── done ──\n");
+process.exit(failed ? 1 : 0);

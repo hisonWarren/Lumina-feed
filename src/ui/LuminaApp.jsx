@@ -4,12 +4,13 @@ import { bridge, hasBackend, countSubsBadge } from "./lumina-bridge.js";
 import { looksLikeAutoImportTitle } from "./paper-title.js";
 import { DEFAULT_THEME, THEME_CSS, isLight, THEMES, themeById } from "./themes.js";
 import { LOGO_DATA_URI } from "./brand-logo.js";
-import { Telescope, BookOpen, BookMarked, Rss, Settings as SettingsIcon, Palette, Check } from "lucide-react";
+import { Telescope, BookOpen, BookMarked, Rss, Gauge, Settings as SettingsIcon, Palette, Check } from "lucide-react";
 import FindFetch from "./modules/FindFetch.jsx";
 import ReaderModule from "./modules/ReadHub.jsx";
 import Settings from "./modules/Settings.jsx";
 import Library from "./modules/Library.jsx";
 import Subscriptions from "./modules/Subscriptions.jsx";
+import Journals from "./modules/Journals.jsx";
 import { buildFetchedMeta, isFetched, fetchProgressUi, metaFromAsset, fetchFailHint } from "./fetch-meta.js";
 import EmailPrompt from "./components/EmailPrompt.jsx";
 import ConfirmDialog from "./components/ConfirmDialog.jsx";
@@ -706,6 +707,7 @@ export default function LuminaApp() {
             <button role="tab" aria-selected={view === "subs"} className={"lf-tab" + (view === "subs" ? " on" : "")} onClick={() => setMode("subs")}><Rss size={15} /> 订阅简报 {subsBusy && view !== "subs" && <span className="lf-tab-pulse" aria-label="简报进行中" />}{subsNew > 0 && <span className="lf-badge">{subsNew}</span>}</button>
             <button role="tab" aria-selected={view === "library"} className={"lf-tab" + (view === "library" ? " on" : "")} onClick={() => setMode("library")}><BookMarked size={15} /> 我的文献 {lib.length > 0 && <span className="lf-badge">{lib.length}</span>}</button>
             <button role="tab" aria-selected={view === "read"} className={"lf-tab" + (view === "read" ? " on" : "")} onClick={() => setMode("read")}><BookOpen size={15} /> 阅读</button>
+            <button role="tab" aria-selected={view === "journals"} className={"lf-tab" + (view === "journals" ? " on" : "")} onClick={() => setMode("journals")}><Gauge size={15} /> 期刊</button>
           </nav>
           <div className="lf-tools">
             <span className="lf-status" title="数据、PDF 与索引都在本机"><span className="lf-dot" /> 本机 · 已就绪</span>
@@ -775,6 +777,9 @@ export default function LuminaApp() {
           </div>
           <div className={"lf-pane" + (view === "library" ? "" : " is-hidden")} aria-hidden={view !== "library"}>
               <Library lib={lib} lists={lists} onCreateList={createList} onToggleInList={toggleInList} onDeleteList={deleteList} onRenameList={renameList} onAddManyToList={addManyToList} onRemove={onRemoveLib} onRead={onReadFromLib} onFetch={onFetch} onRenamePaper={onRenamePaper} focusRenamePaperId={focusRenamePaperId} onFocusRenameHandled={() => setFocusRenamePaperId(null)} fetchedMeta={fetchedMeta} fetchingMeta={fetchingMeta} fetchTick={fetchTick} pushToast={pushToast} />
+          </div>
+          <div className={"lf-pane" + (view === "journals" ? "" : " is-hidden")} aria-hidden={view !== "journals"}>
+              <Journals pushToast={pushToast} />
           </div>
         </main>
         {mode === "settings" && (
