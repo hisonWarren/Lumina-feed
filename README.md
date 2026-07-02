@@ -2,19 +2,24 @@
 
 > 面向科研人员的桌面级「文献检索 · 取文 · 接地阅读」一体化工具。基于 Electron + React 构建，AI 输出均可溯源到原文页码，数据来源清晰、不伪造。
 
-![Version](https://img.shields.io/badge/version-0.4.85-blue.svg)
+![Version](https://img.shields.io/badge/version-0.4.86-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
 ![License](https://img.shields.io/badge/license-Proprietary-red.svg)
 
 ## 下载
 
-| 平台 | 安装包 |
-|------|------|
-| **Windows** | [Setup `.exe`](https://github.com/hisonWarren/Lumina-feed/releases/latest) |
-| **macOS** | [`.dmg`](https://github.com/hisonWarren/Lumina-feed/releases/latest) |
-| **Linux** | [`.AppImage`](https://github.com/hisonWarren/Lumina-feed/releases/latest) |
+在 [Releases](https://github.com/hisonWarren/Lumina-feed/releases/latest) 页面按平台与 CPU 架构选择对应安装包（文件名含 `windows` / `macos` / `linux` 与 `x64` / `arm64`）：
 
-安装包由 GitHub Actions 在推送版本标签时自动构建并发布。
+| 平台 | 适用设备 | 文件名示例 |
+|------|----------|------------|
+| **Windows** | 64 位 Intel / AMD | `Lumina-Feed-*-windows-x64.exe` |
+| **Windows** | ARM 笔记本（如骁龙本） | `Lumina-Feed-*-windows-arm64.exe` |
+| **macOS** | Apple 芯片（M 系列） | `Lumina-Feed-*-macos-arm64.dmg` |
+| **macOS** | Intel Mac | `Lumina-Feed-*-macos-x64.dmg` |
+| **Linux** | x86_64 桌面 / 笔记本 | `Lumina-Feed-*-linux-x86_64.AppImage` |
+| **Linux** | ARM64（树莓派、ARM 本等） | `Lumina-Feed-*-linux-arm64.AppImage` |
+
+> 不提供 32 位（x86/ia32）Windows 包——Win10/11 主流环境均为 64 位。安装包由 GitHub Actions 在推送版本标签时自动构建并发布。
 
 ## 功能
 

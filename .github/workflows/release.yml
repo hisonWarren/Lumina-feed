@@ -53,7 +53,12 @@ jobs:
             artifact: lumina-feed-mac
           - os: ubuntu-latest
             platform: linux
-            artifact: lumina-feed-linux
+            arch: x64
+            artifact: lumina-feed-linux-x64
+          - os: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+            artifact: lumina-feed-linux-arm64
           - os: windows-latest
             platform: win
             artifact: lumina-feed-win
@@ -126,7 +131,7 @@ jobs:
       - name: Build installers (Linux)
         if: matrix.platform == 'linux'
         shell: bash
-        run: npm run build:electron && npx electron-builder --publish never
+        run: npm run build:electron && npx electron-builder --linux --${{ matrix.arch }} --publish never
 
       - name: Upload platform artifacts
         uses: actions/upload-artifact@v4
@@ -138,9 +143,7 @@ jobs:
             release/*.dmg
             release/*.dmg.blockmap
             release/*.AppImage
-            release/latest.yml
-            release/latest-mac.yml
-            release/latest-linux.yml
+            release/latest*.yml
           if-no-files-found: error
           retention-days: 14
 
