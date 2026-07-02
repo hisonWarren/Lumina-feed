@@ -63,7 +63,9 @@
     "start": "npm run build:electron && electron .",
     "quickstart": "node tools/quickstart.mjs",
     "dist": "npm run build:electron && electron-builder",
-    "dist:dir": "npm run build:electron && electron-builder --dir"
+    "dist:dir": "npm run build:electron && electron-builder --dir",
+    "release:gh": "node tools/gh-release.mjs",
+    "dist:release": "npm run dist && node tools/gh-release.mjs"
   },
   "engines": {
     "node": ">=22.18"
