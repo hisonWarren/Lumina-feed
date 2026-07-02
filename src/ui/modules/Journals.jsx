@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 
 const CSS = `
-.jr{flex:1;min-height:0;display:flex;flex-direction:column;overflow-y:auto;padding:16px 20px 28px;scrollbar-gutter:stable}
+.jr{flex:1;min-height:0;display:block;overflow-y:auto;padding:16px 20px 44px;scrollbar-gutter:stable;scroll-behavior:smooth}
 .jr-head{max-width:920px;margin:0 auto;width:100%}
 .jr-h1{font-family:'Source Serif 4',Georgia,serif;font-size:19px;font-weight:600;color:var(--ink);margin:2px 0 3px}
 .jr-sub{font-size:12.5px;color:var(--ink3);margin-bottom:14px;line-height:1.5}
@@ -16,6 +16,8 @@ const CSS = `
 .jr-bar input{flex:1;border:none;outline:none;font-size:14px;font-family:inherit;background:transparent;color:var(--ink)}
 .jr-go{display:inline-flex;align-items:center;gap:6px;border:none;background:var(--gold);color:#fff;border-radius:9px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
 .jr-go:disabled{opacity:.6;cursor:default}
+.jr-clr{border:none;background:transparent;color:var(--ink3);cursor:pointer;display:grid;place-items:center;padding:2px;border-radius:6px}
+.jr-clr:hover{color:var(--ink);background:var(--surf2)}
 .jr-ex{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px;align-items:center}
 .jr-exl{font-size:11px;color:var(--ink4);font-family:'Space Mono',monospace}
 .jr-chip{border:1px solid var(--line2);background:var(--surf2);color:var(--ink2);border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;font-family:inherit}
@@ -35,21 +37,25 @@ const CSS = `
 .jr-tag{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-family:'Space Mono',monospace;border-radius:8px;padding:4px 9px;border:1px solid var(--line2);color:var(--ink2);background:var(--surf2)}
 .jr-tag.oa{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 35%,transparent)}
 .jr-tag.doaj{color:var(--gold);border-color:var(--gold-line)}
-.jr-spotlight{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:16px 20px 6px}
+.jr-spotlight{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:14px 20px 4px}
 @media(max-width:720px){.jr-spotlight{grid-template-columns:1fr}}
-.jr-hero{position:relative;border-radius:16px;padding:18px 20px 16px;overflow:hidden;border:1px solid var(--line);background:var(--surf2);min-height:118px;display:flex;flex-direction:column;justify-content:flex-end;text-decoration:none}
-.jr-hero.clickable:hover{border-color:var(--gold);cursor:pointer}
-.jr-hero::before{content:'';position:absolute;inset:0 auto 0 0;width:4px;border-radius:16px 0 0 16px;background:var(--gold);opacity:.9}
-.jr-hero.jr-hero-jif::before{background:linear-gradient(180deg,#C9A227,#8B6914)}
-.jr-hero.jr-hero-cas::before{background:var(--hero-cas-accent,#C41E3A)}
+.jr-hero{position:relative;border-radius:12px;padding:12px 15px 11px;overflow:hidden;border:1px solid var(--line);background:var(--surf2);min-height:84px;display:flex;flex-direction:column;justify-content:flex-end;text-decoration:none}
+.jr-hero.clickable{cursor:pointer}
+.jr-hero.clickable:hover{border-color:var(--gold)}
+.jr-hero::before{content:'';position:absolute;inset:0 auto 0 0;width:3px;background:var(--gold);opacity:.85}
+.jr-hero.jr-hero-jif::before{background:var(--gold)}
+.jr-hero.jr-hero-cas::before{background:var(--hero-cas-accent,#C0392B)}
 .jr-hero.jr-hero-q::before{background:var(--hero-q-accent,#2C8A60)}
-.jr-hero.dim{opacity:.88;background:var(--surf2)}
-.jr-hero.dim .jr-hero-val,.jr-hero.dim .jr-hero-qbadge{color:var(--ink4)}
-.jr-hero-lbl{font-size:10.5px;font-family:'Space Mono',monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);margin-bottom:8px}
-.jr-hero-val{font-family:'Source Serif 4',Georgia,serif;font-size:clamp(34px,5.5vw,48px);font-weight:700;color:var(--ink);line-height:1;letter-spacing:-.02em}
-.jr-hero-qbadge{font-family:'Source Serif 4',Georgia,serif;font-size:clamp(36px,6vw,52px);font-weight:700;line-height:1;letter-spacing:-.03em;color:var(--hero-q-accent,#2C8A60)}
-.jr-hero-sub{font-size:12px;color:var(--ink2);margin-top:6px;font-family:'Space Mono',monospace;line-height:1.4}
-.jr-hero-src{font-size:10px;color:var(--ink4);font-family:'Space Mono',monospace;margin-top:auto;padding-top:8px;line-height:1.4}
+.jr-hero.dim{background:var(--surf2)}
+.jr-hero.dim::before{opacity:.35}
+.jr-hero-lbl{font-size:10px;font-family:'Space Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);margin-bottom:6px}
+.jr-hero-val{font-family:'Source Serif 4',Georgia,serif;font-size:clamp(24px,3vw,31px);font-weight:700;color:var(--ink);line-height:1;letter-spacing:-.02em}
+.jr-hero-qbadge{font-family:'Source Serif 4',Georgia,serif;font-size:clamp(26px,3.4vw,32px);font-weight:700;line-height:1;letter-spacing:-.02em;color:var(--hero-q-accent,#2C8A60)}
+.jr-hero-sub{font-size:11.5px;color:var(--ink2);margin-top:5px;font-family:'Space Mono',monospace;line-height:1.35}
+.jr-hero-src{font-size:10.5px;color:var(--ink3);font-family:'Space Mono',monospace;margin-top:auto;padding-top:7px;line-height:1.4}
+.jr-hero-empty{display:flex;align-items:center;gap:6px;color:var(--ink3);font-size:12.5px;font-family:'Source Serif 4',Georgia,serif;line-height:1}
+.jr-hero-empty .m{font-family:'Space Mono',monospace;font-size:20px;font-weight:700;color:var(--ink4)}
+.jr-hero.clickable:hover .jr-hero-empty{color:var(--gold)}
 .jr-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:1px;background:var(--line);border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin-top:12px}
 .jr-metrics-sub .jr-m{padding:12px 16px}
 .jr-metrics-sub .jr-mv{font-size:18px}
@@ -57,7 +63,7 @@ const CSS = `
 .jr-mv{font-family:'Space Mono',monospace;font-size:22px;font-weight:700;color:var(--ink);line-height:1}
 .jr-mv.dim{color:var(--ink4);font-size:15px;font-weight:500}
 .jr-ml{font-size:11.5px;color:var(--ink2);margin-top:7px;display:flex;align-items:center;gap:4px}
-.jr-msrc{font-size:9.5px;color:var(--ink4);font-family:'Space Mono',monospace;margin-top:3px}
+.jr-msrc{font-size:10.5px;color:var(--ink3);font-family:'Space Mono',monospace;margin-top:4px}
 .jr-cats{padding:14px 20px 4px}
 .jr-cats-t{font-size:11px;font-family:'Space Mono',monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);margin-bottom:8px}
 .jr-cat{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink2);border:1px solid var(--line);border-radius:7px;padding:3px 8px;margin:0 6px 6px 0}
@@ -70,26 +76,27 @@ const CSS = `
 .jr-cand-i{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--line);cursor:pointer}
 .jr-cand-i:hover .jr-cand-n{color:var(--gold)}
 .jr-cand-n{font-size:13px;color:var(--ink);font-family:'Source Serif 4',Georgia,serif}
-.jr-cand-m{font-size:11px;color:var(--ink4);font-family:'Space Mono',monospace}
+.jr-cand-m{font-size:11px;color:var(--ink3);font-family:'Space Mono',monospace}
 .jr-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:44px 24px;text-align:center;color:var(--ink2)}
 .jr-empty h3{margin:0;font-size:16px;font-family:'Source Serif 4',Georgia,serif;color:var(--ink)}
 .jr-empty p{margin:0;font-size:12.5px;color:var(--ink3);max-width:440px;line-height:1.6}
 .jr-ds{max-width:920px;margin:18px auto 0;width:100%;border:1px solid var(--line);border-radius:14px;background:var(--surf2);padding:14px 16px}
 .jr-ds-h{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--ink);margin-bottom:4px}
-.jr-ds-hint{font-size:11.5px;color:var(--ink3);line-height:1.5;margin-bottom:12px}
-.jr-ds-row{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px 12px;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surf);margin-bottom:8px}
-.jr-ds-actions{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-left:auto}
-@media(max-width:640px){.jr-ds-actions{margin-left:0;width:100%}}
-.jr-ds-prog{width:100%;font-size:11px;color:var(--ink3);font-family:'Space Mono',monospace;line-height:1.5;padding:2px 2px 0}
-.jr-spotlight-legend{font-size:11px;color:var(--ink4);text-align:center;margin-top:4px;padding:0 20px;font-family:'Space Mono',monospace}
+.jr-ds-hint{font-size:12px;color:var(--ink3);line-height:1.65;margin-bottom:14px;padding:10px 12px;background:var(--surf);border:1px solid var(--line);border-radius:9px}
+.jr-ds-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surf);margin-bottom:8px}
+.jr-ds-actions{display:flex;gap:6px;align-items:center;margin-left:auto;flex-shrink:0}
+.jr-ds-actions .jr-btn{justify-content:center;white-space:nowrap}
+@media(max-width:640px){.jr-ds-row{flex-wrap:wrap}.jr-ds-actions{margin-left:0;width:100%;flex-wrap:wrap}}
+.jr-ds-prog{font-size:11px;color:var(--ink3);font-family:'Space Mono',monospace;line-height:1.5;padding:0 2px 8px 24px;margin-top:-4px}
+.jr-spotlight-legend{font-size:11.5px;color:var(--ink3);text-align:center;margin-top:6px;padding:0 20px;font-family:'Space Mono',monospace}
 .jr-ds-wrap{max-width:920px;margin:18px auto 0;width:100%;border:1px solid var(--line);border-radius:14px;background:var(--surf2);padding:0;overflow:hidden}
 .jr-ds-toggle{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;font-weight:600;color:var(--ink);padding:14px 16px;cursor:pointer;user-select:none;background:var(--surf2)}
 .jr-ds-toggle:hover{color:var(--gold)}
-.jr-ds-body{display:none;padding:0 16px 14px;border-top:1px dashed var(--line2)}
+.jr-ds-body{display:none;padding:16px 16px 16px;border-top:1px dashed var(--line2)}
 .jr-ds-wrap.open .jr-ds-body{display:block}
 .jr-ds-info{flex:1;min-width:0}
 .jr-ds-name{font-size:13px;color:var(--ink);font-weight:500}
-.jr-ds-meta{font-size:11px;color:var(--ink4);font-family:'Space Mono',monospace;margin-top:3px}
+.jr-ds-meta{font-size:11.5px;color:var(--ink3);font-family:'Space Mono',monospace;margin-top:4px}
 .jr-ds-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
 .jr-ds-dot.on{background:var(--ok)}.jr-ds-dot.off{background:var(--ink4)}
 .jr-btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:8px;padding:6px 11px;font-size:12px;cursor:pointer;font-family:inherit}
@@ -98,7 +105,7 @@ const CSS = `
 .jr-spin{animation:jrspin .8s linear infinite}
 @keyframes jrspin{to{transform:rotate(360deg)}}
 .jr-jifprog{font-size:11px;color:var(--ink3);font-family:'Space Mono',monospace;margin-top:6px;line-height:1.5}
-.jr-note{font-size:11px;color:var(--ink4);line-height:1.6;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}
+.jr-note{font-size:11.5px;color:var(--ink3);line-height:1.65;margin-top:12px;padding-top:12px;border-top:1px dashed var(--line)}
 .jr-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.42);display:flex;align-items:center;justify-content:center;z-index:60;padding:24px}
 .jr-modal{width:min(640px,100%);max-height:86vh;display:flex;flex-direction:column;background:var(--surf);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
 .jr-modal-h{display:flex;align-items:center;gap:8px;padding:14px 18px;border-bottom:1px solid var(--line);font-size:14px;font-weight:600;color:var(--ink)}
@@ -140,44 +147,58 @@ function Metric({ value, label, hint, source, dim }) {
   );
 }
 
-function HeroJif({ jif }) {
-  const has = jif?.jif != null;
-  const val = has
-    ? jif.jif.toLocaleString(undefined, { maximumFractionDigits: 1 })
-    : "—";
-  const src = jif?.year
-    ? `wos-journal.info · ${jif.year}`
-    : (has ? "wos-journal.info" : "需更新 JIF 数据集");
+function HeroEmpty({ loading, srcLabel }) {
+  if (loading) {
+    return (
+      <>
+        <div className="jr-hero-empty"><Loader2 size={13} className="jr-spin" /> 查询中…</div>
+        <div className="jr-hero-src">{srcLabel}</div>
+      </>
+    );
+  }
   return (
-    <div className={"jr-hero jr-hero-jif" + (has ? "" : " dim") + (!has ? " clickable" : "")} title="Journal Impact Factor · 第三方汇总，非 Clarivate 官方授权"
-      onClick={() => { if (!has) document.getElementById('jr-ds-toggle')?.click(); }}
-    >
+    <>
+      <div className="jr-hero-empty"><span className="m">—</span> 未收录 / 去添加</div>
+      <div className="jr-hero-src">点击导入或在线拉取</div>
+    </>
+  );
+}
+
+function HeroJif({ jif, loading }) {
+  const has = jif?.jif != null;
+  const openDs = () => { if (!has && !loading) document.getElementById("jr-ds-toggle")?.click(); };
+  return (
+    <div className={"jr-hero jr-hero-jif" + (has ? "" : " dim") + (!has && !loading ? " clickable" : "")}
+      title="Journal Impact Factor · 第三方汇总，非 Clarivate 官方授权" onClick={openDs}>
       <div className="jr-hero-lbl">JIF</div>
-      <div className="jr-hero-val">{val}</div>
-      {has && jif.jif5yr != null ? (
-        <div className="jr-hero-sub">5 年 IF · {jif.jif5yr.toLocaleString(undefined, { maximumFractionDigits: 1 })}</div>
-      ) : null}
-      <div className="jr-hero-src">{has ? src : "去导入或在线拉取"}</div>
+      {has ? (
+        <>
+          <div className="jr-hero-val">{jif.jif.toLocaleString(undefined, { maximumFractionDigits: 1 })}</div>
+          {jif.jif5yr != null && <div className="jr-hero-sub">5 年 IF · {jif.jif5yr.toLocaleString(undefined, { maximumFractionDigits: 1 })}</div>}
+          <div className="jr-hero-src">{jif.year ? `wos-journal.info · ${jif.year}` : "wos-journal.info"}</div>
+        </>
+      ) : <HeroEmpty loading={loading} srcLabel="wos-journal.info" />}
     </div>
   );
 }
 
-function HeroCas({ cas }) {
+function HeroCas({ cas, loading }) {
   const zone = cas?.majorZone;
-  const zColor = zone ? (CAS_ZONE_COLOR[zone] || "#C41E3A") : null;
+  const zColor = zone ? (CAS_ZONE_COLOR[zone] || "#C0392B") : null;
   const has = !!zone;
-  const src = cas?.year ? `LetPub · ${cas.year}` : (has ? "LetPub 第三方" : "需导入或在线拉取");
+  const openDs = () => { if (!has && !loading) document.getElementById("jr-ds-toggle")?.click(); };
   return (
-    <div
-      className={"jr-hero jr-hero-cas" + (has ? "" : " dim") + (!has ? " clickable" : "")}
-      style={zColor ? { "--hero-cas-accent": zColor, background: `color-mix(in srgb, ${zColor} 10%, var(--surf2))`, borderColor: `color-mix(in srgb, ${zColor} 30%, var(--line))` } : undefined}
-      title="中科院期刊分区 · LetPub 第三方汇总，非 fenqubiao 官方授权"
-      onClick={() => { if (!has) document.getElementById('jr-ds-toggle')?.click(); }}
-    >
+    <div className={"jr-hero jr-hero-cas" + (has ? "" : " dim") + (!has && !loading ? " clickable" : "")}
+      style={zColor ? { "--hero-cas-accent": zColor } : undefined}
+      title="中科院期刊分区 · LetPub 第三方汇总，非 fenqubiao 官方授权" onClick={openDs}>
       <div className="jr-hero-lbl">中科院分区</div>
-      <div className="jr-hero-qbadge" style={zColor ? { color: zColor } : undefined}>{zone || "—"}</div>
-      {cas?.majorCategory ? <div className="jr-hero-sub">大类 · {cas.majorCategory}{cas.isTop ? " · Top" : ""}</div> : null}
-      <div className="jr-hero-src">{has ? src : "去导入或在线拉取"}</div>
+      {has ? (
+        <>
+          <div className="jr-hero-qbadge" style={{ color: zColor }}>{zone}</div>
+          {cas.majorCategory && <div className="jr-hero-sub">大类 · {cas.majorCategory}{cas.isTop ? " · Top" : ""}</div>}
+          <div className="jr-hero-src">{cas.year ? `LetPub · ${cas.year}` : "LetPub 第三方"}</div>
+        </>
+      ) : <HeroEmpty loading={loading} srcLabel="LetPub 第三方" />}
     </div>
   );
 }
@@ -185,20 +206,19 @@ function HeroCas({ cas }) {
 function HeroQuartile({ sj, bestQ }) {
   const qColor = bestQ ? Q_COLOR[bestQ] : null;
   const has = !!bestQ;
-  const src = sj?.year ? `SCImago ${sj.year}` : (has ? "SCImago" : "需更新分区数据");
+  const openDs = () => { if (!has) document.getElementById("jr-ds-toggle")?.click(); };
   return (
-    <div
-      className={"jr-hero jr-hero-q" + (has ? "" : " dim") + (!has ? " clickable" : "")}
-      style={qColor ? { "--hero-q-accent": qColor, background: `color-mix(in srgb, ${qColor} 9%, var(--surf2))`, borderColor: `color-mix(in srgb, ${qColor} 28%, var(--line))` } : undefined}
-      title="SCImago Journal Rank 最佳学科分区"
-      onClick={() => { if (!has) document.getElementById('jr-ds-toggle')?.click(); }}
-    >
+    <div className={"jr-hero jr-hero-q" + (has ? "" : " dim") + (!has ? " clickable" : "")}
+      style={qColor ? { "--hero-q-accent": qColor } : undefined}
+      title="SCImago Journal Rank 最佳学科分区" onClick={openDs}>
       <div className="jr-hero-lbl">SCImago</div>
-      <div className="jr-hero-qbadge">{bestQ || "—"}</div>
-      {sj?.sjr != null ? (
-        <div className="jr-hero-sub">SJR · {sj.sjr.toFixed(3)}{sj.rank != null ? ` · 排名 #${sj.rank.toLocaleString()}` : ""}</div>
-      ) : null}
-      <div className="jr-hero-src">{has ? src : "去导入或在线拉取"}</div>
+      {has ? (
+        <>
+          <div className="jr-hero-qbadge">{bestQ}</div>
+          {sj?.sjr != null && <div className="jr-hero-sub">SJR · {sj.sjr.toFixed(3)}{sj.rank != null ? ` · #${sj.rank.toLocaleString()}` : ""}</div>}
+          <div className="jr-hero-src">{sj?.year ? `SCImago ${sj.year}` : "SCImago"}</div>
+        </>
+      ) : <HeroEmpty loading={false} srcLabel="SCImago" />}
     </div>
   );
 }
@@ -210,6 +230,7 @@ export default function Journals({ pushToast }) {
   const [datasets, setDatasets] = useState([]);
   const [busy, setBusy] = useState({});
   const fileRef = useRef(null);
+  const dsWrapRef = useRef(null);
   const sjFileRef = useRef(null);
   const jifFileRef = useRef(null);
   const casFileRef = useRef(null);
@@ -220,6 +241,7 @@ export default function Journals({ pushToast }) {
   const [jifProgress, setJifProgress] = useState("");
   const [casProgress, setCasProgress] = useState("");
   const [dsOpen, setDsOpen] = useState(false);
+  const [liveBusy, setLiveBusy] = useState({});
 
   const setBusyState = useCallback((id, isBusy) => setBusy((prev) => ({ ...prev, [id]: isBusy })), []);
 
@@ -241,13 +263,35 @@ export default function Journals({ pushToast }) {
     if (!term) return;
     setLoading(true);
     setProfile(null);
+    setLiveBusy({});
+    let r = null;
     try {
-      const r = await bridge.journalSearch(term);
+      r = await bridge.journalSearch(term);
       setProfile(r || { ok: false, query: term, error: "no_result" });
     } catch {
       setProfile({ ok: false, query: term, error: "failed" });
     } finally {
       setLoading(false);
+    }
+    // 渐进式补齐：JIF / 中科院分区 本地未命中 → 逐刊按需联网（不拖慢主卡片）
+    if (r && r.ok) {
+      const issns = (r.issns && r.issns.length) ? r.issns : (r.issnL ? [r.issnL] : []);
+      const needJif = r.jif == null;
+      const needCas = r.cas == null;
+      if (issns.length && (needJif || needCas)) {
+        setLiveBusy({ jif: needJif, cas: needCas });
+        try {
+          const live = await bridge.journalLiveMetrics(issns);
+          setProfile((prev) => {
+            if (!prev || !prev.ok || prev.query !== r.query) return prev;
+            const next = { ...prev };
+            if (needJif && live?.jif) next.jif = live.jif;
+            if (needCas && live?.cas) next.cas = live.cas;
+            return next;
+          });
+        } catch { /* 忽略：保持未命中态 */ }
+        finally { setLiveBusy({}); }
+      }
     }
   }, [q]);
 
@@ -371,7 +415,7 @@ export default function Journals({ pushToast }) {
       <div className="jr-head">
         <div className="jr-h1">期刊信息</div>
         <div className="jr-sub">
-          输入刊名或 ISSN，查看分区、预警状态、JIF、开放获取正规性与类影响因子。JIF 来自 wos-journal.info 数据集（可导入表格或在线拉取）；类影响因子为 OpenAlex 实时指标。
+          输入刊名或 ISSN，查看分区、预警状态、JIF、开放获取正规性与类影响因子。JIF 与中科院分区在本地未收录时会<b>逐刊自动在线获取并缓存</b>（wos-journal.info / LetPub 第三方汇总）；也可在下方数据集中批量导入或全库拉取。
         </div>
         <div className="jr-bar">
           <Search size={17} color="var(--ink3)" />
@@ -381,7 +425,7 @@ export default function Journals({ pushToast }) {
             onKeyDown={(e) => { if (e.key === "Enter") run(); }}
             placeholder="期刊名称 或 ISSN（如 Nature / 0028-0836）"
           />
-          {q && <button className="jr-chip" onClick={() => { setQ(""); setProfile(null); }} title="清空"><X size={13} /></button>}
+          {q && <button className="jr-clr" onClick={() => { setQ(""); setProfile(null); }} title="清空"><X size={16} /></button>}
           <button className="jr-go" onClick={() => run()} disabled={loading || !q.trim()}>
             {loading ? <Loader2 size={14} className="jr-spin" /> : <Search size={14} />} 查询
           </button>
@@ -437,8 +481,8 @@ export default function Journals({ pushToast }) {
               </div>
 
               <div className="jr-spotlight">
-                <HeroJif jif={jf} />
-                <HeroCas cas={cas} />
+                <HeroJif jif={jf} loading={!!liveBusy.jif} />
+                <HeroCas cas={cas} loading={!!liveBusy.cas} />
                 <HeroQuartile sj={sj} bestQ={bestQ} />
               </div>
               <div className="jr-spotlight-legend">
@@ -526,13 +570,17 @@ export default function Journals({ pushToast }) {
           <div className="jr-empty">
             <Database size={26} color="var(--ink4)" />
             <h3>查询任意期刊</h3>
-            <p>分区（SCImago）、JIF（wos-journal.info）与预警名单为本地数据集，需手动更新；类影响因子、H 指数、OA/DOAJ 状态每次实时查询。</p>
+            <p>类影响因子、H 指数、OA/DOAJ 每次实时查询；JIF 与中科院分区逐刊按需在线获取并缓存；SCImago 分区与预警名单为本地数据集（可在下方导入/更新）。</p>
           </div>
         </div>
       )}
 
-      <div className={"jr-ds-wrap" + (dsOpen ? " open" : "")}>
-        <div className="jr-ds-toggle" id="jr-ds-toggle" onClick={() => setDsOpen(!dsOpen)}>
+      <div ref={dsWrapRef} className={"jr-ds-wrap" + (dsOpen ? " open" : "")}>
+        <div className="jr-ds-toggle" id="jr-ds-toggle" onClick={() => {
+          const next = !dsOpen;
+          setDsOpen(next);
+          if (next) setTimeout(() => dsWrapRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+        }}>
           <div style={{display:'flex', alignItems:'center', gap:'8px'}}><Database size={15} /> 数据集 · 手动更新</div>
           <span style={{transform: dsOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', display: 'flex', alignItems: 'center'}}><ChevronDown size={14} /></span>
         </div>
@@ -541,7 +589,8 @@ export default function Journals({ pushToast }) {
             在线拉取由你手动触发；同一数据集「导入」与「在线拉取」互不冲突——<b>后一次操作会整体覆盖该数据集</b>（不会与别的数据集混写）。类影响因子 / H 指数 / OA 为实时查询，无需更新。
           </div>
           {datasets.map((d) => (
-            <div key={d.id} className="jr-ds-row">
+            <React.Fragment key={d.id}>
+            <div className="jr-ds-row">
               <span className={"jr-ds-dot " + (d.present ? "on" : "off")} />
               <div className="jr-ds-info">
                 <div className="jr-ds-name">{d.label}</div>
@@ -577,7 +626,6 @@ export default function Journals({ pushToast }) {
                   <button className="jr-btn" onClick={updateJif} disabled={busy["jif"]} title="wos-journal.info 全库（数分钟）">
                     {busy["jif"] ? <Loader2 size={12} className="jr-spin" /> : <RefreshCw size={12} />} 在线
                   </button>
-                  {jifProgress && <div className="jr-ds-prog">{jifProgress}</div>}
                 </>
               )}
               {d.id === "cas" && (
@@ -590,7 +638,6 @@ export default function Journals({ pushToast }) {
                   <button className="jr-btn" onClick={updateCas} disabled={busy["cas"]} title="LetPub 全库（较慢，建议优先导入）">
                     {busy["cas"] ? <Loader2 size={12} className="jr-spin" /> : <RefreshCw size={12} />} 在线
                   </button>
-                  {casProgress && <div className="jr-ds-prog">{casProgress}</div>}
                 </>
               )}
               {d.id === "warning" && (
@@ -607,6 +654,9 @@ export default function Journals({ pushToast }) {
               )}
               </div>
             </div>
+            {d.id === "jif" && jifProgress && <div className="jr-ds-prog">{jifProgress}</div>}
+            {d.id === "cas" && casProgress && <div className="jr-ds-prog">{casProgress}</div>}
+            </React.Fragment>
           ))}
           <div className="jr-note" style={{marginTop:'12px', borderTop:'1px solid var(--line2)', paddingTop:'12px'}}>
             中科院分区无个人官方 API：推荐从学校/课题组 Excel「导入」；「在线」走 <a href="https://www.letpub.com.cn/index.php?page=journalapp" target="_blank" rel="noreferrer">LetPub</a> 第三方汇总（非 fenqubiao 授权，约 4.4 万刊、耗时较长）。JIF 来源 <a href="https://wos-journal.info/" target="_blank" rel="noreferrer">wos-journal.info</a>。SCImago 可官网下 CSV 后导入。预警名单内置 2025 版。

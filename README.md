@@ -2,7 +2,7 @@
 
 > 面向科研人员的桌面级「文献检索 · 取文 · 接地阅读」一体化工具。基于 Electron + React 构建，所有 AI 输出可溯源到原文页码，数据来源清晰可查、不伪造。
 
-![Version](https://img.shields.io/badge/version-0.4.84-blue.svg)
+![Version](https://img.shields.io/badge/version-0.4.85-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
 ![Electron](https://img.shields.io/badge/Electron-31-47848F.svg)
 ![License](https://img.shields.io/badge/license-Proprietary-red.svg)

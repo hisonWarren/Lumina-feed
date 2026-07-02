@@ -23,8 +23,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Electron bundles
+      - name: Build Electron bundles (compile main / preload / renderer)
         run: npm run build:electron
 
-      - name: Run structure verification
-        run: npm run verify
+      - name: Journal logic smoke test (offline, deterministic)
+        run: npx tsx tools/smoke-journal-lookup.mjs
