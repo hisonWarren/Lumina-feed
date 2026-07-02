@@ -2569,6 +2569,13 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
     setScale(1);
     setZoomMenuOpen(false);
   };
+  const onViewWheel = useCallback((e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    if (view === "two") spreadManualZoomRef.current = true;
+    const factor = e.deltaY < 0 ? 1.08 : 0.92;
+    setScale((s) => Math.max(0.3, Math.min(4, +(s * factor).toFixed(3))));
+  }, [view]);
   const rotateCw = () => setRotation((r) => (r + 90) % 360);
   const rotateCcw = () => setRotation((r) => (r + 270) % 360);
   const download = () => {
@@ -3075,7 +3082,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
           </div>
         )}
 
-        <div className={"rd-view" + (snipMode ? " snip" : "") + (hand ? " hand" : "")} ref={viewRef} onMouseDown={onViewMouseDown} onMouseMove={onViewMouseMove} onMouseUp={onViewMouseUp} onScroll={onViewScroll}>
+        <div className={"rd-view" + (snipMode ? " snip" : "") + (hand ? " hand" : "")} ref={viewRef} onMouseDown={onViewMouseDown} onMouseMove={onViewMouseMove} onMouseUp={onViewMouseUp} onScroll={onViewScroll} onWheel={onViewWheel}>
           {loading ? (
             <div className="rd-loading"><Loader size={26} className="rd-spin" /><div>正在打开 PDF…</div></div>
           ) : err ? (
