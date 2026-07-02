@@ -91,22 +91,38 @@ jobs:
 
       - name: Build installers (Windows)
         if: matrix.platform == 'win'
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-        run: npm run dist
+          CSC_LINK_SECRET: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD_SECRET: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          # Only enable code signing when a certificate secret is actually provided;
+          # otherwise electron-builder treats an empty CSC_LINK as an invalid file path.
+          if [ -n "$CSC_LINK_SECRET" ]; then
+            export CSC_LINK="$CSC_LINK_SECRET"
+            export CSC_KEY_PASSWORD="$CSC_KEY_PASSWORD_SECRET"
+          fi
+          npm run dist
 
       - name: Build installers (macOS)
         if: matrix.platform == 'mac'
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          CSC_LINK_SECRET: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD_SECRET: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: npm run dist
+        run: |
+          if [ -n "$CSC_LINK_SECRET" ]; then
+            export CSC_LINK="$CSC_LINK_SECRET"
+            export CSC_KEY_PASSWORD="$CSC_KEY_PASSWORD_SECRET"
+          else
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+          fi
+          npm run dist
 
       - name: Build installers (Linux)
         if: matrix.platform == 'linux'
