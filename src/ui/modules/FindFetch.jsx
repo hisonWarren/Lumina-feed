@@ -410,6 +410,29 @@ export default function FindFetch({
             if (!ev || ev.reqId !== curReq.current) return;
             if (Array.isArray(ev.papers)) {
               const cards = ev.papers.map((p) => toCardModel(p, searchTerm));
+              const first = cards[0];
+              // #region agent log
+              fetch("http://127.0.0.1:7739/ingest/f72715b3-174b-4276-af51-ebbb6cf6f9e2", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "07b43d" },
+                body: JSON.stringify({
+                  sessionId: "07b43d",
+                  runId: "pre-fix",
+                  hypothesisId: "H3",
+                  location: "FindFetch.jsx:streamBatch",
+                  message: "stream batch arrived",
+                  data: {
+                    reqId,
+                    batchSize: cards.length,
+                    queryWordCount: String(searchTerm || "").split(/\s+/).filter(Boolean).length,
+                    firstMatchedCount: Array.isArray(first?.matched) ? first.matched.length : 0,
+                    firstMatchKind: first?.matchKind || null,
+                    firstTitleLen: String(first?.title || "").length,
+                  },
+                  timestamp: Date.now(),
+                }),
+              }).catch(() => {});
+              // #endregion
               latestRanked.current = cards;
               setResults((prev) => {
                 const { items } = mergeStreamResults(prev, cards, ev.primaryPaperId);

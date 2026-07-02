@@ -557,6 +557,24 @@ function detectContinuousPage(container, numPages, ratio = 0.32) {
   return found;
 }
 
+function debugLog(location, message, data, hypothesisId) {
+  // #region agent log
+  fetch("http://127.0.0.1:7739/ingest/f72715b3-174b-4276-af51-ebbb6cf6f9e2", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "07b43d" },
+    body: JSON.stringify({
+      sessionId: "07b43d",
+      runId: "reader-sync-pre-fix",
+      hypothesisId,
+      location,
+      message,
+      data,
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
+}
+
 // 缩略图：仅 canvas（无需文本层）；IO root=侧栏滚动区，随侧栏滚动能懒加载
 function ThumbCanvas({ doc, pageNum, rotation }) {
   const ref = useRef(null);
@@ -2337,7 +2355,15 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
     if (!rememberPos) return;
     bridge.getSettings && bridge.getSettings().then((s) => {
       const p = s && s.reader && s.reader.positions && s.reader.positions[docKey];
-      if (p && p >= 1 && p <= (doc.numPages || 1)) setPage(p);
+      if (p && p >= 1 && p <= (doc.numPages || 1)) {
+        debugLog("Reader.jsx:restorePos", "apply persisted page", {
+          docKey,
+          restoredPage: p,
+          currentPageRef: pageRef.current,
+          numPages: doc.numPages || 1,
+        }, "H2");
+        setPage(p);
+      }
     }).catch(() => {});
   }, [doc, docKey, rememberPos, source]);
 
@@ -2479,6 +2505,14 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
     const root = viewRef.current;
     if (!root || !numPages) return;
     const best = detectContinuousPage(root, numPages);
+    debugLog("Reader.jsx:runScrollSpy", "scroll spy evaluated", {
+      force,
+      scrollTop: root.scrollTop,
+      clientHeight: root.clientHeight,
+      numPages,
+      best,
+      currentPageRef: pageRef.current,
+    }, "H1");
     if (best === pageRef.current) return;
     const now = Date.now();
     if (!force && now - scrollSpyLastSetRef.current < 140) return;
@@ -3005,7 +3039,15 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
                   {sidePanel === "thumbs" && (
                     <div className="rd-thumbs">
                       {Array.from({ length: numPages }, (_, i) => i + 1).map((n) => (
-                        <div key={n} id={"rd-thumb-" + n} className={"rd-thumb" + (n === page ? " active" : "")} onClick={() => goto(n)}>
+                        <div key={n} id={"rd-thumb-" + n} className={"rd-thumb" + (n === page ? " active" : "")} onClick={() => {
+                          debugLog("Reader.jsx:thumbClick", "thumbnail goto", {
+                            targetPage: n,
+                            currentPageState: page,
+                            currentPageRef: pageRef.current,
+                            view,
+                          }, "H3");
+                          goto(n);
+                        }}>
                           <ThumbCanvas doc={doc} pageNum={n} rotation={rotation} />
                           <span>{n}</span>
                         </div>
