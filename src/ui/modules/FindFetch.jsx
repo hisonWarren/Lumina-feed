@@ -646,7 +646,13 @@ export default function FindFetch({
               </div>
             )}
           </div>
-          <input ref={ref} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") run(); else if (e.key === "Escape") clear(); }}
+          <input ref={ref} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              const val = e.currentTarget.value.trim();
+              setQ(val);
+              void run(val);
+            } else if (e.key === "Escape") clear();
+          }}
             placeholder={idTag ? `已识别 ${idTag} — 回车或稍候自动检索` : "粘贴 DOI，或输入标题 / 作者 / 关键词"} />
           {idTag && <span className="ff-idtag">{idTag}</span>}
           {q && <button className="ff-clr" onClick={clear} title="清除"><X size={14} /></button>}

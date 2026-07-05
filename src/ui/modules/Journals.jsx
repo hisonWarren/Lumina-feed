@@ -425,7 +425,13 @@ export default function Journals({ pushToast }) {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") run(); }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const val = e.currentTarget.value.trim();
+                setQ(val);
+                void run(val);
+              }
+            }}
             placeholder="期刊名称 或 ISSN（如 Nature / 0028-0836）"
           />
           {q && <button className="jr-clr" onClick={() => { setQ(""); setProfile(null); }} title="清空"><X size={16} /></button>}

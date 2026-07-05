@@ -546,7 +546,7 @@ function detectContinuousPage(container, numPages, ratio = 0.32) {
   const cTop = container.getBoundingClientRect().top;
   let found = 1;
   for (let n = 1; n <= numPages; n++) {
-    const el = document.getElementById("rd-pg-" + n);
+    const el = container.querySelector(`[data-rd-page="${n}"]`);
     if (!el) continue;
     const h = el.offsetHeight;
     if (h < 8) continue;
@@ -709,7 +709,7 @@ function ContinuousPageSlot({ doc, pageNum, scale, rotation, find, curOnThisPage
     return () => io.disconnect();
   }, [scrollRootRef, doc, pageNum]);
   return (
-    <div ref={wrapRef} id={"rd-pg-" + pageNum} className="rd-pg-wrap">
+    <div ref={wrapRef} data-rd-page={pageNum} className="rd-pg-wrap">
       {active ? (
         <PageView doc={doc} pageNum={pageNum} scale={scale} rotation={rotation} find={find} curOnThisPage={curOnThisPage} annos={annos} scrollRootRef={scrollRootRef} />
       ) : (
@@ -2347,24 +2347,22 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
   useEffect(() => {
     if (!doc || posLoadedRef.current) return;
     posLoadedRef.current = true;
+    let cancelled = false;
     const fromContinue = source && source.startPage && source.startPage >= 1 ? source.startPage : null;
     if (fromContinue && fromContinue <= (doc.numPages || 1)) {
       setPage(fromContinue);
-      return;
+      return () => { cancelled = true; };
     }
-    if (!rememberPos) return;
+    if (!rememberPos) return () => { cancelled = true; };
     bridge.getSettings && bridge.getSettings().then((s) => {
+      if (cancelled) return;
       const p = s && s.reader && s.reader.positions && s.reader.positions[docKey];
       if (p && p >= 1 && p <= (doc.numPages || 1)) {
-        debugLog("Reader.jsx:restorePos", "apply persisted page", {
-          docKey,
-          restoredPage: p,
-          currentPageRef: pageRef.current,
-          numPages: doc.numPages || 1,
-        }, "H2");
-        setPage(p);
+        // 异步返回时若用户已翻页，不覆盖当前页
+        setPage((cur) => (cur === 1 ? p : cur));
       }
     }).catch(() => {});
+    return () => { cancelled = true; };
   }, [doc, docKey, rememberPos, source]);
 
   // 续读：翻页后防抖写回该 doc 位置（与现有设置合并，last-write-wins；关闭「记住位置」则不写）
@@ -2485,7 +2483,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
     if (view !== "continuous") return;
     if (suppressPageScroll.current) { suppressPageScroll.current = false; return; } // 本次 page 变化由滚动联动触发 → 不再回滚
     const container = viewRef.current;
-    const el = document.getElementById("rd-pg-" + page);
+    const el = container?.querySelector(`[data-rd-page="${page}"]`);
     if (container && el) scrollItemInContainer(container, el);
   }, [page, view]);
 
@@ -2494,7 +2492,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
     if (!sidebar || (sidePanel !== "thumbs" && sidePanel !== "marks")) return;
     const container = sideBodyRef.current;
     if (!container) return;
-    const sel = sidePanel === "thumbs" ? `#rd-thumb-${p}` : ".rd-mark.active";
+    const sel = sidePanel === "thumbs" ? `[data-rd-thumb="${p}"]` : ".rd-mark.active";
     const el = container.querySelector(sel);
     if (el) scrollItemInContainer(container, el);
   }, [sidebar, sidePanel]);
@@ -2646,8 +2644,8 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
     if (!canvas) { pushToast && pushToast("未定位到页面画布"); return; }
     const cr = canvas.getBoundingClientRect();
     const bbox = { x: (Math.max(x1, cr.left) - cr.left) / cr.width, y: (Math.max(y1, cr.top) - cr.top) / cr.height, w: (Math.min(x2, cr.right) - Math.max(x1, cr.left)) / cr.width, h: (Math.min(y2, cr.bottom) - Math.max(y1, cr.top)) / cr.height };
-    const wrap = canvas.closest && canvas.closest("[id^='rd-pg-']");
-    const pno = wrap ? parseInt(wrap.id.slice(6), 10) : page;
+    const wrap = canvas.closest && canvas.closest("[data-rd-page]");
+    const pno = wrap ? parseInt(wrap.getAttribute("data-rd-page"), 10) : page;
     setFiguring(true); setFigureEnv(null); setAiOpen(true); setZone("inf"); setTransMode(null);
     try {
       const dataUrl = await renderRegion(doc, pno, bbox, { scale: 2.5 });
@@ -3046,7 +3044,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
                   {sidePanel === "thumbs" && (
                     <div className="rd-thumbs">
                       {Array.from({ length: numPages }, (_, i) => i + 1).map((n) => (
-                        <div key={n} id={"rd-thumb-" + n} className={"rd-thumb" + (n === page ? " active" : "")} onClick={() => {
+                        <div key={n} data-rd-thumb={n} className={"rd-thumb" + (n === page ? " active" : "")} onClick={() => {
                           debugLog("Reader.jsx:thumbClick", "thumbnail goto", {
                             targetPage: n,
                             currentPageState: page,
