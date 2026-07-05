@@ -42,6 +42,32 @@ export function captureTextSelection(rootEl, pageFallback, scale) {
   }
 }
 
+/** @returns {string} 容器内 DOM 选区纯文本（译文侧栏等非 PDF 文本层） */
+export function captureDomTextSelection(rootEl) {
+  if (typeof window === "undefined") return "";
+  const sObj = window.getSelection ? window.getSelection() : null;
+  if (!sObj || sObj.isCollapsed) return "";
+  const text = sObj.toString().trim();
+  if (!text) return "";
+  if (rootEl) {
+    const node = sObj.anchorNode;
+    const el = node && node.nodeType === 3 ? node.parentElement : node;
+    if (el && !rootEl.contains(el)) return "";
+  }
+  return text;
+}
+
+/** @returns {null | { zh: string, en: string }} */
+export function getTranslationUnitPair(unitEl) {
+  if (!unitEl || !unitEl.querySelector) return null;
+  const zhEl = unitEl.querySelector(".rd-tp-zh") || unitEl.querySelector(".rd-tp-prose");
+  const enEl = unitEl.querySelector(".rd-tp-en");
+  const zh = (zhEl && zhEl.innerText ? zhEl.innerText : "").trim();
+  const en = (enEl && enEl.innerText ? enEl.innerText : "").trim();
+  if (!zh && !en) return null;
+  return { zh, en };
+}
+
 export function truncateLabel(text, max = 22) {
   const t = String(text || "").trim();
   if (t.length <= max) return t;

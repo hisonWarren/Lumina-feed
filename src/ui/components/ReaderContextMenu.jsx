@@ -1,7 +1,7 @@
 // Lumina · PDF 阅读器右键菜单（中文 + 图标；空白区精简 · 选区保留批注/AI 核心项）
 import React, { useLayoutEffect, useRef, useState } from "react";
 import {
-  Copy, Link2, StickyNote, Sparkles, Languages, Search,
+  Copy, Link2, StickyNote, Sparkles, Languages, Search, TextSelect,
   ChevronLeft, ChevronRight as ChevronRightNav, Bookmark, BookmarkMinus, Printer,
   Undo2,
 } from "lucide-react";
@@ -72,6 +72,29 @@ function buildBlankMore() {
   return [];
 }
 
+function buildTranslationPrimary(menu, mod) {
+  const items = [
+    { id: "tpCopy", label: "复制", icon: Copy, kbd: `${mod}+C` },
+    { id: "tpCopyCite", label: "复制带页码引用", icon: Link2 },
+  ];
+  if (menu.canCopyBilingual) {
+    items.push({ id: "tpCopyBilingual", label: "复制中英对照", icon: Languages });
+  }
+  items.push(
+    { type: "sep" },
+    { id: "tpSelectAll", label: "全选", icon: TextSelect, kbd: `${mod}+A` },
+  );
+  return items;
+}
+
+function buildTranslationBlank(menu, mod) {
+  return [
+    { id: "tpCopyPage", label: "复制本页译文", icon: Copy },
+    { type: "sep" },
+    { id: "tpSelectAll", label: "全选本页", icon: TextSelect, kbd: `${mod}+A` },
+  ];
+}
+
 function buildSelectionPrimary(menu, mod) {
   const short = truncateLabel(menu.selection?.text || "", 20);
   const items = [
@@ -99,6 +122,12 @@ function buildSelectionPrimary(menu, mod) {
 
 function buildMenus(menu, platform) {
   const mod = modKey(platform);
+  if (menu.kind === "translation" && menu.selection) {
+    return { primary: buildTranslationPrimary(menu, mod), more: [] };
+  }
+  if (menu.kind === "translationBlank") {
+    return { primary: buildTranslationBlank(menu, mod), more: [] };
+  }
   if (menu.kind === "selection" && menu.selection) {
     return { primary: buildSelectionPrimary(menu, mod), more: [] };
   }

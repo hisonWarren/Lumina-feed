@@ -8,7 +8,7 @@ import { openPdf, getOutline, getPageStrings, extractPageTextForTranslate, rende
 import { bridge } from "../lumina-bridge.js";
 import { persistSettings } from "../settings-persist.js";
 import { exportAnnotatedPdf, exportNotesMarkdown } from "../pdf-export.js";
-import { captureTextSelection } from "../reader-selection.js";
+import { captureTextSelection, captureDomTextSelection, getTranslationUnitPair } from "../reader-selection.js";
 import { setReaderContextHost, shouldReaderHandleContextTarget } from "../reader-context-host.js";
 import ReaderContextMenu from "../components/ReaderContextMenu.jsx";
 import { readerDocKey, readerDocKeyCandidates } from "../reader-doc-key.js";
@@ -1939,7 +1939,7 @@ function RightPanelShell({ width, onResizeStart, children }) {
   );
 }
 
-function TranslatePanel({ doc, page, numPages, mode, setMode, view, onClose, pushToast, docKey, model }) {
+function TranslatePanel({ doc, page, numPages, mode, setMode, view, onClose, pushToast, docKey, model, contentRef }) {
   const cacheRef = useRef({}); // page -> {orig, trans, loading, cached, model, err}
   const [, setTick] = useState(0);
   const [bulk, setBulk] = useState(null);
@@ -1992,6 +1992,9 @@ function TranslatePanel({ doc, page, numPages, mode, setMode, view, onClose, pus
   }, [numPages, translatePage, pushToast, llmReady]);
 
   const cur = cacheRef.current[page] || { orig: "", trans: "", loading: true };
+  if (contentRef) {
+    contentRef.current = { page, mode, trans: cur.trans || "", orig: cur.orig || "", loading: !!cur.loading };
+  }
   const llmBlocked = !llmReady.checking && !llmReady.ok;
 
   const renderContent = () => {
@@ -2254,6 +2257,8 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
   const [selTrans, setSelTrans] = useState(null); // 选区译文（按 docKey+选区哈希持久化缓存）
   const [ctxMenu, setCtxMenu] = useState(null); // PDF 右键 { x,y, kind, selection? }
   const ctxSelectionRef = useRef(null);
+  const ctxTpUnitRef = useRef(null);
+  const tpSnapshotRef = useRef({ page: 0, trans: "", orig: "", mode: "", loading: true });
   const [llmModel, setLlmModel] = useState("");
   const [explainReq, setExplainReq] = useState(null);
   const [find, setFind] = useState(null); // { q, matches:[{page,kOnPage}], cur }
@@ -2292,7 +2297,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
 
   useEffect(() => {
     if (!ctxMenu) return;
-    const close = () => { setCtxMenu(null); ctxSelectionRef.current = null; };
+    const close = () => { setCtxMenu(null); ctxSelectionRef.current = null; ctxTpUnitRef.current = null; };
     const onKey = (e) => { if (e.key === "Escape") close(); };
     const onDown = (e) => {
       if (e.button !== 0) return;
@@ -2599,7 +2604,29 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
     if (!shouldReaderHandleContextTarget(e.target)) return;
     e.preventDefault();
     e.stopPropagation();
+
+    const tpEl = e.target.closest && e.target.closest(".rd-tp");
+    if (tpEl) {
+      const bodyEl = tpEl.querySelector(".rd-tp-body");
+      const selText = captureDomTextSelection(bodyEl);
+      const unitEl = e.target.closest && e.target.closest(".rd-tp-unit");
+      ctxTpUnitRef.current = unitEl;
+      ctxSelectionRef.current = selText ? { text: selText, page } : null;
+      setCtxMenu({
+        x: e.clientX,
+        y: e.clientY,
+        kind: selText ? "translation" : "translationBlank",
+        selection: selText ? { text: selText, page } : null,
+        page,
+        numPages,
+        transMode,
+        canCopyBilingual: transMode === "inline" && !!unitEl && !!(unitEl.querySelector && unitEl.querySelector(".rd-tp-en")),
+      });
+      return;
+    }
+
     const captured = captureTextSelection(rootRef.current, page, scale);
+    ctxTpUnitRef.current = null;
     ctxSelectionRef.current = captured;
     if (captured) setSel(captured);
     setCtxMenu({
@@ -2616,7 +2643,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
       focus,
       hand,
     });
-  }, [page, scale, numPages, navmarks, annos.length, canUndoAnno, night, focus, hand, annoHistTick]);
+  }, [page, scale, numPages, navmarks, annos.length, canUndoAnno, night, focus, hand, annoHistTick, transMode]);
 
   // 截取（图/公式）：框选区域 → 取区域内文本层文字 → 接地解释
   const onViewMouseDown = (e) => { if (hand && viewRef.current) { panRef.current = { x: e.clientX, y: e.clientY, sl: viewRef.current.scrollLeft, st: viewRef.current.scrollTop }; e.preventDefault(); return; } if (!snipMode || !rootRef.current) return; const host = rootRef.current.getBoundingClientRect(); snipStart.current = { x: e.clientX, y: e.clientY }; setSnipRect({ x: e.clientX - host.left, y: e.clientY - host.top, w: 0, h: 0 }); };
@@ -2873,9 +2900,61 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
       case "exportPdf": onExportPdf(); break;
       case "exportMd": onExportMd(); break;
       case "undoAnno": undoAnno(); break;
+      case "tpCopy":
+        if (captured?.text) {
+          try {
+            navigator.clipboard.writeText(captured.text);
+            pushToast && pushToast("已复制");
+          } catch { /* noop */ }
+        }
+        break;
+      case "tpCopyCite":
+        if (captured?.text) {
+          try {
+            navigator.clipboard.writeText(`"${captured.text}" (p.${page})`);
+            pushToast && pushToast("已复制带页码引用");
+          } catch { /* noop */ }
+        }
+        break;
+      case "tpCopyBilingual": {
+        const pair = getTranslationUnitPair(ctxTpUnitRef.current);
+        if (pair) {
+          const block = pair.zh && pair.en ? `${pair.zh}\n\n${pair.en}` : (pair.zh || pair.en);
+          try {
+            navigator.clipboard.writeText(block);
+            pushToast && pushToast("已复制中英对照");
+          } catch { /* noop */ }
+        }
+        break;
+      }
+      case "tpCopyPage": {
+        const snap = tpSnapshotRef.current;
+        const t = snap && snap.page === page ? String(snap.trans || "").trim() : "";
+        if (t) {
+          try {
+            navigator.clipboard.writeText(t);
+            pushToast && pushToast(`已复制第 ${page} 页译文`);
+          } catch { /* noop */ }
+        } else pushToast && pushToast("本页暂无可复制译文");
+        break;
+      }
+      case "tpSelectAll": {
+        const body = rootRef.current && rootRef.current.querySelector(".rd-tp-body");
+        if (body && window.getSelection) {
+          try {
+            const range = document.createRange();
+            range.selectNodeContents(body);
+            const sObj = window.getSelection();
+            sObj.removeAllRanges();
+            sObj.addRange(range);
+          } catch { /* noop */ }
+        }
+        break;
+      }
       default: break;
     }
     ctxSelectionRef.current = null;
+    ctxTpUnitRef.current = null;
   }, [sel, page, step, numPages, pushToast, fit, fitPage, goto, addMark, removeMark, onExportPdf, onExportMd, runFind]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const moveFind = (delta) => {
@@ -3106,7 +3185,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
         )}
         {transMode && !loading && !err && doc && (
           <RightPanelShell width={rightWidth} onResizeStart={startRightResize}>
-            <TranslatePanel doc={doc} page={page} numPages={numPages} mode={transMode} setMode={setTransMode} onClose={() => setTransMode(null)} pushToast={pushToast} docKey={docKey} model={llmModel} view={view} />
+            <TranslatePanel doc={doc} page={page} numPages={numPages} mode={transMode} setMode={setTransMode} onClose={() => setTransMode(null)} pushToast={pushToast} docKey={docKey} model={llmModel} view={view} contentRef={tpSnapshotRef} />
           </RightPanelShell>
         )}
       </div>
@@ -3135,7 +3214,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
           menu={ctxMenu}
           platform={(typeof window !== "undefined" && window.luminaApi && window.luminaApi.platform) || "win32"}
           onAction={runCtxAction}
-          onClose={() => { setCtxMenu(null); ctxSelectionRef.current = null; }}
+          onClose={() => { setCtxMenu(null); ctxSelectionRef.current = null; ctxTpUnitRef.current = null; }}
         />
       )}
     </div>
