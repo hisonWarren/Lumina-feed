@@ -148,6 +148,24 @@ try {
   ok("粘贴导入模态打开(含输入框)", r4 && r4.ok, r4);
   ok("模态可关闭", r4 && r4.modalGone === true, r4);
 
+  const r5 = await evalJs(cdp, `
+    const jr = document.querySelector(".jr");
+    if (jr) jr.scrollTop = 0;
+    const toggle = document.querySelector("#jr-ds-toggle");
+    if (toggle && !document.querySelector(".jr-ds-wrap.open")) { toggle.click(); await new Promise((r)=>setTimeout(r,300)); }
+    const bar = document.querySelector(".jr-bar");
+    const head = document.querySelector(".jr-head");
+    const ds = document.querySelector(".jr-ds-wrap.open");
+    const empty = document.querySelector(".jr-empty");
+    const barRect = bar?.getBoundingClientRect();
+    const hostRect = jr?.getBoundingClientRect();
+    const barVisible = barRect && hostRect && barRect.top >= hostRect.top - 4 && barRect.bottom <= hostRect.bottom + 4;
+    return { dsOpen: !!ds, barVisible, hasEmpty: !!empty, headBeforeDs: !!(head && ds && head.compareDocumentPosition(ds) & Node.DOCUMENT_POSITION_FOLLOWING) };
+  `);
+  ok("展开数据集后搜索栏仍在视区内", r5 && r5.barVisible, r5);
+  ok("展开数据集时隐藏空状态占位", r5 && r5.dsOpen && !r5.hasEmpty, r5);
+  ok("数据集面板紧跟搜索区之后", r5 && r5.headBeforeDs, r5);
+
   cdp.ws.close();
 } catch (e) {
   console.log("  ✗ 异常:", e.message);

@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 
 const CSS = `
-.jr{flex:1;min-height:0;display:block;overflow-y:auto;padding:16px 20px 44px;scrollbar-gutter:stable;scroll-behavior:smooth}
+.jr{flex:1;min-height:0;width:100%;display:block;overflow-y:auto;padding:16px 20px 44px;scrollbar-gutter:stable;scroll-behavior:smooth;background:var(--surf2)}
 .jr-head{max-width:920px;margin:0 auto;width:100%}
 .jr-h1{font-family:'Source Serif 4',Georgia,serif;font-size:19px;font-weight:600;color:var(--ink);margin:2px 0 3px}
 .jr-sub{font-size:12.5px;color:var(--ink3);margin-bottom:14px;line-height:1.5}
@@ -92,7 +92,7 @@ const CSS = `
 @media(max-width:640px){.jr-ds-row{flex-wrap:wrap}.jr-ds-actions{margin-left:0;width:100%;flex-wrap:wrap}}
 .jr-ds-prog{font-size:11px;color:var(--ink3);font-family:'Space Mono',monospace;line-height:1.5;padding:0 2px 8px 24px;margin-top:-4px}
 .jr-spotlight-legend{font-size:11.5px;color:var(--ink3);text-align:center;margin-top:6px;padding:0 20px;font-family:'Space Mono',monospace}
-.jr-ds-wrap{max-width:920px;margin:18px auto 0;width:100%;border:1px solid var(--line);border-radius:14px;background:var(--surf2);padding:0;overflow:hidden}
+.jr-ds-wrap{max-width:920px;margin:12px auto 0;width:100%;border:1px solid var(--line);border-radius:14px;background:var(--surf2);padding:0;overflow:hidden}
 .jr-ds-toggle{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;font-weight:600;color:var(--ink);padding:14px 16px;cursor:pointer;user-select:none;background:var(--surf2)}
 .jr-ds-toggle:hover{color:var(--gold)}
 .jr-ds-body{display:none;padding:16px 16px 16px;border-top:1px dashed var(--line2)}
@@ -234,6 +234,7 @@ export default function Journals({ pushToast }) {
   const [busy, setBusy] = useState({});
   const fileRef = useRef(null);
   const dsWrapRef = useRef(null);
+  const jrRef = useRef(null);
   const sjFileRef = useRef(null);
   const jifFileRef = useRef(null);
   const casFileRef = useRef(null);
@@ -245,6 +246,14 @@ export default function Journals({ pushToast }) {
   const [casProgress, setCasProgress] = useState("");
   const [dsOpen, setDsOpen] = useState(false);
   const [liveBusy, setLiveBusy] = useState({});
+
+  const scrollDsPanel = useCallback((open) => {
+    if (!open) return;
+    setTimeout(() => {
+      const host = jrRef.current;
+      if (host) host.scrollTop = 0;
+    }, 80);
+  }, []);
 
   const setBusyState = useCallback((id, isBusy) => setBusy((prev) => ({ ...prev, [id]: isBusy })), []);
 
@@ -413,12 +422,12 @@ export default function Journals({ pushToast }) {
   const issn = p ? issnForUrl(p) : "";
 
   return (
-    <div className="jr">
+    <div className="jr" ref={jrRef}>
       <style>{CSS}</style>
       <div className="jr-head">
         <div className="jr-h1">期刊信息</div>
         <div className="jr-sub">
-          输入刊名或 ISSN，查看分区、预警状态、JIF、开放获取正规性与类影响因子。JIF 与中科院分区在本地未收录时会<b>逐刊自动在线获取并缓存</b>（wos-journal.info / LetPub 第三方汇总）；也可在下方数据集中批量导入或全库拉取。
+          输入刊名或 ISSN，查看分区、预警状态、JIF、开放获取正规性与类影响因子。JIF 与中科院分区在本地未收录时会<b>逐刊自动在线获取并缓存</b>（wos-journal.info / LetPub 第三方汇总）；也可在本页「数据集」面板中批量导入或全库拉取。
         </div>
         <div className="jr-bar">
           <Search size={17} color="var(--ink3)" />
@@ -442,6 +451,95 @@ export default function Journals({ pushToast }) {
         <div className="jr-ex">
           <span className="jr-exl">试试</span>
           {EXAMPLES.map((ex) => <button key={ex} className="jr-chip" onClick={() => onExample(ex)}>{ex}</button>)}
+        </div>
+      </div>
+
+      <div ref={dsWrapRef} className={"jr-ds-wrap" + (dsOpen ? " open" : "")}>
+        <div className="jr-ds-toggle" id="jr-ds-toggle" onClick={() => {
+          const next = !dsOpen;
+          setDsOpen(next);
+          scrollDsPanel(next);
+        }}>
+          <div style={{display:'flex', alignItems:'center', gap:'8px'}}><Database size={15} /> 数据集 · 手动更新</div>
+          <span style={{transform: dsOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', display: 'flex', alignItems: 'center'}}><ChevronDown size={14} /></span>
+        </div>
+        <div className="jr-ds-body">
+          <div className="jr-ds-hint">
+            在线拉取由你手动触发；同一数据集「导入」与「在线拉取」互不冲突——<b>后一次操作会整体覆盖该数据集</b>（不会与别的数据集混写）。类影响因子 / H 指数 / OA 为实时查询，无需更新。
+          </div>
+          {datasets.map((d) => (
+            <React.Fragment key={d.id}>
+            <div className="jr-ds-row">
+              <span className={"jr-ds-dot " + (d.present ? "on" : "off")} />
+              <div className="jr-ds-info">
+                <div className="jr-ds-name">{d.label}</div>
+                <div className="jr-ds-meta">
+                  {d.present
+                    ? `${d.count != null ? d.count.toLocaleString() + " 条 · " : ""}${d.year ? d.year + " 版 · " : ""}${d.updatedAt ? "更新于 " + fmtDate(d.updatedAt) : "内置"}`
+                    : "未加载"}
+                </div>
+              </div>
+              <div className="jr-ds-actions">
+              {d.sourceHomepage && (
+                <button className="jr-btn" onClick={() => openExt(d.sourceHomepage)} title="官方/来源页"><ExternalLink size={12} /> 来源</button>
+              )}
+              {d.id === "scimago" && (
+                <>
+                  <input ref={sjFileRef} type="file" accept=".csv,.xls,text/csv,application/vnd.ms-excel" style={{ display: "none" }}
+                    onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; importScimagoFile(f); }} />
+                  <button className="jr-btn" onClick={() => sjFileRef.current && sjFileRef.current.click()} disabled={busy["scimago"]} title="从 scimagojr.com 下载的 CSV 导入（最稳）">
+                    <Upload size={12} /> 导入
+                  </button>
+                  <button className="jr-btn" onClick={updateScimago} disabled={busy["scimago"]}>
+                    {busy["scimago"] ? <Loader2 size={12} className="jr-spin" /> : <RefreshCw size={12} />} 在线
+                  </button>
+                </>
+              )}
+              {d.id === "jif" && (
+                <>
+                  <input ref={jifFileRef} type="file" accept=".csv,.tsv,.txt,.xls,text/csv" style={{ display: "none" }}
+                    onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; importJifFile(f); }} />
+                  <button className="jr-btn" onClick={() => jifFileRef.current && jifFileRef.current.click()} disabled={busy["jif"]} title="CSV/TSV：ISSN + JIF">
+                    <Upload size={12} /> 导入
+                  </button>
+                  <button className="jr-btn" onClick={updateJif} disabled={busy["jif"]} title="wos-journal.info 全库（数分钟）">
+                    {busy["jif"] ? <Loader2 size={12} className="jr-spin" /> : <RefreshCw size={12} />} 在线
+                  </button>
+                </>
+              )}
+              {d.id === "cas" && (
+                <>
+                  <input ref={casFileRef} type="file" accept=".csv,.tsv,.txt,.xls,text/csv" style={{ display: "none" }}
+                    onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; importCasFile(f); }} />
+                  <button className="jr-btn" onClick={() => casFileRef.current && casFileRef.current.click()} disabled={busy["cas"]} title="CSV：ISSN + 大类分区/分区">
+                    <Upload size={12} /> 导入
+                  </button>
+                  <button className="jr-btn" onClick={updateCas} disabled={busy["cas"]} title="LetPub 全库（较慢，建议优先导入）">
+                    {busy["cas"] ? <Loader2 size={12} className="jr-spin" /> : <RefreshCw size={12} />} 在线
+                  </button>
+                </>
+              )}
+              {d.id === "warning" && (
+                <>
+                  <input ref={fileRef} type="file" accept="application/json,.json" style={{ display: "none" }}
+                    onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; importWarningFile(f); }} />
+                  <button className="jr-btn" onClick={() => setAiOpen(true)} disabled={busy["warning"]} title="粘贴官方名单，AI 结构化">
+                    <Sparkles size={12} /> 粘贴导入
+                  </button>
+                  <button className="jr-btn" onClick={() => fileRef.current && fileRef.current.click()} disabled={busy["warning"]}>
+                    {busy["warning"] ? <Loader2 size={12} className="jr-spin" /> : <Upload size={12} />} JSON
+                  </button>
+                </>
+              )}
+              </div>
+            </div>
+            {d.id === "jif" && jifProgress && <div className="jr-ds-prog">{jifProgress}</div>}
+            {d.id === "cas" && casProgress && <div className="jr-ds-prog">{casProgress}</div>}
+            </React.Fragment>
+          ))}
+          <div className="jr-note" style={{marginTop:'12px', borderTop:'1px solid var(--line2)', paddingTop:'12px'}}>
+            中科院分区无个人官方 API：推荐从学校/课题组 Excel「导入」；「在线」走 <a href="https://www.letpub.com.cn/index.php?page=journalapp" target="_blank" rel="noreferrer">LetPub</a> 第三方汇总（非 fenqubiao 授权，约 4.4 万刊、耗时较长）。JIF 来源 <a href="https://wos-journal.info/" target="_blank" rel="noreferrer">wos-journal.info</a>。SCImago 可官网下 CSV 后导入。预警名单内置 2025 版。
+          </div>
         </div>
       </div>
 
@@ -574,104 +672,15 @@ export default function Journals({ pushToast }) {
         </div>
       )}
 
-      {!p && !loading && (
+      {!p && !loading && !dsOpen && (
         <div className="jr-body">
           <div className="jr-empty">
             <Database size={26} color="var(--ink4)" />
             <h3>查询任意期刊</h3>
-            <p>类影响因子、H 指数、OA/DOAJ 每次实时查询；JIF 与中科院分区逐刊按需在线获取并缓存；SCImago 分区与预警名单为本地数据集（可在下方导入/更新）。</p>
+            <p>类影响因子、H 指数、OA/DOAJ 每次实时查询；JIF 与中科院分区逐刊按需在线获取并缓存；SCImago 分区与预警名单可在上方「数据集」面板导入/更新。</p>
           </div>
         </div>
       )}
-
-      <div ref={dsWrapRef} className={"jr-ds-wrap" + (dsOpen ? " open" : "")}>
-        <div className="jr-ds-toggle" id="jr-ds-toggle" onClick={() => {
-          const next = !dsOpen;
-          setDsOpen(next);
-          if (next) setTimeout(() => dsWrapRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
-        }}>
-          <div style={{display:'flex', alignItems:'center', gap:'8px'}}><Database size={15} /> 数据集 · 手动更新</div>
-          <span style={{transform: dsOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', display: 'flex', alignItems: 'center'}}><ChevronDown size={14} /></span>
-        </div>
-        <div className="jr-ds-body">
-          <div className="jr-ds-hint">
-            在线拉取由你手动触发；同一数据集「导入」与「在线拉取」互不冲突——<b>后一次操作会整体覆盖该数据集</b>（不会与别的数据集混写）。类影响因子 / H 指数 / OA 为实时查询，无需更新。
-          </div>
-          {datasets.map((d) => (
-            <React.Fragment key={d.id}>
-            <div className="jr-ds-row">
-              <span className={"jr-ds-dot " + (d.present ? "on" : "off")} />
-              <div className="jr-ds-info">
-                <div className="jr-ds-name">{d.label}</div>
-                <div className="jr-ds-meta">
-                  {d.present
-                    ? `${d.count != null ? d.count.toLocaleString() + " 条 · " : ""}${d.year ? d.year + " 版 · " : ""}${d.updatedAt ? "更新于 " + fmtDate(d.updatedAt) : "内置"}`
-                    : "未加载"}
-                </div>
-              </div>
-              <div className="jr-ds-actions">
-              {d.sourceHomepage && (
-                <button className="jr-btn" onClick={() => openExt(d.sourceHomepage)} title="官方/来源页"><ExternalLink size={12} /> 来源</button>
-              )}
-              {d.id === "scimago" && (
-                <>
-                  <input ref={sjFileRef} type="file" accept=".csv,.xls,text/csv,application/vnd.ms-excel" style={{ display: "none" }}
-                    onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; importScimagoFile(f); }} />
-                  <button className="jr-btn" onClick={() => sjFileRef.current && sjFileRef.current.click()} disabled={busy["scimago"]} title="从 scimagojr.com 下载的 CSV 导入（最稳）">
-                    <Upload size={12} /> 导入
-                  </button>
-                  <button className="jr-btn" onClick={updateScimago} disabled={busy["scimago"]}>
-                    {busy["scimago"] ? <Loader2 size={12} className="jr-spin" /> : <RefreshCw size={12} />} 在线
-                  </button>
-                </>
-              )}
-              {d.id === "jif" && (
-                <>
-                  <input ref={jifFileRef} type="file" accept=".csv,.tsv,.txt,.xls,text/csv" style={{ display: "none" }}
-                    onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; importJifFile(f); }} />
-                  <button className="jr-btn" onClick={() => jifFileRef.current && jifFileRef.current.click()} disabled={busy["jif"]} title="CSV/TSV：ISSN + JIF">
-                    <Upload size={12} /> 导入
-                  </button>
-                  <button className="jr-btn" onClick={updateJif} disabled={busy["jif"]} title="wos-journal.info 全库（数分钟）">
-                    {busy["jif"] ? <Loader2 size={12} className="jr-spin" /> : <RefreshCw size={12} />} 在线
-                  </button>
-                </>
-              )}
-              {d.id === "cas" && (
-                <>
-                  <input ref={casFileRef} type="file" accept=".csv,.tsv,.txt,.xls,text/csv" style={{ display: "none" }}
-                    onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; importCasFile(f); }} />
-                  <button className="jr-btn" onClick={() => casFileRef.current && casFileRef.current.click()} disabled={busy["cas"]} title="CSV：ISSN + 大类分区/分区">
-                    <Upload size={12} /> 导入
-                  </button>
-                  <button className="jr-btn" onClick={updateCas} disabled={busy["cas"]} title="LetPub 全库（较慢，建议优先导入）">
-                    {busy["cas"] ? <Loader2 size={12} className="jr-spin" /> : <RefreshCw size={12} />} 在线
-                  </button>
-                </>
-              )}
-              {d.id === "warning" && (
-                <>
-                  <input ref={fileRef} type="file" accept="application/json,.json" style={{ display: "none" }}
-                    onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; importWarningFile(f); }} />
-                  <button className="jr-btn" onClick={() => setAiOpen(true)} disabled={busy["warning"]} title="粘贴官方名单，AI 结构化">
-                    <Sparkles size={12} /> 粘贴导入
-                  </button>
-                  <button className="jr-btn" onClick={() => fileRef.current && fileRef.current.click()} disabled={busy["warning"]}>
-                    {busy["warning"] ? <Loader2 size={12} className="jr-spin" /> : <Upload size={12} />} JSON
-                  </button>
-                </>
-              )}
-              </div>
-            </div>
-            {d.id === "jif" && jifProgress && <div className="jr-ds-prog">{jifProgress}</div>}
-            {d.id === "cas" && casProgress && <div className="jr-ds-prog">{casProgress}</div>}
-            </React.Fragment>
-          ))}
-          <div className="jr-note" style={{marginTop:'12px', borderTop:'1px solid var(--line2)', paddingTop:'12px'}}>
-            中科院分区无个人官方 API：推荐从学校/课题组 Excel「导入」；「在线」走 <a href="https://www.letpub.com.cn/index.php?page=journalapp" target="_blank" rel="noreferrer">LetPub</a> 第三方汇总（非 fenqubiao 授权，约 4.4 万刊、耗时较长）。JIF 来源 <a href="https://wos-journal.info/" target="_blank" rel="noreferrer">wos-journal.info</a>。SCImago 可官网下 CSV 后导入。预警名单内置 2025 版。
-          </div>
-        </div>
-      </div>
 
       {aiOpen && (
         <div className="jr-modal-bg" onClick={closeAi}>
