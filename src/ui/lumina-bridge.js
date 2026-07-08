@@ -256,9 +256,9 @@ export const bridge = {
     const r = R(); if (!r || !r.summarize) return mockReaderSummary();
     return r.summarize({ pages });
   },
-  async readerAsk(pages, question) {
+  async readerAsk(pages, question, opts = {}) {
     const r = R(); if (!r || !r.ask) return mockReaderAnswer(question);
-    return r.ask({ pages, question });
+    return r.ask({ pages, question, priorTurns: opts.priorTurns, artifacts: opts.artifacts });
   },
   async readerTranslate(text) {
     const r = R();

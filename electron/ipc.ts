@@ -1031,9 +1031,12 @@ export function registerIpc(deps: IpcDeps): void {
     const llm = await makeLlm();
     return summarizeReader((payload && payload.pages) || [], llm);
   });
-  ipcMain.handle("reader:ask", async (_e, payload: { pages?: ReaderPage[]; question?: string }) => {
+  ipcMain.handle("reader:ask", async (_e, payload: { pages?: ReaderPage[]; question?: string; priorTurns?: { q: string; a?: string }[]; artifacts?: { summary?: string; outline?: string } }) => {
     const llm = await makeLlm();
-    return askReader((payload && payload.pages) || [], (payload && payload.question) || "", llm);
+    return askReader((payload && payload.pages) || [], (payload && payload.question) || "", llm, {
+      priorTurns: payload && payload.priorTurns,
+      artifacts: payload && payload.artifacts,
+    });
   });
   ipcMain.handle("reader:translate", async (_e, payload: { text?: string }) => {
     const status = await checkLlmReady();

@@ -18,6 +18,18 @@ export interface ReaderAnswer {
   pagesUsed?: number;
 }
 
+/** 浅多轮：上一轮问答（仅传问题 + 带页码要点，不传长段 AI 散文）。 */
+export interface ReaderQaTurn { q: string; a?: string }
+/** 制品记忆：本篇已生成的总结/大纲摘录（仅助指代，非证据）。 */
+export interface ReaderAskArtifacts { summary?: string; outline?: string }
+export interface AskReaderOpts {
+  signal?: AbortSignal;
+  priorTurns?: ReaderQaTurn[];
+  artifacts?: ReaderAskArtifacts;
+}
+
+export const ASK_PRIOR_TURN_CAP = 2;
+
 const CTX_CHARS = 12000;
 
 function norm(s: string): string { return (s || "").replace(/\s+/g, " ").trim(); }
@@ -110,6 +122,37 @@ const SYS_BASE =
   "你是严谨的文献阅读助手。只依据下方提供的页面文本作答，不得编造、不得引入外部知识。" +
   "每一处结论/论断后用方括号页码标注来源，如 [p.3]；同一句可标多个。" +
   "若提供文本不足以回答，请直说「依据所给页面无法确定」。用简体中文，简洁。";
+
+const MEMORY_SYS =
+  "\n若附有「前文要点」或「本篇制品」，仅用于理解指代（如「它」「刚才」「第二点」指什么）；" +
+  "最终论断必须仍依据页面文本重新核验并标注页码，不得把前文或制品当作证据。";
+
+/** 从上一轮回答抽取带页码的要点行（L2 浅记忆，上限 4 条）。 */
+function extractGroundedSnippets(answer: string, maxSnippets = 4): string {
+  const claims = splitClaims(answer).filter((c) => /\[p\.\d+\]/.test(c));
+  if (claims.length) return claims.slice(0, maxSnippets).join("\n");
+  return (answer || "").replace(/\s+/g, " ").trim().slice(0, 280);
+}
+
+/** 组装 L1 制品 + L2 浅多轮记忆块（供 askReader 注入 prompt）。 */
+export function buildAskMemoryBlock(priorTurns?: ReaderQaTurn[], artifacts?: ReaderAskArtifacts): string {
+  const parts: string[] = [];
+  const turns = (priorTurns || []).slice(-ASK_PRIOR_TURN_CAP).filter((t) => t && (t.q || "").trim());
+  if (turns.length) {
+    const lines = turns.map((t, i) => {
+      const snips = t.a ? extractGroundedSnippets(t.a) : "";
+      return `第${i + 1}轮问：${(t.q || "").trim()}` + (snips ? `\n已核要点（仅供指代）：\n${snips}` : "");
+    });
+    parts.push("— 前文问答（仅助指代，非证据）—\n" + lines.join("\n\n"));
+  }
+  if (artifacts?.summary) {
+    parts.push("— 本篇接地总结摘录（仅助指代，非证据）—\n" + artifacts.summary.slice(0, 900));
+  }
+  if (artifacts?.outline) {
+    parts.push("— 本篇逻辑大纲摘录（仅助指代，非证据）—\n" + artifacts.outline.slice(0, 600));
+  }
+  return parts.join("\n\n").trim();
+}
 
 /** 多语言 token：拉丁词(≥3)/数字 = 跨语言锚点（专名/缩写/单位/数值）；中文段内 bigram = 同语言信号。
  *  修复：中文无空格曾被切成单一巨型 token、且中文总结↔英文原文纯字符匹配必败 → groundedRatio 恒 0。 */
@@ -321,21 +364,30 @@ async function mapChunkForQuestion(pages: ReaderPage[], question: string, llm: L
 }
 
 /** 组装问答正文：小文档全文单次过；长文档 map-reduce 覆盖全篇（与总结同策略，避免只盯前 1–2 页）。 */
-async function composeAnswerText(pages: ReaderPage[], question: string, llm: LlmClient, signal?: AbortSignal): Promise<string> {
+async function composeAnswerText(
+  pages: ReaderPage[],
+  question: string,
+  llm: LlmClient,
+  signal?: AbortSignal,
+  memoryBlock?: string,
+): Promise<string> {
   const qq = (question || "").trim();
+  const mem = (memoryBlock || "").trim();
+  const memPrefix = mem ? mem + "\n\n" : "";
+  const memSys = mem ? MEMORY_SYS : "";
   const locateQ = extractLocateQuery(qq);
   const locateHint = isLocateQuestion(locateQ)
     ? "\n这是定位类问题：只引用原文中与锚点词（如数值/单位）直接相关的句子，附 [p.X]；不要复述用户问题里的背景；找不到才说「依据所给页面无法确定」。"
     : "";
   if (totalChars(pages) <= ONE_PASS_CAP) {
     const sys =
-      SYS_BASE +
+      SYS_BASE + memSys +
       "\n任务：依据下方提供的论文页面文本，直接回答用户问题；每一处论断后标注信息实际所在的页码 [p.X]（信息在哪页就标哪页，不要把所有点都标第 1 页）。若文本不足以回答，请直说「依据所给页面无法确定」。"
       + locateHint;
     return await llm.complete(
       [
         { role: "system", content: sys },
-        { role: "user", content: "问题：" + qq + "\n\n— 全文页面文本 —\n" + buildContext(pages, ONE_PASS_CAP) },
+        { role: "user", content: memPrefix + "问题：" + qq + "\n\n— 全文页面文本 —\n" + buildContext(pages, ONE_PASS_CAP) },
       ],
       { maxTokens: 1000, temperature: 0.2, signal },
     );
@@ -344,13 +396,13 @@ async function composeAnswerText(pages: ReaderPage[], question: string, llm: Llm
   const mapped = await Promise.all(chunks.map((c) => mapChunkForQuestion(c, qq, llm, signal).catch(() => "")));
   const notes = mapped.map((m) => (m && m !== "（无）" ? m : "")).filter(Boolean).join("\n");
   const reduceSys =
-    SYS_BASE +
+    SYS_BASE + memSys +
     "\n下面是从全文各部分抽取的、与用户问题相关的要点清单（带页码）。请据此直接回答问题；每处论断保留并标注它所依据的真实页码 [p.X]（沿用要点里的页码，不要一律标第 1 页）；只用要点中的信息，不杜撰数字、不引入要点之外的内容。若要点不足以回答，请直说「依据所给页面无法确定」。"
     + locateHint;
   return await llm.complete(
     [
       { role: "system", content: reduceSys },
-      { role: "user", content: "问题：" + qq + "\n\n— 全文各部分要点（带页码）—\n" + (notes || "（未抽出要点）") },
+      { role: "user", content: memPrefix + "问题：" + qq + "\n\n— 全文各部分要点（带页码）—\n" + (notes || "（未抽出要点）") },
     ],
     { maxTokens: 1100, temperature: 0.2, signal },
   );
@@ -361,10 +413,11 @@ export async function askReader(
   pages: ReaderPage[],
   question: string,
   llm: LlmClient,
-  opts: { signal?: AbortSignal } = {},
+  opts: AskReaderOpts = {},
 ): Promise<ReaderAnswer> {
+  const memoryBlock = buildAskMemoryBlock(opts.priorTurns, opts.artifacts);
   const located = tryLocateAnswer(pages, question);
-  const raw = located ?? await composeAnswerText(pages, question, llm, opts.signal);
+  const raw = located ?? await composeAnswerText(pages, question, llm, opts.signal, memoryBlock || undefined);
   const answer = normalizeAnswerCites(raw);
   const g = groundReaderAnswer(answer, pages);
   return {

@@ -32,6 +32,7 @@ if(exists("src/ui/modules/Library.jsx")){ const s=read("src/ui/modules/Library.j
   /grouped/.test(s)&&/provenance/.test(s)?ok("按来源分组（provenance）"):bad("缺来源分组");
   /STYLES\.map/.test(s)&&/formatCitation/.test(s)?ok("每卡多样式引用复制"):bad("缺引用复制");
   /exportBib|doExport/.test(s)?ok("导出菜单（.bib/.ris/CSL）"):bad("缺导出菜单");
+  /exportPickMode/.test(s)&&/exportSel/.test(s)?ok("独立选择导出模式"):bad("缺选择导出");
   /onRemove/.test(s)?ok("移除"):bad("缺移除");
   /未经同行评议/.test(s)?ok("预印本标注（红线5）"):bad("缺预印本标注");
   /已撤稿|retracted/.test(s)?ok("撤稿标注（红线6）"):bad("缺撤稿标注");

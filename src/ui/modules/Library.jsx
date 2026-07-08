@@ -36,7 +36,15 @@ const LIB_CSS = `
 .lib-h1{font-family:'Source Serif 4',Georgia,serif;font-size:20px;font-weight:600;margin:0;color:var(--ink);display:flex;align-items:center;gap:8px}
 .lib-h1 svg{color:var(--gold)}
 .lib-count{font-size:12px;font-family:'Space Mono',monospace;color:var(--ink3)}
-.lib-export{margin-left:auto;position:relative}
+.lib-export{margin-left:auto;display:flex;align-items:center;gap:8px;position:relative}
+.lib-export-pick{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:9px;padding:7px 12px;font-size:12.5px;cursor:pointer;font-family:inherit}
+.lib-export-pick:hover{border-color:var(--gold);color:var(--gold)}
+.lib-export-pick.on{background:var(--gold-tint);color:var(--gold);border-color:var(--gold-line)}
+.lib-export-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 12px;margin:0 20px 10px;border:1px solid var(--gold-line);background:var(--gold-tint);border-radius:11px;font-size:12.5px;color:var(--ink2)}
+.lib-export-bar strong{color:var(--gold);font-weight:600}
+.lib-export-bar button{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:8px;padding:5px 10px;font-size:12px;cursor:pointer;font-family:inherit}
+.lib-export-bar button:hover{border-color:var(--gold);color:var(--gold)}
+.lib-export-bar-done{margin-left:auto}
 .lib-xbtn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:9px;padding:7px 12px;font-size:12.5px;cursor:pointer;font-family:inherit}
 .lib-xbtn:hover{border-color:var(--gold);color:var(--gold)}
 .lib-xbtn:disabled{opacity:.5;cursor:default}
@@ -111,7 +119,8 @@ const LIB_CSS = `
 .lib-lists-new{border:1px solid var(--line2);border-radius:8px;padding:7px 10px;font-size:12.5px;font-family:inherit;background:var(--surf);color:var(--ink);outline:none;max-width:280px}
 .lib-lists-new:focus{border-color:var(--gold)}
 .lib-card-sel{border-color:var(--gold)}
-.lib-cb{width:22px;height:22px;border-radius:6px;border:1.5px solid var(--line2);background:var(--surf);cursor:pointer;display:grid;place-items:center;color:#fff;margin-bottom:8px;padding:0}
+.lib-card-picks{display:flex;gap:6px;margin-bottom:8px}
+.lib-cb{width:22px;height:22px;border-radius:6px;border:1.5px solid var(--line2);background:var(--surf);cursor:pointer;display:grid;place-items:center;color:#fff;padding:0;flex-shrink:0}
 .lib-cb.on{background:var(--gold);border-color:var(--gold)}
 .lib-corpus-bar{border:1px solid rgba(14,124,111,.3);background:rgba(14,124,111,.05);border-radius:13px;padding:14px 16px;margin-bottom:14px;display:flex;flex-direction:column;gap:10px}
 .lib-corpus-barh{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;color:var(--gold)}
@@ -209,6 +218,8 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
   const titleInputRef = useRef(null);
   const [selMode, setSelMode] = useState(!!_libPref0.selMode);
   const [sel, setSel] = useState(() => new Set(Array.isArray(_libPref0.sel) ? _libPref0.sel : []));
+  const [exportPickMode, setExportPickMode] = useState(false);
+  const [exportSel, setExportSel] = useState(() => new Set());
   const [corpusEnv, setCorpusEnv] = useState(null);
   const [corpusRunning, setCorpusRunning] = useState("");
   const [corpusLastKind, setCorpusLastKind] = useState(_libPref0.corpusLastKind || "corpus_framing");
@@ -340,14 +351,17 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
   }, [view, grouped]);
 
   const exportTargets = useMemo(() => {
-    if (!sel.size) return view;
-    const idx = new Map((lib || []).map((p, i) => [p.id, i]));
-    return (lib || []).filter((p) => sel.has(p.id)).slice().sort((a, b) => {
-      if (sort === "year") return (Number(b.year) || 0) - (Number(a.year) || 0);
-      if (sort === "title") return String(a.title || "").localeCompare(String(b.title || ""));
-      return (idx.get(b.id) || 0) - (idx.get(a.id) || 0);
-    });
-  }, [sel, view, lib, sort]);
+    if (exportPickMode) {
+      if (!exportSel.size) return [];
+      const idx = new Map((lib || []).map((p, i) => [p.id, i]));
+      return (lib || []).filter((p) => exportSel.has(p.id)).slice().sort((a, b) => {
+        if (sort === "year") return (Number(b.year) || 0) - (Number(a.year) || 0);
+        if (sort === "title") return String(a.title || "").localeCompare(String(b.title || ""));
+        return (idx.get(b.id) || 0) - (idx.get(a.id) || 0);
+      });
+    }
+    return view;
+  }, [exportPickMode, exportSel, view, lib, sort]);
 
   const copyCite = (style, p) => {
     try { const t = formatCitation(style, p); navigator.clipboard && navigator.clipboard.writeText(t); pushToast && pushToast("已复制 " + style.toUpperCase() + " 引用"); } catch (e) { /* noop */ }
@@ -356,17 +370,25 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
     setExportOpen(false);
     const set = exportTargets;
     if (!set.length) {
-      pushToast && pushToast(sel.size ? "请先勾选要导出的文献" : "当前没有可导出的条目");
+      if (exportPickMode && !exportSel.size) pushToast && pushToast("请先勾选要导出的文献");
+      else pushToast && pushToast("当前没有可导出的条目");
       return;
     }
     if (kind === "bib") exportBib(set, "lumina");
     else if (kind === "ris") exportRis(set, "lumina");
     else exportCslJson(set, "lumina");
-    const scope = sel.size ? `所选 ${set.length} 篇` : `${set.length} 条`;
+    const scope = exportPickMode && exportSel.size ? `所选 ${set.length} 篇` : `${set.length} 条`;
     pushToast && pushToast(`已导出 ${scope}（${kind.toUpperCase()}）`);
   };
 
   const toggleSel = (id) => setSel((st) => { const n = new Set(st); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const toggleExportSel = (id) => setExportSel((st) => { const n = new Set(st); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+
+  const exitExportPickMode = () => {
+    setExportPickMode(false);
+    setExportSel(new Set());
+    setExportOpen(false);
+  };
 
   useEffect(() => {
     if (sel.size < 2) { setCorpusEnv(null); return; }
@@ -399,8 +421,17 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
     const isFetching = !!(fmeta && fmeta.startedAt);
     const prog = isFetching ? fetchProgressUi(fmeta, Date.now()) : null;
     return (
-    <div className={"lib-card" + (selMode && sel.has(p.id) ? " lib-card-sel" : "")} key={p.id}>
-      {selMode && <button role="checkbox" aria-checked={sel.has(p.id)} className={"lib-cb" + (sel.has(p.id) ? " on" : "")} onClick={() => toggleSel(p.id)} aria-label="选择本篇（跨篇分析 / 导出）">{sel.has(p.id) ? <Check size={14} /> : null}</button>}
+    <div className={"lib-card" + ((selMode && sel.has(p.id)) || (exportPickMode && exportSel.has(p.id)) ? " lib-card-sel" : "")} key={p.id}>
+      {(exportPickMode || selMode) && (
+        <div className="lib-card-picks">
+          {exportPickMode && (
+            <button role="checkbox" aria-checked={exportSel.has(p.id)} className={"lib-cb" + (exportSel.has(p.id) ? " on" : "")} onClick={() => toggleExportSel(p.id)} aria-label="选择本篇导出">{exportSel.has(p.id) ? <Check size={14} /> : null}</button>
+          )}
+          {selMode && (
+            <button role="checkbox" aria-checked={sel.has(p.id)} className={"lib-cb" + (sel.has(p.id) ? " on" : "")} onClick={() => toggleSel(p.id)} aria-label="选择本篇做跨篇分析">{sel.has(p.id) ? <Check size={14} /> : null}</button>
+          )}
+        </div>
+      )}
       {editingTitleId === p.id ? (
         <input
           ref={titleInputRef}
@@ -490,10 +521,16 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
           <h1 className="lib-h1"><BookMarked size={19} /> 我的文献</h1>
           <span className="lib-count">{(lib || []).length} 篇</span>
           <div className="lib-export">
-            <button className="lib-xbtn" onClick={() => setExportOpen((v) => !v)} disabled={!exportTargets.length}><Download size={14} /> 导出{sel.size > 0 ? `（${sel.size}）` : ""} <ChevronDown size={12} /></button>
+            <button type="button" aria-pressed={exportPickMode} className={"lib-export-pick" + (exportPickMode ? " on" : "")} onClick={() => {
+              if (exportPickMode) exitExportPickMode();
+              else { setExportPickMode(true); setExportOpen(false); }
+            }}><Check size={14} /> 选择导出</button>
+            <button className="lib-xbtn" onClick={() => setExportOpen((v) => !v)} disabled={exportPickMode ? !exportSel.size : !view.length}><Download size={14} /> 导出{exportPickMode && exportSel.size > 0 ? `（${exportSel.size}）` : ""} <ChevronDown size={12} /></button>
             {exportOpen && (
               <div className="lib-xmenu">
-                {sel.size > 0 && <div className="lib-xmenu-hint">导出已选 {sel.size} 篇（非当前列表全部）</div>}
+                {exportPickMode && exportSel.size === 0 && <div className="lib-xmenu-hint">请先勾选要导出的文献</div>}
+                {exportPickMode && exportSel.size > 0 && <div className="lib-xmenu-hint">仅导出已勾选的 {exportSel.size} 篇</div>}
+                {!exportPickMode && <div className="lib-xmenu-hint">导出当前列表全部（{view.length} 篇）</div>}
                 <button onClick={() => doExport("bib")}>.bib（BibTeX）</button>
                 <button onClick={() => doExport("ris")}>.ris（EndNote/Zotero）</button>
                 <button onClick={() => doExport("csl")}>CSL-JSON</button>
@@ -501,6 +538,16 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
             )}
           </div>
         </div>
+        {exportPickMode && (
+          <div className="lib-export-bar" style={{ margin: "0" }}>
+            <span>导出选择 · 已选 <strong>{exportSel.size}</strong> 篇</span>
+            {view.length > 0 && (
+              <button type="button" onClick={() => setExportSel(new Set(view.map((p) => p.id)))}>全选当前列表（{view.length}）</button>
+            )}
+            {exportSel.size > 0 && <button type="button" onClick={() => setExportSel(new Set())}>清空</button>}
+            <button type="button" className="lib-export-bar-done" onClick={exitExportPickMode}>完成</button>
+          </div>
+        )}
         <div className="lib-bar">
           <Search size={16} />
           <input value={query} placeholder="搜索标题 / 作者 / 期刊 / 摘要…" onChange={(e) => setQuery(e.target.value)} />

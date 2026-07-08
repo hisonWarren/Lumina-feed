@@ -1600,6 +1600,16 @@ function InferencePane({ ensurePages, source, onGoto, pushToast, figureEnv, figu
 }
 
 // 右侧阅读助手：整篇接地总结 + 大纲 + 带页码引用的接地问答（只单篇，必带 sourceBasis；无 key/无后端走 mock）
+function outlineArtifactText(env) {
+  if (!env || env.refused) return "";
+  const bits = [];
+  if (env.framing) bits.push(String(env.framing));
+  for (const c of (env.claims || []).slice(0, 8)) {
+    if (c && c.text) bits.push(String(c.text));
+  }
+  return bits.join("\n").trim();
+}
+
 function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, purpose, setPurpose }) {
   const [summary, setSummary] = useState(null);
   const [summarizing, setSummarizing] = useState(false);
@@ -1685,7 +1695,12 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
     scrollAssistToBottom(true);
     try {
       const pages = await ensurePages();
-      const r = await bridge.readerAsk(pages, qq);
+      const priorTurns = qa.filter((x) => !x.loading && x.a && x.a !== "（无回答）" && x.a !== "（出错，请稍后重试）").slice(-2).map((x) => ({ q: x.q, a: x.a }));
+      const artifacts = {};
+      if (summary && summary.text) artifacts.summary = summary.text;
+      const ol = outlineArtifactText(outlineEnv);
+      if (ol) artifacts.outline = ol;
+      const r = await bridge.readerAsk(pages, qq, { priorTurns, artifacts });
       setQa((list) => {
         const next = list.map((x, i) => (i === list.length - 1
           ? { q: qq, a: r ? r.text : "（无回答）", sourceBasis: r && r.sourceBasis, groundedRatio: r && r.groundedRatio, banner: r && r.banner, pageCount: r && r.pageCount, pagesUsed: r && r.pagesUsed, loading: false }
@@ -1698,7 +1713,7 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
     } catch (e) {
       setQa((list) => list.map((x, i) => (i === list.length - 1 ? { q: qq, a: "（出错，请稍后重试）", loading: false } : x)));
     } finally { setAsking(false); }
-  }, [ensurePages, asking, source, scrollAssistToBottom, resizeQInput, pushToast]);
+  }, [ensurePages, asking, source, scrollAssistToBottom, resizeQInput, pushToast, qa, summary, outlineEnv]);
 
   useEffect(() => {
     resizeQInput();
@@ -1775,7 +1790,7 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
 
         {qa.length > 0 && (
           <div className="rd-assist-block">
-            <div className="rd-assist-block-h">问答记录（全文检索 · 回答带页码，点击跳页）</div>
+            <div className="rd-assist-block-h">问答记录（全文检索 · 回答带页码，点击跳页{qa.filter((x) => x.a && !x.loading).length > 0 ? " · 追问会参考最近 2 轮" : ""}）</div>
             <div className="rd-ai-flow">
               {qa.map((item, i) => (
                 <div key={i} className="rd-ai-qa">
@@ -1799,7 +1814,7 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
 
       <div className="rd-assist-foot">
         {qa.length === 0 && (
-          <div className="rd-scaffold rd-assist-hint" role="status">在下方选预设问题或输入自定义问题；将通读全文后作答。</div>
+          <div className="rd-scaffold rd-assist-hint" role="status">在下方选预设问题或输入自定义问题；将通读全文后作答。追问时会参考最近 2 轮问答与本篇总结/大纲（仍须页码可核）。</div>
         )}
         <div className="rd-assist-compose">
           <div className="rd-assist-block-h">问这一篇</div>
