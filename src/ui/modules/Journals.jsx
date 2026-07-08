@@ -92,6 +92,12 @@ const CSS = `
 @media(max-width:640px){.jr-ds-row{flex-wrap:wrap}.jr-ds-actions{margin-left:0;width:100%;flex-wrap:wrap}}
 .jr-ds-prog{font-size:11px;color:var(--ink3);font-family:'Space Mono',monospace;line-height:1.5;padding:0 2px 8px 24px;margin-top:-4px}
 .jr-spotlight-legend{font-size:11.5px;color:var(--ink3);text-align:center;margin-top:6px;padding:0 20px;font-family:'Space Mono',monospace}
+.jr-wos{padding:14px 20px 8px;border-top:1px solid var(--line);background:var(--surf2)}
+.jr-wos-t{font-size:11px;font-family:'Space Mono',monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);margin-bottom:10px}
+.jr-wos-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px 18px}
+.jr-wos-k{font-size:10.5px;color:var(--ink3);font-family:'Space Mono',monospace;margin-bottom:3px;letter-spacing:.04em}
+.jr-wos-v{font-size:12.5px;color:var(--ink);line-height:1.5;word-break:break-word}
+.jr-wos-v.idx{color:var(--gold);font-weight:600}
 .jr-ds-wrap{max-width:920px;margin:12px auto 0;width:100%;border:1px solid var(--line);border-radius:14px;background:var(--surf2);padding:0;overflow:hidden}
 .jr-ds-toggle{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;font-weight:600;color:var(--ink);padding:14px 16px;cursor:pointer;user-select:none;background:var(--surf2)}
 .jr-ds-toggle:hover{color:var(--gold)}
@@ -146,6 +152,35 @@ function Metric({ value, label, hint, source, dim }) {
       <div className={"jr-mv" + (dim ? " dim" : "")}>{value}</div>
       <div className="jr-ml">{label}{hint ? <span title={hint}><Info size={11} /></span> : null}</div>
       {source ? <div className="jr-msrc">{source}</div> : null}
+    </div>
+  );
+}
+
+function WoSDetailPanel({ jf }) {
+  if (!jf) return null;
+  const items = [
+    jf.jif5yr != null ? ["5 年影响因子", jf.jif5yr.toLocaleString(undefined, { maximumFractionDigits: 1 })] : null,
+    jf.wosIndexes ? ["WoS 核心收录", jf.wosIndexes] : null,
+    jf.category ? ["学科类别", jf.category] : null,
+    jf.abbreviation ? ["缩写", jf.abbreviation] : null,
+    jf.bestRanking ? ["Best Ranking", jf.bestRanking] : null,
+    jf.oaSupport ? ["开放获取", jf.oaSupport] : null,
+    jf.wosStatus ? ["WoS 状态", jf.wosStatus] : null,
+    jf.country ? ["国家/地区", jf.country] : null,
+    jf.publisher ? ["出版商", jf.publisher] : null,
+  ].filter(Boolean);
+  if (!items.length) return null;
+  return (
+    <div className="jr-wos">
+      <div className="jr-wos-t">WoS Journal Info · {jf.year || "第三方汇总"}</div>
+      <div className="jr-wos-grid">
+        {items.map(([k, v]) => (
+          <div key={k}>
+            <div className="jr-wos-k">{k}</div>
+            <div className={"jr-wos-v" + (k === "WoS 核心收录" ? " idx" : "")}>{v}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -584,6 +619,7 @@ export default function Journals({ pushToast }) {
               <div className="jr-tags">
                 {p.isOa && <span className="jr-tag oa"><ShieldCheck size={12} /> 开放获取</span>}
                 {p.isInDoaj && <span className="jr-tag doaj"><BadgeCheck size={12} /> DOAJ 收录</span>}
+                {jf?.wosIndexes && <span className="jr-tag" style={{ color: "var(--gold)", borderColor: "var(--gold-line)" }}>{jf.wosIndexes.split(/\s*-\s*/)[0]?.trim() || "WoS"}</span>}
                 {!p.warning && <span className="jr-tag" style={{ color: "var(--ok)", borderColor: "color-mix(in srgb,var(--ok) 30%,transparent)" }}><BookOpenCheck size={12} /> 未在预警名单</span>}
               </div>
 
@@ -595,6 +631,8 @@ export default function Journals({ pushToast }) {
               <div className="jr-spotlight-legend">
                 三套独立分区体系，不可互相替代。投稿请以目标期刊所在官方源为准。
               </div>
+
+              <WoSDetailPanel jf={jf} />
 
               <div className="jr-metrics jr-metrics-sub">
                 <Metric

@@ -13,7 +13,7 @@ import {
   BUILTIN_WARNING_YEAR, BUILTIN_WARNING_SOURCE, BUILTIN_WARNING_ENTRIES, type WarningDataset,
 } from "../src/core/journal/warning-list.ts";
 import {
-  parseWosJifTable, crawlWosJifDataset, wosJifLookup, buildWosJifDataset, fetchWosJifByIssn,
+  parseWosJifTable, crawlWosJifDataset, wosJifLookup, buildWosJifDataset, fetchWosJifByIssn, fetchWosJifDetail,
   WOS_JIF_HOMEPAGE, WOS_JIF_SOURCE, type WosJifDataset, type WosJifRow,
 } from "../src/core/journal/wos-jif.ts";
 import {
@@ -104,6 +104,13 @@ function jifRowToInfo(row: WosJifRow): WosJifInfo {
     jif: row.jif,
     jif5yr: row.jif5yr,
     wosIndexes: row.wosIndexes,
+    abbreviation: row.abbreviation,
+    category: row.category,
+    country: row.country,
+    publisher: row.publisher,
+    oaSupport: row.oaSupport,
+    wosStatus: row.wosStatus,
+    bestRanking: row.bestRanking,
     year: row.year ?? jifCache?.year,
     wosId: row.wosId,
     sourceHomepage: row.wosId ? `${WOS_JIF_HOMEPAGE}journalid/${row.wosId}` : WOS_JIF_HOMEPAGE,
@@ -141,7 +148,27 @@ async function liveMetrics(issns: string[]): Promise<{ jif?: WosJifInfo; cas?: C
   // JIF：先查合并数据集，未命中再联网
   const jifHit = wosJifLookup(mergedJifDataset(), list);
   if (jifHit && (jifHit.jif != null || jifHit.jif5yr != null)) {
-    out.jif = jifRowToInfo(jifHit);
+    let row = jifHit;
+    if (row.wosId && (!row.jif5yr || !row.wosIndexes)) {
+      try {
+        const detail = await withDeadline(
+          (signal) => fetchWosJifDetail(row.wosId!, sessionFetch as unknown as typeof fetch, signal),
+          15000,
+        );
+        if (detail) {
+          row = {
+            ...row,
+            ...detail,
+            wosId: row.wosId,
+            issns: detail.issns.length ? detail.issns : row.issns,
+            jif: detail.jif ?? row.jif,
+            jif5yr: detail.jif5yr ?? row.jif5yr,
+            wosIndexes: detail.wosIndexes ?? row.wosIndexes,
+          };
+        }
+      } catch { /* 详情页失败仍用列表字段 */ }
+    }
+    out.jif = jifRowToInfo(row);
   } else {
     out.jifTried = true;
     for (const issn of list.slice(0, 2)) {

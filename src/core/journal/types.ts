@@ -33,6 +33,13 @@ export interface WosJifInfo {
   jif?: number;
   jif5yr?: number;
   wosIndexes?: string;
+  abbreviation?: string;
+  category?: string;
+  country?: string;
+  publisher?: string;
+  oaSupport?: string;
+  wosStatus?: string;
+  bestRanking?: string;
   year?: number;
   wosId?: number;
   sourceHomepage?: string;

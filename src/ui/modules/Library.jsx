@@ -30,7 +30,7 @@ const provName = (p) => {
 };
 
 const LIB_CSS = `
-.lib{flex:1;min-height:0;display:flex;flex-direction:column}
+.lib{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--surf2)}
 .lib-head{padding:16px 20px 10px;flex-shrink:0;display:flex;flex-direction:column;gap:12px}
 .lib-h1row{display:flex;align-items:center;gap:10px;position:relative}
 .lib-h1{font-family:'Source Serif 4',Georgia,serif;font-size:20px;font-weight:600;margin:0;color:var(--ink);display:flex;align-items:center;gap:8px}
@@ -555,6 +555,7 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
         </div>
       </div>
 
+      <div className="lib-body">
       {selMode && (
         <div className="lib-corpus-bar">
           <div className="lib-corpus-barh"><Sparkles size={14} /> 跨篇分析 · 已选 {sel.size} 篇{sel.size < 2 ? "（至少选 2 篇）" : ""}</div>
@@ -589,7 +590,6 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
           {corpusEnv && <CorpusCard env={corpusEnv} onRead={onRead} />}
         </div>
       )}
-      <div className="lib-body">
         {(lib || []).length === 0 ? (
           <div className="lib-empty">
             <BookMarked size={30} strokeWidth={1.6} />

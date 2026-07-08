@@ -12,6 +12,13 @@ export interface WosJifRow {
   jif?: number;
   jif5yr?: number;
   wosIndexes?: string;
+  abbreviation?: string;
+  category?: string;
+  country?: string;
+  publisher?: string;
+  oaSupport?: string;
+  wosStatus?: string;
+  bestRanking?: string;
   year?: number;
 }
 
@@ -117,8 +124,18 @@ export function parseWosJifDetailHtml(html: string, yearHint?: number): WosJifRo
   const jif = num(fieldContent(text, "Journal Impact Factor (JIF)"));
   const jif5yr = num(fieldContent(text, "5-year Impact Factor"));
   const wosIndexes = fieldContentHtml(text, "WoS Core Citation Indexes");
+  const abbreviation = fieldContent(text, "Abbreviation");
+  const category = fieldContent(text, "Category");
+  const country = fieldContent(text, "Country");
+  const publisher = fieldContent(text, "Publisher");
+  const oaSupport = fieldContentHtml(text, "Open Access Support");
+  const wosStatus = fieldContent(text, "Status in WoS core");
+  const bestRanking = fieldContentHtml(text, "Best Ranking");
   if (!issns.length && !title && jif == null) return null;
-  return { title, issns, jif, jif5yr, wosIndexes, year };
+  return {
+    title, issns, jif, jif5yr, wosIndexes, abbreviation, category, country, publisher,
+    oaSupport, wosStatus, bestRanking, year,
+  };
 }
 
 export function parseYearFromHtml(html: string): number | undefined {
@@ -268,7 +285,7 @@ export async function crawlWosJifDataset(
   return buildWosJifDataset(allRows, year);
 }
 
-/** ISSN 在线补查（单刊，用于数据集未覆盖时） */
+/** ISSN 在线补查（单刊，用于数据集未覆盖时）；命中后拉详情页补全 5 年 IF / WoS 收录等字段 */
 export async function fetchWosJifByIssn(
   issn: string,
   fetchImpl: typeof fetch = fetch,
@@ -277,5 +294,45 @@ export async function fetchWosJifByIssn(
   const n = normalizeIssn(issn);
   if (!n) return null;
   const { rows, year } = await fetchWosJifPage(0, fetchImpl, { search: n, signal });
-  return wosJifLookup(buildWosJifDataset(rows, year), [n]) || rows[0] || null;
+  const base = wosJifLookup(buildWosJifDataset(rows, year), [n]) || rows[0] || null;
+  if (!base) return null;
+  if (!base.wosId) return base;
+  try {
+    const detail = await fetchWosJifDetail(base.wosId, fetchImpl, signal);
+    if (!detail) return base;
+    return {
+      ...base,
+      ...detail,
+      wosId: base.wosId,
+      issns: detail.issns.length ? detail.issns : base.issns,
+      jif: detail.jif ?? base.jif,
+      jif5yr: detail.jif5yr ?? base.jif5yr,
+      wosIndexes: detail.wosIndexes ?? base.wosIndexes,
+    };
+  } catch {
+    return base;
+  }
+}
+
+/** 期刊详情页（含 5 年 IF、WoS 核心收录、学科类别等） */
+export async function fetchWosJifDetail(
+  wosId: number,
+  fetchImpl: typeof fetch = fetch,
+  signal?: AbortSignal,
+): Promise<WosJifRow | null> {
+  if (!wosId) return null;
+  const url = `${WOS_JIF_HOMEPAGE}journalid/${wosId}`;
+  const res = await fetchImpl(url, {
+    headers: {
+      accept: "text/html,*/*",
+      "accept-language": "en-US,en;q=0.9",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+      referer: WOS_JIF_HOMEPAGE,
+    },
+    signal,
+  });
+  if (!res.ok) return null;
+  const row = parseWosJifDetailHtml(await res.text());
+  if (row) row.wosId = wosId;
+  return row;
 }

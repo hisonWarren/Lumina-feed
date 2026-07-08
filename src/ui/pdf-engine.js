@@ -98,8 +98,8 @@ export async function extractPageTextForTranslate(doc, pageNum) {
     })
     .filter(Boolean);
   if (!raw.length) return "";
-  const topCut = pageH * 0.08;
-  const botCut = pageH * 0.92;
+  const topCut = pageH * 0.05;
+  const botCut = pageH * 0.96;
   const body = raw.filter((l) => l.y > topCut && l.y < botCut);
   const lines = body.length ? body : raw;
   lines.sort((a, b) => (a.y - b.y) || (a.x - b.x));

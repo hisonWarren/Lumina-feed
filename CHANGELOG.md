@@ -2,6 +2,17 @@
 
 本文件记录 Lumina Feed 各版本的用户可见变更。完整提交历史见 [GitHub Releases](https://github.com/hisonWarren/Lumina-feed/releases)。
 
+## [0.4.90] — 2026-07-08
+
+### 修复
+
+- **我的文献 · 跨篇分析**：分析结果面板在滚动区外撑满视口导致无法滚动；现移入 `.lib-body` 与文献列表同区滚动。
+- **阅读器 · 页内翻译**：长页单次 `maxTokens=1200` 导致译文截断遗漏；改为按段落分块翻译并动态提高 token 上限；略放宽 PDF 取文页眉页脚裁切。
+
+### 新增
+
+- **期刊 · WoS 详情**：逐刊/在线查询时拉取 wos-journal.info 详情页，展示 5 年 IF、WoS 核心收录（SCIE/SSCI 等）、学科类别、Best Ranking、OA 支持、WoS 状态、出版商等。
+
 ## [0.4.89] — 2026-07-06
 
 ### 修复

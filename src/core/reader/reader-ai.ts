@@ -70,14 +70,40 @@ const TRANSLATE_SYS =
   "着重翻译摘要、章节标题与正文段落。段落之间用空行分隔；只输出译文，不加解释、不加页码、不要编造；保留专有名词与术语准确。" +
   "不要使用 Markdown 或 ** 加粗标记；章节小标题单独成行即可（如「摘要」「引言」）。";
 
-/** 划词/整篇翻译：忠实翻译给定文本（非接地、无页码引用）。 */
+/** 划词/整篇翻译：忠实翻译给定文本（非接地、无页码引用）。长页按段落分块，避免输出 token 截断漏译。 */
+function translateMaxTokens(inputChars: number): number {
+  return Math.min(4096, Math.max(1400, Math.ceil(inputChars * 0.85) + 320));
+}
+
+async function translateOneChunk(text: string, llm: LlmClient, opts: { signal?: AbortSignal }): Promise<string> {
+  return llm.complete(
+    [{ role: "system", content: TRANSLATE_SYS }, { role: "user", content: text }],
+    { maxTokens: translateMaxTokens(text.length), temperature: 0.2, signal: opts.signal },
+  );
+}
+
 export async function translateText(text: string, llm: LlmClient, opts: { signal?: AbortSignal } = {}): Promise<string> {
   const t = (text || "").trim();
   if (!t) return "";
-  return llm.complete(
-    [{ role: "system", content: TRANSLATE_SYS }, { role: "user", content: t }],
-    { maxTokens: 1200, temperature: 0.2, signal: opts.signal },
-  );
+  const CHUNK = 2400;
+  if (t.length <= CHUNK) return translateOneChunk(t, llm, opts);
+  const paras = t.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
+  const chunks: string[] = [];
+  let buf = "";
+  for (const p of paras) {
+    if (buf && (buf.length + p.length + 2) > CHUNK) {
+      chunks.push(buf);
+      buf = p;
+    } else {
+      buf = buf ? `${buf}\n\n${p}` : p;
+    }
+  }
+  if (buf) chunks.push(buf);
+  const outs: string[] = [];
+  for (const c of chunks) {
+    outs.push(await translateOneChunk(c, llm, opts));
+  }
+  return outs.join("\n\n");
 }
 
 const SYS_BASE =
