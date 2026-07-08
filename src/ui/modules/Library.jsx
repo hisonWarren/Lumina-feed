@@ -41,6 +41,7 @@ const LIB_CSS = `
 .lib-xbtn:hover{border-color:var(--gold);color:var(--gold)}
 .lib-xbtn:disabled{opacity:.5;cursor:default}
 .lib-xmenu{position:absolute;top:calc(100% + 4px);right:0;background:var(--surf);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.16);padding:4px;display:flex;flex-direction:column;gap:2px;z-index:20;min-width:150px}
+.lib-xmenu-hint{padding:6px 11px 4px;font-size:11px;color:var(--ink3);line-height:1.35;border-bottom:1px solid var(--line);margin-bottom:2px}
 .lib-xmenu button{border:none;background:transparent;color:var(--ink2);text-align:left;padding:8px 11px;font-size:12.5px;border-radius:7px;cursor:pointer;font-family:inherit}
 .lib-xmenu button:hover{background:var(--surf2);color:var(--gold)}
 .lib-bar{display:flex;align-items:center;gap:10px;border:1px solid var(--line2);border-radius:11px;padding:8px 12px;background:var(--surf)}
@@ -338,17 +339,31 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
     return Object.keys(m).map((k) => ({ key: k, items: m[k] }));
   }, [view, grouped]);
 
+  const exportTargets = useMemo(() => {
+    if (!sel.size) return view;
+    const idx = new Map((lib || []).map((p, i) => [p.id, i]));
+    return (lib || []).filter((p) => sel.has(p.id)).slice().sort((a, b) => {
+      if (sort === "year") return (Number(b.year) || 0) - (Number(a.year) || 0);
+      if (sort === "title") return String(a.title || "").localeCompare(String(b.title || ""));
+      return (idx.get(b.id) || 0) - (idx.get(a.id) || 0);
+    });
+  }, [sel, view, lib, sort]);
+
   const copyCite = (style, p) => {
     try { const t = formatCitation(style, p); navigator.clipboard && navigator.clipboard.writeText(t); pushToast && pushToast("已复制 " + style.toUpperCase() + " 引用"); } catch (e) { /* noop */ }
   };
   const doExport = (kind) => {
     setExportOpen(false);
-    const set = view;
-    if (!set.length) { pushToast && pushToast("当前没有可导出的条目"); return; }
+    const set = exportTargets;
+    if (!set.length) {
+      pushToast && pushToast(sel.size ? "请先勾选要导出的文献" : "当前没有可导出的条目");
+      return;
+    }
     if (kind === "bib") exportBib(set, "lumina");
     else if (kind === "ris") exportRis(set, "lumina");
     else exportCslJson(set, "lumina");
-    pushToast && pushToast("已导出 " + set.length + " 条（" + kind.toUpperCase() + "）");
+    const scope = sel.size ? `所选 ${set.length} 篇` : `${set.length} 条`;
+    pushToast && pushToast(`已导出 ${scope}（${kind.toUpperCase()}）`);
   };
 
   const toggleSel = (id) => setSel((st) => { const n = new Set(st); if (n.has(id)) n.delete(id); else n.add(id); return n; });
@@ -385,7 +400,7 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
     const prog = isFetching ? fetchProgressUi(fmeta, Date.now()) : null;
     return (
     <div className={"lib-card" + (selMode && sel.has(p.id) ? " lib-card-sel" : "")} key={p.id}>
-      {selMode && <button role="checkbox" aria-checked={sel.has(p.id)} className={"lib-cb" + (sel.has(p.id) ? " on" : "")} onClick={() => toggleSel(p.id)} aria-label="选择本篇做跨篇分析">{sel.has(p.id) ? <Check size={14} /> : null}</button>}
+      {selMode && <button role="checkbox" aria-checked={sel.has(p.id)} className={"lib-cb" + (sel.has(p.id) ? " on" : "")} onClick={() => toggleSel(p.id)} aria-label="选择本篇（跨篇分析 / 导出）">{sel.has(p.id) ? <Check size={14} /> : null}</button>}
       {editingTitleId === p.id ? (
         <input
           ref={titleInputRef}
@@ -475,9 +490,10 @@ export default function Library({ lib, lists, onCreateList, onToggleInList, onDe
           <h1 className="lib-h1"><BookMarked size={19} /> 我的文献</h1>
           <span className="lib-count">{(lib || []).length} 篇</span>
           <div className="lib-export">
-            <button className="lib-xbtn" onClick={() => setExportOpen((v) => !v)} disabled={!view.length}><Download size={14} /> 导出 <ChevronDown size={12} /></button>
+            <button className="lib-xbtn" onClick={() => setExportOpen((v) => !v)} disabled={!exportTargets.length}><Download size={14} /> 导出{sel.size > 0 ? `（${sel.size}）` : ""} <ChevronDown size={12} /></button>
             {exportOpen && (
               <div className="lib-xmenu">
+                {sel.size > 0 && <div className="lib-xmenu-hint">导出已选 {sel.size} 篇（非当前列表全部）</div>}
                 <button onClick={() => doExport("bib")}>.bib（BibTeX）</button>
                 <button onClick={() => doExport("ris")}>.ris（EndNote/Zotero）</button>
                 <button onClick={() => doExport("csl")}>CSL-JSON</button>
