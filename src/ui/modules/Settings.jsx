@@ -382,6 +382,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
   }, [backend, buildLlmPayload, pushToast]);
 
   const llmBlurTimer = useRef(null);
+  const modelsFetchGenRef = useRef(0);
   const scheduleLlmBlurSave = useCallback((overrides = {}) => {
     if (!backend) return;
     if (llmBlurTimer.current) clearTimeout(llmBlurTimer.current);
@@ -553,6 +554,9 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
   const onPickProvider = async (id) => {
     const prev = { provider, model, baseUrl };
     const p = presetOf(id);
+    modelsFetchGenRef.current += 1; // 作废进行中的 listModels，避免切供应商后仍写入旧列表
+    setFetchedModels(null);
+    setTestResult(null);
     setProvider(id);
     setModel(p.model);
     setBaseUrl(p.showBase ? (id === "ollama" ? "" : "") : "");
@@ -565,18 +569,34 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
     refreshLlmKeyStatus(id);
   };
 
-  const fetchModels = useCallback(async () => {
-    const pr = presetOf(provider);
+  const fetchModels = useCallback(async (forProvider) => {
+    const pid = forProvider || provider;
+    const pr = presetOf(pid);
+    const gen = ++modelsFetchGenRef.current;
     setModelsLoading(true);
     try {
-      const res = await bridge.listModels({ provider, baseUrl: pr.showBase ? (baseUrl.trim() || undefined) : undefined, apiKey: apiKey.trim() || undefined });
+      const res = await bridge.listModels({
+        provider: pid,
+        baseUrl: pr.showBase ? (pid === provider ? (baseUrl.trim() || undefined) : undefined) : undefined,
+        apiKey: pid === provider ? (apiKey.trim() || undefined) : undefined,
+      });
+      if (gen !== modelsFetchGenRef.current) return;
       if (res && res.ok && Array.isArray(res.models) && res.models.length) setFetchedModels(res.models);
       else setFetchedModels(null);
-    } catch (e) { setFetchedModels(null); }
-    finally { setModelsLoading(false); }
+    } catch (e) {
+      if (gen === modelsFetchGenRef.current) setFetchedModels(null);
+    } finally {
+      if (gen === modelsFetchGenRef.current) setModelsLoading(false);
+    }
   }, [provider, baseUrl, apiKey]);
   // 切换供应商即拉取（有 key / Ollama 返回真列表；无 key 静默回落内置清单）。
-  useEffect(() => { setFetchedModels(null); setCustomMode(false); setModelMenuOpen(false); fetchModels(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [provider]);
+  useEffect(() => {
+    setFetchedModels(null);
+    setCustomMode(false);
+    setModelMenuOpen(false);
+    setTestResult(null);
+    fetchModels(provider);
+  }, [provider, fetchModels]);
   const preset = presetOf(provider);
   const availModels = (fetchedModels && fetchedModels.length) ? fetchedModels : (MODEL_PRESETS[provider] || []);
   const showCustomInput = customMode || (!!model && !availModels.includes(model)); // 自填/自定义模型能力标记（provider_translate 契约）
@@ -724,7 +744,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                   <div className="set-combo">
                     <input className="set-combo-in set-mono" value={model} onChange={(e) => { setModel(e.target.value); scheduleLlmBlurSave({ model: e.target.value }); }} onBlur={() => void persistLlmFields({ model })} onFocus={() => setModelMenuOpen(true)} placeholder={preset.model || "模型名（点选或直接输入）"} aria-label="模型名" />
                     <button type="button" className="set-combo-tg" onClick={() => setModelMenuOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={modelMenuOpen} title="模型列表"><ChevronDown size={14} /></button>
-                    <button type="button" className="set-combo-rf" onClick={() => fetchModels()} disabled={modelsLoading} title="拉取最新模型列表"><span className={modelsLoading ? "set-spin" : ""}>{modelsLoading ? <Loader size={14} /> : <RefreshCw size={14} />}</span></button>
+                    <button type="button" className="set-combo-rf" onClick={() => fetchModels(provider)} disabled={modelsLoading} title={preset.needsKey && !llmKeySaved && !apiKey.trim() ? "拉取最新模型列表（需先在钥匙串保存 API Key）" : "拉取最新模型列表"}><span className={modelsLoading ? "set-spin" : ""}>{modelsLoading ? <Loader size={14} /> : <RefreshCw size={14} />}</span></button>
                     {modelMenuOpen && (
                       <div className="set-combo-menu" role="listbox">
                         {availModels.map((m) => (
@@ -767,7 +787,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                     <button type="button" className="set-btn2" onClick={() => void onClearLlmKey()} title="从系统钥匙串删除已存 API Key">清除已存密钥</button>
                   ) : null}
                 </div>
-                {testResult && <div className={"set-test" + (testResult.ok ? " ok" : " err")}>{testResult.ok ? ("✓ 连接成功 · " + testResult.model + (testResult.ms ? " · " + testResult.ms + " ms" : "")) : ("✗ " + (testResult.error || "连接失败"))}</div>}
+                {testResult && <div className={"set-test" + (testResult.ok ? " ok" : " err")}>{testResult.ok ? ("✓ 连接成功 · " + preset.label + " · " + testResult.model + (testResult.ms ? " · " + testResult.ms + " ms" : "")) : ("✗ " + (testResult.error || "连接失败"))}</div>}
               </>
             )}
 
