@@ -11,6 +11,7 @@ const ok = (c, m) => { if (c) { pass++; console.log("  ✓ " + m); } else { fail
 let pkg = null;
 try { pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf-8")); } catch { /* */ }
 const b = (pkg && pkg.build) || {};
+const hasTarget = (plat, name) => arr(b[plat] && b[plat].target).some((t) => (typeof t === "string" ? t : t && t.target) === name);
 const arr = (x) => Array.isArray(x) ? x : [];
 const main = (() => { try { return readFileSync(join(root, "electron/main.ts"), "utf-8"); } catch { return ""; } })();
 
@@ -28,9 +29,9 @@ ok(fa && fa.role === "Viewer", "role = Viewer（查看器，非编辑器）");
 ok(fa && fa.rank === "Alternate", "rank = Alternate（不强占默认 PDF 处理器）");
 
 console.log("\n[3] 多平台目标 + 图标");
-ok(arr(b.win && b.win.target).includes("nsis") && b.win.icon, "win: nsis + 图标");
-ok(arr(b.mac && b.mac.target).includes("dmg") && b.mac.icon, "mac: dmg + 图标");
-ok(arr(b.linux && b.linux.target).includes("AppImage") && arr(b.linux.mimeTypes).includes("application/pdf"), "linux: AppImage + mimeTypes(application/pdf)");
+ok(hasTarget("win", "nsis") && b.win.icon, "win: nsis + 图标");
+ok(hasTarget("mac", "dmg") && b.mac.icon, "mac: dmg + 图标");
+ok(hasTarget("linux", "AppImage") && arr(b.linux.mimeTypes).includes("application/pdf"), "linux: AppImage + mimeTypes(application/pdf)");
 
 console.log("\n[4] 脚本 + 依赖");
 ok(pkg && pkg.scripts && /electron-builder/.test(pkg.scripts.dist || ""), "scripts.dist 调 electron-builder");

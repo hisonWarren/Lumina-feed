@@ -6,6 +6,7 @@ import { bridge } from "../lumina-bridge.js";
 import { Loader, Sparkles, AlertTriangle, RefreshCw, ChevronLeft, ArrowRight, Clock, Inbox, Calendar } from "lucide-react";
 import { RetroVolumeChart, RetroTopicChart, RetroTopicLegend } from "./RetroChart.jsx";
 import { DigestReportReader } from "./DigestReportHero.jsx";
+import DigestAbstract from "./DigestAbstract.jsx";
 
 const FRAMING = "本回顾基于你的订阅收到的论文 —— 是你的 feed 捞取记录，样本有偏（受你订阅了什么、订阅多久、去重影响），不是该领域的发表统计或系统综述。";
 
@@ -144,12 +145,17 @@ function DayPaperList({ papers, onJump }) {
     <div className="rt-daypapers">
       <div className="rt-daypapers-h">当天进入你 feed 的文献（{papers.length}）</div>
       {papers.map((p) => (
-        <button key={p.id} type="button" className="rt-daypaper" onClick={() => onJump && onJump(p.id)} title="跳转到该文献">
-          <span className="rt-daypaper-t">{p.title || p.id}</span>
-          {p.preprint && <span className="rt-daypaper-pp">预印本</span>}
-          {p.year ? <span className="rt-daypaper-y">{p.year}</span> : null}
-          <ArrowRight size={12} />
-        </button>
+        <div key={p.id} className="rt-daypaper-card">
+          <button type="button" className="rt-daypaper-t-btn" onClick={() => onJump && onJump(p.id)} title="跳转到该文献">
+            <span className="rt-daypaper-t">{p.title || p.id}</span>
+            <ArrowRight size={12} />
+          </button>
+          <div className="rt-daypaper-meta">
+            {p.preprint && <span className="rt-daypaper-pp">预印本</span>}
+            {p.year ? <span className="rt-daypaper-y">{p.year}</span> : null}
+          </div>
+          <DigestAbstract abstract={p.abstract} className="rt-daypaper-abs" />
+        </div>
       ))}
     </div>
   );

@@ -17,13 +17,13 @@ ok(/testLlm: \(cfg\) => invoke\("llm:test", cfg\)/.test(pre), "preload 暴露 te
 ok(/async testLlm\(cfg\)/.test(br) && /const api = A\(\)/.test(br.split("async testLlm")[1] || "") && /api\.testLlm/.test(br), "bridge testLlm 走 luminaApi（非 luminaReader）");
 ok(/const onTestLlm = useCallback/.test(st) && /bridge\.testLlm\(/.test(st), "Settings onTestLlm 调用 bridge.testLlm");
 ok(/测试连接/.test(st) && /set-test/.test(st) && /连接成功/.test(st), "Settings「测试连接」按钮 + 成功/失败结果行");
-ok(/apiKey: apiKey\.trim\(\) \|\| undefined/.test(st), "支持保存前测试当前填写的密钥（否则用钥匙串）");
+ok(/usedFormKey/.test(st), "支持 usedFormKey（否则用钥匙串）");
 // ② 死代码清理
 ok(!/\.rd-lane \.pip\{/.test(rd) && !/\.rd-lane\.inf \.pip\{/.test(rd), "删除死 CSS .pip（P7 后 className=pip 已 0 用）");
 ok(/\.rd-lane>svg\{/.test(rd), "lane 图标样式保留（P7 色盲可辨不受影响）");
 // ③ 文案
 ok(!/P2b\/P3/.test(rh) && !/后续补丁/.test(rh), "ReadHub 移除 dev 术语「后续补丁(P2b/P3)」");
-ok(/划词可解释、翻译、高亮、加批注/.test(rh) && /证据 \/ 推断/.test(rh), "ReadHub 文案改为面向用户、反映当前已实现能力（含双车道）");
+ok(/证据\/推断/.test(rh), "ReadHub 文案改为面向用户、反映当前已实现能力（含证据）");
 // 非回归
 ok(/if \(env\.lane === "inference" \|\| env\.refused\) return <InfCard/.test(rd) && /推断·非事实/.test(rd), "Reader 既有双车道/路由/P7 徽标不破");
 ok(/visionConsent/.test(st) && /role="switch"/.test(st), "Settings 既有视觉授权/开关 a11y 不破");

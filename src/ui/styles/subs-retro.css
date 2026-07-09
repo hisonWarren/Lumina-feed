@@ -114,8 +114,14 @@
 .rt-day-rep { color:var(--petrol); }
 
 .rt-day-detail { min-width:0; }
-.rt-daypapers { margin-top:14px; display:flex; flex-direction:column; gap:4px; }
+.rt-daypapers { margin-top:14px; display:flex; flex-direction:column; gap:8px; }
 .rt-daypapers-h { font-size:11px; font-family:var(--mono); letter-spacing:.4px; color:var(--ink4); margin-bottom:4px; }
+.rt-daypaper-card { border:1px solid var(--line); border-radius:10px; padding:10px 12px; background:var(--surf); }
+.rt-daypaper-t-btn { display:flex; align-items:center; gap:8px; width:100%; border:none; background:transparent; padding:0; margin:0; font:inherit; color:var(--ink); text-align:left; cursor:pointer; }
+.rt-daypaper-t-btn:hover .rt-daypaper-t { color:var(--petrol); text-decoration:underline; }
+.rt-daypaper-t { flex:1 1 auto; font-size:13px; font-weight:600; line-height:1.45; }
+.rt-daypaper-meta { display:flex; gap:8px; align-items:center; margin-top:4px; }
+.rt-daypaper-abs { margin-top:6px; }
 .rt-daypaper { display:flex; align-items:center; gap:8px; border:1px solid var(--line); background:var(--surf); color:var(--ink);
   border-radius:8px; padding:7px 10px; font-size:12.5px; cursor:pointer; font-family:inherit; text-align:left; }
 .rt-daypaper:hover { border-color:var(--petrol); background:var(--petrol-tint); }

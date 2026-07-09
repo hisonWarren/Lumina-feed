@@ -4,6 +4,8 @@
 //      代码须"运行时正确"(已对照真实引擎签名编写)；TS 类型健全性 + 真实 LLM/PDF/IPC 行为须真机确认。
 import fs from "node:fs";
 import path from "node:path";
+import { execSync } from "node:child_process";
+function tsCheck(p) { try { execSync(`node --experimental-strip-types --check "${path.join(ROOT, p)}"`, { stdio: "pipe" }); return true; } catch { return false; } }
 
 const ROOT = process.cwd();
 let fail = 0, warn = 0;
@@ -20,7 +22,8 @@ console.log("\n— 1. 前置（v0.3.0-minimal 引擎）在位 —");
 
 console.log("\n— 2. 本补丁文件 + 括号平衡（TS）—");
 ["src/core/reader/reader-ai.ts"].forEach((f)=> exists(f)?ok("新增 "+f):bad("缺 "+f));
-["electron/ipc.ts","electron/preload.ts","src/core/reader/reader-ai.ts"].forEach((f)=>{ if(exists(f)&&balance(f)) ok(f+" 括号平衡"); });
+["electron/ipc.ts","electron/preload.ts"].forEach((f)=>{ if(exists(f)&&balance(f)) ok(f+" 括号平衡"); });
+tsCheck("src/core/reader/reader-ai.ts")&&ok("reader-ai.ts strip-types");
 
 console.log("\n— 3. IPC 注册（新 + 既有不回归）—");
 if(exists("electron/ipc.ts")){ const s=read("electron/ipc.ts");

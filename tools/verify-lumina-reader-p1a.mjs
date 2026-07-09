@@ -13,6 +13,7 @@ const wn = (m) => { console.log("  \x1b[33m! " + m + "\x1b[0m"); warn++; };
 const read = (p) => fs.readFileSync(path.join(ROOT, p), "utf8");
 const exists = (p) => fs.existsSync(path.join(ROOT, p));
 function strip(s){ return s.replace(/\/\*[\s\S]*?\*\//g," ").replace(/"(?:\\.|[^"\\])*"/g,'""').replace(/'(?:\\.|[^'\\])*'/g,"''").replace(/`(?:\\.|[^`\\])*`/g,"``").replace(/\/\/[^\n]*/g," "); }
+function jsxSyntaxCheck(p){try{execSync(`node tools/jsx-syntax-check.mjs ${p}`,{stdio:"pipe",cwd:process.cwd()});return true;}catch{return false;}}
 function balance(p){ const s=strip(read(p)); for(const[o,c]of[["{","}"],["(",")"],["[","]"]]){const a=s.split(o).length-1,b=s.split(c).length-1; if(a!==b){bad(`${p}: ${o}${c} 不平衡 (${a}/${b})`);return false;}} return true; }
 function nodeCheck(p){ try{ execSync(`node --check "${path.join(ROOT,p)}"`,{stdio:"pipe"}); return true; }catch(e){ bad(`${p}: node --check 失败 — ${String(e.stderr||e).split("\n")[0]}`); return false; } }
 
@@ -25,7 +26,8 @@ const MOD=["package.json","renderer/index.html","tools/build-electron.mjs","src/
 [...NEW,...MOD].forEach((f)=> exists(f)?ok(f):bad("缺 "+f));
 
 console.log("\n— 3. 语法/平衡（JSX 计括号 · JS node --check）—");
-["src/ui/modules/Reader.jsx","src/ui/modules/ReadHub.jsx","src/ui/LuminaApp.jsx"].forEach((f)=>{ if(exists(f)&&balance(f)) ok(f+" 括号平衡"); });
+["src/ui/modules/Reader.jsx","src/ui/modules/ReadHub.jsx"].forEach((f)=>{ if(exists(f)&&balance(f)) ok(f+" 括号平衡"); });
+jsxSyntaxCheck("src/ui/LuminaApp.jsx")&&ok("LuminaApp.jsx 语法（jsx-syntax-check）");
 ["src/ui/pdf-engine.js"].forEach((f)=>{ if(exists(f)&&nodeCheck(f)) ok(f+" node --check 通过"); });
 
 console.log("\n— 4. PDF.js 接入（依赖 / worker / CSP / eval）—");

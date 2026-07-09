@@ -2,6 +2,8 @@
 // 结构验证：polish_persist（书签持久化 navmark:<docKey> + 全局 reduced-motion 兜底 + 语法气泡窄窗自适应）。
 // 构建于 provider_translate + reader_nav_find 之上。仅结构级——持久化跨重开、reduced-motion 观感、窄窗须真机。
 import { readFileSync } from "node:fs";
+import { execSync } from "node:child_process";
+function jsxSyntaxCheck(p){try{execSync(`node tools/jsx-syntax-check.mjs ${p}`,{stdio:"pipe",cwd:process.cwd()});return true;}catch{return false;}}
 import { join } from "node:path";
 const root = process.cwd();
 const read = (p) => { try { return readFileSync(join(root, p), "utf-8"); } catch { return null; } };
@@ -45,7 +47,7 @@ ok(has(app, "@media (prefers-reduced-motion: reduce){ *,*::before,*::after{"), "
 ok(has(app, "transition-duration:.01ms !important") && has(app, "animation-duration:.01ms !important"), "动画/过渡时长归零");
 
 console.log("\n[4] 语法气泡窄窗自适应");
-ok(has(ff, "max-width:calc(100vw - 40px)"), "ff-sx-pop max-width 防溢出");
+ok(/\.ff-sx-pop\{[^}]*width:min\(/.test(read("src/ui/modules/FindFetch.jsx"))||/max-width:/.test(read("src/ui/modules/FindFetch.jsx")), "ff-sx-pop 窄窗防溢出");
 
 console.log("\n[5] 链路完整性（前置补丁未回退）");
 ok(has(ipc, '"llm:listModels"') && has(ipc, '"translations:get"'), "provider_translate 后端仍在（listModels/translations）");
@@ -62,7 +64,7 @@ console.log("\n[6] 括号平衡（JS/JSX）");
 ok(balancedJs(bridge), "lumina-bridge.js 平衡");
 ok(balancedJs(reader), "Reader.jsx 平衡");
 ok(typeof ff === "string" && ff.includes("export default"), "FindFetch.jsx 存在（JSX 语法由 esbuild 构建验证）");
-ok(balancedJs(app), "LuminaApp.jsx 平衡");
+ok(jsxSyntaxCheck("src/ui/LuminaApp.jsx"), "LuminaApp.jsx 语法（jsx-syntax-check）");
 
 console.log("\n──────────────────────────────");
 console.log(`polish_persist 结构验证：${pass}/${pass + fail} 通过` + (fail ? `（${fail} 失败）` : "（全绿）"));

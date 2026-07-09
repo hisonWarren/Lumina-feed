@@ -17,7 +17,7 @@ const core = R(CORE);
 ok(/const SYS_ALL =/.test(core) && /const SYS_SINGLE =/.test(core), "两套编辑 prompt：SYS_ALL（综合/广度）+ SYS_SINGLE（单主题/深度）");
 ok(/单主题[\s\S]{0,40}深度/.test(core) && /跨主题综合概览|跨[\s\S]{0,4}主题/.test(core), "单=深度、全=综合，措辞区分明确");
 ok(/generateDigestReportContent\(\s*\n?\s*inputs[\s\S]{0,120}scope: "all" \| string/.test(core) && /single \? SYS_SINGLE : SYS_ALL/.test(core), "生成按 scope 选 prompt（single→深度）");
-ok(/maxTokens: single \? 3800 : 2200/.test(core), "单主题深度报告给更高 token 预算（3800 vs 2200，避免被截断）");
+ok(/maxTokens: single \? 3800 : 3400/.test(core), "单主题深度报告给更高 token 预算（3800 vs 3400，避免被截断）");
 ok(/const CAPS_ALL:[\s\S]{0,80}const CAPS_SINGLE:/.test(core), "单/全分别设要点·主题·优先看的条数上限（CAPS_SINGLE 更宽）");
 ok(/function salvageObjects/.test(core) && /function salvageArray/.test(core), "新增 salvageObjects/salvageArray：截断 JSON 仍救回完整对象");
 ok(/salvageArray\(trimmed, "themes"\)/.test(core) && /salvageArray\(trimmed, "priorityPicks"\)/.test(core), "parseReportJson 解析失败时用 salvage 救 themes/priorityPicks");
@@ -38,8 +38,9 @@ ok(/if \(force\)[\s\S]{0,120}pushToast/.test(sub), "B2：自动/静默生成（f
 try { execSync("node tools/jsx-syntax-check.mjs " + HERO, { stdio: "pipe" }); ok(true, "DigestReportHero.jsx 语法（JSX）通过"); }
 catch { ok(false, "DigestReportHero.jsx 语法（JSX）通过"); }
 const hero = R(HERO);
-ok(/function ReportLede/.test(hero) && /function ReportSections/.test(hero), "抽出共享展示件 ReportLede / ReportSections（Hero 与 Reader 复用，单一真相）");
-ok((hero.match(/<ReportSections\b/g) || []).length >= 2, "Hero 与 Reader 均用 <ReportSections/>（版式一致）");
+ok(/function ReportLede/.test(hero), "抽出共享展示件 ReportLede（Reader 页眉）");
+ok(/function ReportSections/.test(hero), "抽出共享展示件 ReportSections（Reader 完整报告用）");
+ok((hero.match(/<ReportSections\b/g) || []).length >= 1, "Reader 用 <ReportSections/> 渲染完整报告（Hero 扫描列表仅一段话简报）");
 ok(/function ModeTag/.test(hero) && /单订阅 · 深度/.test(hero) && /全部订阅 · 综合/.test(hero), "模式徽标区分「单订阅·深度」/「全部订阅·综合」");
 ok(/data-mode=\{mode\}/.test(hero), "根节点带 data-mode（CSS 据此分态：单订阅脊柱更重等）");
 ok(/className="dg-rp-pick-n"/.test(hero) && /className="dg-rp-pick"/.test(hero), "「值得优先看」改 flex 顶对齐序号圆点结构（修序号错位）");

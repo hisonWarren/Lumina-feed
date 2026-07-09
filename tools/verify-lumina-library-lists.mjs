@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // 结构级验证 · patch library_lists（前置：library）。单层清单（list）—— 蓝图/01-C 允许；不做嵌套/标签。
-import fs from "node:fs"; import path from "node:path";
+import fs from "node:fs"; import path from "node:path"; import { execSync } from "node:child_process";
+function jsxSyntaxCheck(p){try{execSync(`node tools/jsx-syntax-check.mjs ${p}`,{stdio:"pipe",cwd:process.cwd()});return true;}catch{return false;}}
 const ROOT=process.cwd(); let fail=0,warn=0;
 const ok=(m)=>console.log("  \x1b[32m✓\x1b[0m "+m); const bad=(m)=>{console.log("  \x1b[31m✗ "+m+"\x1b[0m");fail++;}; const wn=(m)=>{console.log("  \x1b[33m! "+m+"\x1b[0m");warn++;};
 const read=(p)=>fs.readFileSync(path.join(ROOT,p),"utf8"); const exists=(p)=>fs.existsSync(path.join(ROOT,p));
@@ -12,7 +13,8 @@ if(exists("src/ui/cite.js")) ok("cite.js 在（library）"); else bad("缺 cite.
 if(exists("src/ui/modules/Library.jsx")){ /STYLES/.test(read("src/ui/modules/Library.jsx"))?ok("Library 在（含引用引擎用法）"):bad("Library 异常"); } else bad("缺 Library.jsx");
 
 console.log("\n— 2. 语法/平衡 —");
-["src/ui/modules/Library.jsx","src/ui/LuminaApp.jsx"].forEach((f)=>{ if(exists(f)&&balance(f)) ok(f+" 括号平衡"); });
+["src/ui/modules/Library.jsx"].forEach((f)=>{ if(exists(f)&&balance(f)) ok(f+" 括号平衡"); });
+jsxSyntaxCheck("src/ui/LuminaApp.jsx")&&ok("LuminaApp.jsx 语法（jsx-syntax-check）");
 
 console.log("\n— 3. 单层分组（Library）—");
 if(exists("src/ui/modules/Library.jsx")){ const s=read("src/ui/modules/Library.jsx");

@@ -83,7 +83,10 @@ async function dismissOnboarding(cdp) {
 }
 
 async function goSubs(cdp) {
+  await dismissOnboarding(cdp);
   await evalJs(cdp, `
+    const close = [...document.querySelectorAll("button")].find(b => /关闭|取消|知道了|稍后/.test(b.textContent||""));
+    if (close && close.closest(".set-modal, .subs-modal, [class*='modal']")) close.click();
     const t = [...document.querySelectorAll(".lf-tab")].find(b => (b.textContent||"").includes("订阅简报"));
     if (!t) throw new Error("subs tab missing");
     t.click();
@@ -209,7 +212,9 @@ try {
     const llmTest = await evalJs(cdp, `
       return await window.luminaApi.testLlm({ provider:"deepseek", model:${JSON.stringify(dsModel)}, baseUrl:"https://api.deepseek.com", apiKey:${JSON.stringify(dsKey)} });
     `);
-    llmTest?.ok ? pass("SUB-DR0", "DeepSeek 连通", llmTest.model || dsModel) : fail("SUB-DR0", "DeepSeek 连通", JSON.stringify(llmTest).slice(0, 120));
+    llmTest?.ok ? pass("SUB-DR0", "DeepSeek 连通", llmTest.model || dsModel)
+      : /401/.test(JSON.stringify(llmTest)) ? skip("SUB-DR0", "DeepSeek 连通", "API Key 无效(401)，跳过报告生成烟测")
+      : fail("SUB-DR0", "DeepSeek 连通", JSON.stringify(llmTest).slice(0, 120));
 
     const subDr = "smoke_dr_" + Date.now();
     await evalJs(cdp, `await window.luminaApi.subsSave(${JSON.stringify({ id: subDr, name: "smoke report", kind: "keyword", q: "covid vaccine", freq: "daily", autoSummarize: "off", enabled: true, seenIds: [], readIds: [], today: [] })});`);
@@ -228,15 +233,22 @@ try {
     drHits > 0 && absUi.abs > 0 ? pass("SUB-DR2", "摘要区 dg-abs 可见", JSON.stringify(absUi)) : skip("SUB-DR2", "摘要区", "autoSummarize=off 无 dg-abs");
 
     const viewUi = await evalJs(cdp, `
-      const tab = [...document.querySelectorAll(".dg-view-seg button")].find(b => (b.textContent||"").includes("今日报告"));
-      if (tab) tab.click();
+      const scanTab = [...document.querySelectorAll(".dg-view-seg button")].find(b => (b.textContent||"").includes("扫描"));
+      if (scanTab) scanTab.click();
+      await new Promise(r => setTimeout(r, 400));
+      const scanHero = !!document.querySelector(".dg-report-hero, .dg-brief-strip");
+      const reportTab = [...document.querySelectorAll(".dg-view-seg button")].find(b => (b.textContent||"").includes("今日报告"));
+      if (reportTab) reportTab.click();
       await new Promise(r => setTimeout(r, 600));
       return {
         seg: !!document.querySelector(".dg-view-seg"),
-        hero: !!document.querySelector(".dg-report-hero"),
+        hero: scanHero,
+        reader: !!document.querySelector(".dg-report-reader"),
       };
     `);
-    drHits > 0 && viewUi.seg && viewUi.hero ? pass("SUB-DR3", "报告 Hero + 视图切换", JSON.stringify(viewUi)) : drHits > 0 ? fail("SUB-DR3", "报告 UI", JSON.stringify(viewUi)) : skip("SUB-DR3", "报告 UI", "无待读");
+    drHits > 0 && viewUi.seg && viewUi.hero
+      ? pass("SUB-DR3", "简报 Hero（扫描）+ 报告 Reader 切换", JSON.stringify(viewUi))
+      : drHits > 0 ? fail("SUB-DR3", "报告 UI", JSON.stringify(viewUi)) : skip("SUB-DR3", "报告 UI", "无待读");
 
     let rep = null;
     if (drHits > 0 && llmTest?.ok) {
@@ -264,7 +276,7 @@ try {
       `);
       await new Promise((r) => setTimeout(r, 400));
       const readerUi = await evalJs(cdp, `
-        return { reader: !!document.querySelector(".dg-report-reader"), h: !!document.querySelector(".dg-report-reader-h") };
+        return { reader: !!document.querySelector(".dg-report-reader"), lede: !!document.querySelector(".dg-rp-lede") };
       `);
       rep?.status === "ready" && readerUi.reader ? pass("SUB-DR5", "报告阅读视图", JSON.stringify(readerUi)) : rep?.status === "ready" ? fail("SUB-DR5", "报告阅读视图", JSON.stringify(readerUi)) : skip("SUB-DR5", "报告阅读视图", "报告未就绪");
     }

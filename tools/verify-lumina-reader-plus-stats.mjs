@@ -11,7 +11,7 @@ try { execSync("node --check src/ui/lumina-bridge.js", { stdio: "pipe" }); ok(tr
 const rp = R("src/core/reader/reader-plus.ts");
 ok(/stats:\s*\{ lane: "inference", groundability: "L2"/.test(rp), "stats 入 KIND_REGISTRY（推断车道 L2，非 L3→不会被静态拒绝、走 runStructured）");
 ok(/stats:[^]*不是判定出错/.test(rp) && /statcheck \/ GRIM/.test(rp), "stats 框定语：明示「不是判定出错」+ 指向 statcheck/GRIM 确定性重算");
-ok(/stats: "扫描本文的统计报告/.test(rp), "PROMPTS 含 stats");
+ok(/stats: "扫描全文统计报告/.test(rp), "PROMPTS 含 stats");
 ok(/这只是提示、不是判定出错/.test(rp) && /无法可靠核验算术/.test(rp) && /看起来……建议复核/.test(rp), "stats prompt 强制最克制：只「看起来…建议复核」、AI 无法核验算术、不断言出错");
 ok(/不要断言任何数字是错的/.test(rp), "stats prompt 明令不断言任何数字是错的");
 ok(/if \(kind === "stats"\) \{ claim\.confidence = "c3"; claim\.flag = "needs_recheck"; \}/.test(rp), "runStructured 对 stats 强制 c3 + needs_recheck（belt-and-suspenders，不靠模型自觉）");

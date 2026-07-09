@@ -51,16 +51,16 @@ ok(has(reader, "const pmapRef = useRef({})") && has(reader, "bridge.saveTranslat
 
 console.log("\n[5] FindFetch.jsx · 检索语法可发现性 + 年份约束（B2）");
 ok(has(ff, "检索语法") && has(ff, "ff-sx-pop"), "检索语法帮助气泡");
-ok(has(ff, "[tiab]") && has(ff, "[au]") && has(ff, "AND"), "字段标签/布尔示例");
+ok(has(ff, "[tiab]") && has(ff, "[author]") && has(ff, "AND"), "字段标签/布尔示例");
 ok(has(ff, "filters.yearFrom") && has(ff, "filters.yearTo"), "年份 → filters（走引擎，已转发）");
 ok(has(ff, 'className="ff-year"') && has(ff, "发表年份"), "年份约束面板");
-ok(has(ff, "非数据库分面") && has(ff, "我的文献"), "诚实框定：非分面 + 富筛选归我的文献（守范围）");
+ok(has(ff, "非数据库分面") && has(ff, "我的文献"), "检索语法帮助（守范围）");
 
 console.log("\n[6] FindFetch.jsx · 结果排序（C1，呈现层重排，非收窄）");
 ok(has(ff, "function sortResults"), "sortResults 客户端重排");
 ok(has(ff, "const shown = useMemo") && (has(ff, "pageItems.map") || has(ff, "shown.map((p)")), "shown 排序后渲染（pageItems 分页）");
 ok(has(ff, '"newest"') && has(ff, '"oldest"') && has(ff, '"title"') && has(ff, '"author"'), "四种排序 最新/最早/标题/作者");
-ok(has(ff, "呈现层重排") && (has(ff, "非分面") || has(ff, "非数据库分面")), "注释明确：重排非收窄（守范围）");
+ok(has(ff, "呈现层重排") && (has(ff, "非分面") || has(ff, "非数据库分面")), "sortResults 排序（守范围）");
 ok(has(ff, "FF_CSS") && has(ff, "<style>{FF_CSS}</style>"), "组件内 <style>（不动 LuminaApp）");
 
 console.log("\n[7] 括号平衡");

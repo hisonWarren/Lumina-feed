@@ -1,6 +1,6 @@
 {
   "name": "lumina-feed",
-  "version": "0.4.94",
+  "version": "0.4.95",
   "description": "Lumina Feed · 干净基线（检索取文 + 接地总结）",
   "author": "hisonWarren",
   "repository": {
@@ -53,6 +53,7 @@
     "verify:provider-doubao": "node tools/verify-lumina-provider-doubao.mjs",
     "verify:fetch-meta": "node tools/verify-lumina-fetch-meta.mjs",
     "verify:model-presets": "node tools/verify-lumina-model-presets.mjs",
+    "verify:model-catalog": "node tools/verify-lumina-model-catalog.mjs",
     "verify:layout-align": "node tools/verify-lumina-layout-align.mjs",
     "verify:reader-assist-layout": "node tools/verify-lumina-reader-assist-layout.mjs",
     "verify:doubao-ep-cleanup": "node tools/verify-lumina-doubao-ep-cleanup.mjs",

@@ -14,7 +14,7 @@ function fmtTime(iso) {
 }
 
 function ModeTag({ mode }) {
-  return <span className={"dg-rp-mode " + (mode === "single" ? "single" : "all")}>{mode === "single" ? "单订阅" : "全部订阅"}</span>;
+  return <span className={"dg-rp-mode " + (mode === "single" ? "single" : "all")}>{mode === "single" ? "单订阅 · 深度" : "全部订阅 · 综合"}</span>;
 }
 
 function InferTag({ short }) {

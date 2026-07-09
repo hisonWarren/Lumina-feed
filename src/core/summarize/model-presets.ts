@@ -1,45 +1,17 @@
-/** 各供应商推荐模型（置顶展示；listModels 成功时仍会合并 API 返回的全量可用 ID） */
-export const CURATED_MODELS: Record<string, readonly string[]> = {
-  deepseek: ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner"],
-  anthropic: [
-    "claude-sonnet-4-6",
-    "claude-opus-4-8",
-    "claude-haiku-4-5",
-    "claude-3-7-sonnet-latest",
-    "claude-3-5-sonnet-latest",
-    "claude-3-5-haiku-latest",
-  ],
-  openai: [
-    "gpt-4.1",
-    "gpt-4.1-mini",
-    "gpt-4.1-nano",
-    "gpt-4o",
-    "gpt-4o-mini",
-    "o3",
-    "o3-mini",
-    "o4-mini",
-  ],
-  moonshot: ["kimi-k2.6", "kimi-k2.5", "kimi-k2.7-code", "kimi-k2-turbo-preview"],
-  doubao: [
-    "doubao-seed-2-1-pro-260628",
-    "doubao-seed-1-6-251015",
-    "doubao-1-5-vision-pro-32k-250115",
-    "doubao-1-5-pro-32k-250115",
-  ],
-};
+/**
+ * 各供应商官网推荐模型（置顶；与 API /v1/models 合并，不因 API 缺项而隐藏）。
+ * 内置常量见 model-bundled.ts；远程 manifest 见 config/model-catalog.json。
+ */
+import { getCuratedModels } from "./model-catalog.ts";
 
-/** 新用户 / 切换供应商时的默认 Model ID */
-export const PROVIDER_DEFAULT_MODEL: Record<string, string> = {
-  deepseek: "deepseek-v4-flash",
-  anthropic: "claude-sonnet-4-6",
-  openai: "gpt-4o-mini",
-  moonshot: "kimi-k2.6",
-  doubao: "doubao-seed-2-1-pro-260628",
-  ollama: "llama3.3",
-};
+export {
+  MODEL_CATALOG_SOURCES,
+  CURATED_MODELS,
+  PROVIDER_DEFAULT_MODEL,
+  OLLAMA_MODEL_PRESETS,
+} from "./model-bundled.ts";
 
-/** Ollama 本地：以 /api/tags 为准；此为无引擎/拉取失败时的兜底 */
-export const OLLAMA_MODEL_PRESETS = ["llama3.3", "qwen2.5", "deepseek-r1", "llava", "qwen2-vl"];
+import { CURATED_MODELS } from "./model-bundled.ts";
 
 export const DOUBAO_CURATED_MODELS = CURATED_MODELS.doubao;
 
@@ -59,11 +31,10 @@ export function isLikelyChatModel(provider: string, id: string): boolean {
 }
 
 /**
- * 合并 API 模型列表：推荐项置顶，其余按字母序追加（去重）。
- * 无 API 结果时回落到推荐清单。
+ * 合并 API 模型列表：官网推荐项始终置顶（即使 /v1/models 未返回），API 额外项按字母序追加。
  */
 export function mergeModelList(provider: string, apiModels: string[]): string[] {
-  const curated = CURATED_MODELS[provider];
+  const curated = getCuratedModels(provider);
   const api = (apiModels || []).map(String).filter((m) => m && isLikelyChatModel(provider, m));
   const out: string[] = [];
   const seen = new Set<string>();
@@ -74,17 +45,14 @@ export function mergeModelList(provider: string, apiModels: string[]): string[] 
     out.push(t);
   };
   if (curated) {
-    const apiSet = new Set(api);
-    for (const m of curated) {
-      if (!api.length || apiSet.has(m)) push(m);
-    }
+    for (const m of curated) push(m);
   }
   for (const m of api.slice().sort((a, b) => a.localeCompare(b))) push(m);
   if (out.length) return out;
   return curated ? [...curated] : api;
 }
 
-/** @deprecated 使用 mergeModelList；保留别名避免外部引用断裂 */
+/** @deprecated 使用 mergeModelList */
 export function filterCuratedModels(provider: string, apiModels: string[]): string[] {
   return mergeModelList(provider, apiModels);
 }

@@ -23,16 +23,21 @@ const PROVIDERS = [
   { id: "ollama",    label: "Ollama（本地）",     model: PROVIDER_DEFAULT_MODEL.ollama, needsKey: false, base: "http://localhost:11434", showBase: true },
   { id: "custom",    label: "自定义（OpenAI 兼容）", model: "",                          needsKey: true,  base: "", showBase: true, baseRequired: true },
 ];
-// 内置兜底清单（动态 listModels 失败或未配 key 时使用；云端下拉经引擎精选过滤）
-const MODEL_PRESETS = {
-  deepseek: [...CURATED_MODELS.deepseek],
-  anthropic: [...CURATED_MODELS.anthropic],
-  openai: [...CURATED_MODELS.openai],
-  moonshot: [...CURATED_MODELS.moonshot],
-  doubao: [...CURATED_MODELS.doubao],
-  ollama: [...OLLAMA_MODEL_PRESETS],
-  custom: [],
-};
+// 内置兜底清单（远程 manifest 未到时使用）
+function buildModelPresets(catalogCurated) {
+  const pick = (id) => (catalogCurated && catalogCurated[id] && catalogCurated[id].length)
+    ? [...catalogCurated[id]]
+    : [...(CURATED_MODELS[id] || [])];
+  return {
+    deepseek: pick("deepseek"),
+    anthropic: pick("anthropic"),
+    openai: pick("openai"),
+    moonshot: pick("moonshot"),
+    doubao: pick("doubao"),
+    ollama: [...OLLAMA_MODEL_PRESETS],
+    custom: [],
+  };
+}
 const presetOf = (id) => PROVIDERS.find((p) => p.id === id) || PROVIDERS[0];
 
 function formatLlmTestError(provider, preset, raw) {
@@ -67,6 +72,8 @@ const SET_CSS = `
 .set-in:focus{border-color:var(--gold)}
 .set-mono{font-family:'Space Mono',monospace;font-size:12px}
 .set-hint{font-size:11px;color:var(--ink4);line-height:1.5}
+.set-linkish{border:none;background:none;padding:0;margin:0;font:inherit;font-size:11px;color:var(--gold);cursor:pointer;text-decoration:underline}
+.set-linkish:disabled{opacity:.55;cursor:default;text-decoration:none}
 .set-ep-ok{color:var(--goldDim);font-weight:500}
 .set-btnrow{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
 .set-btn2{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line2);background:var(--surf);color:var(--ink);border-radius:10px;padding:9px 15px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
@@ -201,12 +208,36 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
   const [primaryAutoOpenReader, setPrimaryAutoOpenReader] = useState(false);
   const [keysConfigured, setKeysConfigured] = useState({});
   const [llmKeySaved, setLlmKeySaved] = useState(false);
+  const [catalogCurated, setCatalogCurated] = useState(null);
+  const [catalogMeta, setCatalogMeta] = useState(null);
+  const [catalogRefreshing, setCatalogRefreshing] = useState(false);
   const backend = hasBackend();
+  const modelPresets = buildModelPresets(catalogCurated);
 
-  const refreshKeysStatus = useCallback(async () => {
-    const st = await bridge.sourcesStatus();
-    setKeysConfigured(st || {});
+  const applyCatalogState = useCallback((r) => {
+    if (!r || r.ok === false) return;
+    if (r.curated) setCatalogCurated(r.curated);
+    setCatalogMeta({
+      source: r.source || "bundled",
+      catalogVerified: r.catalogVerified || null,
+      updatedAt: r.updatedAt || null,
+    });
   }, []);
+
+  useEffect(() => {
+    if (!backend) return;
+    bridge.modelCatalogGet().then(applyCatalogState).catch(() => {});
+  }, [backend, applyCatalogState]);
+
+  useEffect(() => {
+    if (!backend) return;
+    (async () => {
+      try {
+        const st = await bridge.sourcesStatus();
+        setKeysConfigured(st || {});
+      } catch { /* ignore */ }
+    })();
+  }, [backend]);
 
   const refreshLlmKeyStatus = useCallback(async (prov) => {
     const p = prov || provider;
@@ -599,6 +630,24 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
       if (gen === modelsFetchGenRef.current) setModelsLoading(false);
     }
   }, [provider, baseUrl, apiKey]);
+  const refreshCatalog = useCallback(async () => {
+    if (!backend) return;
+    setCatalogRefreshing(true);
+    try {
+      const r = await bridge.modelCatalogRefresh();
+      applyCatalogState(r);
+      if (r?.ok && r.source === "remote") {
+        pushToast && pushToast(`模型清单已更新${r.catalogVerified ? ` · ${r.catalogVerified}` : ""}`);
+        await fetchModels(provider);
+      } else if (r?.ok === false) {
+        pushToast && pushToast("模型清单更新失败，仍使用本地缓存");
+      }
+    } catch {
+      pushToast && pushToast("模型清单更新失败");
+    } finally {
+      setCatalogRefreshing(false);
+    }
+  }, [backend, applyCatalogState, pushToast, fetchModels, provider]);
   // 切换供应商即拉取（有 key / Ollama 返回真列表；无 key 静默回落内置清单）。
   useEffect(() => {
     setFetchedModels(null);
@@ -608,7 +657,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
     fetchModels(provider);
   }, [provider, fetchModels]);
   const preset = presetOf(provider);
-  const availModels = (fetchedModels && fetchedModels.length) ? fetchedModels : (MODEL_PRESETS[provider] || []);
+  const availModels = (fetchedModels && fetchedModels.length) ? fetchedModels : (modelPresets[provider] || []);
   const showCustomInput = customMode || (!!model && !availModels.includes(model)); // 自填/自定义模型能力标记（provider_translate 契约）
 
   const saveLlm = useCallback(async () => {
@@ -754,7 +803,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                   <div className="set-combo" ref={modelComboRef}>
                     <input className="set-combo-in set-mono" value={model} onChange={(e) => { setModel(e.target.value); scheduleLlmBlurSave({ model: e.target.value }); }} onBlur={() => void persistLlmFields({ model })} onFocus={() => setModelMenuOpen(true)} placeholder={preset.model || "模型名（点选或直接输入）"} aria-label="模型名" />
                     <button type="button" className="set-combo-tg" onClick={() => setModelMenuOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={modelMenuOpen} title="模型列表"><ChevronDown size={14} /></button>
-                    <button type="button" className="set-combo-rf" onClick={() => fetchModels(provider)} disabled={modelsLoading} title={preset.needsKey && !llmKeySaved && !apiKey.trim() ? "拉取最新模型列表（需先在钥匙串保存 API Key）" : "拉取最新模型列表"}><span className={modelsLoading ? "set-spin" : ""}>{modelsLoading ? <Loader size={14} /> : <RefreshCw size={14} />}</span></button>
+                    <button type="button" className="set-combo-rf" onClick={() => fetchModels(provider)} disabled={modelsLoading} title={preset.needsKey && !llmKeySaved && !apiKey.trim() ? "拉取最新模型列表（需先在钥匙串保存 API Key）" : "拉取账户可用模型"}><span className={modelsLoading ? "set-spin" : ""}>{modelsLoading ? <Loader size={14} /> : <RefreshCw size={14} />}</span></button>
                     {modelMenuOpen && (
                       <div className="set-combo-menu" role="listbox">
                         {availModels.map((m) => (
@@ -764,7 +813,16 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                       </div>
                     )}
                   </div>
-                  <span className="set-hint">{fetchedModels && fetchedModels.length ? `已从 API 拉取 ${availModels.length} 个对话模型（推荐置顶）` : "显示内置推荐；保存 API Key 后点刷新可拉取账户可用全量列表"}</span>
+                  <span className="set-hint">
+                    {fetchedModels && fetchedModels.length
+                      ? `官网推荐置顶 + API 补充，共 ${availModels.length} 个对话模型`
+                      : "显示官网推荐清单；保存 API Key 后点左侧刷新可合并账户可用模型"}
+                    {catalogMeta && catalogMeta.source !== "bundled" && (
+                      <> · 清单来源：{catalogMeta.source === "remote" ? "远程" : "缓存"}
+                        {catalogMeta.catalogVerified ? `（${catalogMeta.catalogVerified}）` : ""}</>
+                    )}
+                    {backend && <> · <button type="button" className="set-linkish" onClick={() => void refreshCatalog()} disabled={catalogRefreshing}>更新模型清单</button></>}
+                  </span>
                   {provider === "doubao" && (
                     <span className="set-hint">
                       「模型」可填 <b>Model ID</b>（模型广场，如 <span className="set-mono">doubao-seed-2-1-pro-260628</span>）或<b>推理接入点 ID</b>（在线推理，<span className="set-mono">ep-</span> 开头）——二者都填入此框、二选一。账户未开通的 Model ID 会 404；自建 <span className="set-mono">ep-</span> 接入点在账号内一定可用，<b>推荐</b>。

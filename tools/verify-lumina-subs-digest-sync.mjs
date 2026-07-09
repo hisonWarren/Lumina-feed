@@ -83,6 +83,9 @@ has("electron/ipc.ts", /reconcileDigestReportForSubs/, "IPC 读报告时 reconci
 has("src/ui/lib/subs-unread.js", /digestReportNeedsRefresh/, "UI 陈旧检测");
 has("electron/preload.ts", /digestReportGet/, "preload digestReportGet");
 has("electron/settings.ts", /digestReportAuto/, "digestReportAuto 设置");
+has("src/core/subs/digest-search.ts", /enrichDigestPaper/, "enrichDigestPaper 补齐摘要");
+has("electron/ipc.ts", /enrichSubscriptionToday/, "subs:list 补齐 today 摘要");
+has("src/ui/components/DigestAbstract.jsx", /展开摘要/, "摘要展开/收起");
 has("src/ui/modules/Subscriptions.jsx", /DigestAbstract/, "列表摘要展示");
 has("src/ui/modules/Subscriptions.jsx", /DigestReportHero/, "报告 Hero");
 has("src/ui/modules/Subscriptions.jsx", /dg-view-seg/, "扫描/报告视图切换");

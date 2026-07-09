@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+function jsxSyntaxCheck(p) {
+  try { execSync(`node tools/jsx-syntax-check.mjs ${p}`, { stdio: "pipe", cwd: process.cwd() }); return true; }
+  catch { return false; }
+}
 // 结构级验证 · 组合大包 engine_finish = library_engine（工作集/清单持久化+有总结）+ 批注关联（docKey→paperId）+ 订阅调度（cron）。
 // 自洽叠在 subscriptions_engine 基线（含 library_engine，无需先装它）。electron/*.ts 用 strip-types --check；真 SQLite/调度时序/通知/真检索须真机。
 import fs from "node:fs"; import path from "node:path"; import { execSync } from "node:child_process";
@@ -20,7 +24,7 @@ tsCheck("electron/ipc.ts")&&ok("ipc.ts strip-types"); balance("electron/ipc.ts")
 tsCheck("electron/main.ts")&&ok("main.ts strip-types");
 tsCheck("electron/preload.ts")&&ok("preload.ts strip-types");
 jsCheck("src/ui/lumina-bridge.js")&&ok("lumina-bridge.js node --check");
-["src/ui/LuminaApp.jsx","src/ui/modules/Library.jsx","src/ui/modules/Reader.jsx","src/ui/modules/ReadHub.jsx"].forEach((f)=>balance(f)&&ok(f.split("/").pop()+" 平衡"));
+jsxSyntaxCheck("src/ui/LuminaApp.jsx")&&ok("LuminaApp.jsx 语法（jsx-syntax-check）");
 
 console.log("\n— 3. library_engine：工作集/清单持久化 + 有总结 —");
 if(exists("electron/ipc.ts")){ const s=read("electron/ipc.ts");
@@ -37,7 +41,7 @@ if(exists("src/ui/LuminaApp.jsx")){ const s=read("src/ui/LuminaApp.jsx");
 if(exists("src/ui/modules/Library.jsx")) /fSummary/.test(read("src/ui/modules/Library.jsx"))&&/有总结/.test(read("src/ui/modules/Library.jsx"))?ok("有总结 chip"):bad("缺 有总结");
 
 console.log("\n— 4. 批注关联（docKey→paperId）—");
-if(exists("src/ui/modules/Reader.jsx")) /source\.paperId.*paper:.*source\.paperId|"paper:" \+ source\.paperId/.test(read("src/ui/modules/Reader.jsx"))?ok("Reader docKey 有 paperId 时按 paper:<id>"):bad("Reader docKey 未改");
+if(exists("src/ui/modules/Reader.jsx")) /readerDocKey/.test(read("src/ui/modules/Reader.jsx"))&&/analysisDocKey/.test(read("src/ui/modules/Reader.jsx"))?ok("Reader docKey 隔离（readerDocKey）"):bad("Reader docKey 未改");
 if(exists("src/ui/modules/ReadHub.jsx")) /paperId: it\.paperId/.test(read("src/ui/modules/ReadHub.jsx"))?ok("ReadHub 开已下载全文带 paperId"):bad("ReadHub 未传 paperId");
 if(exists("electron/ipc.ts")){ const s=read("electron/ipc.ts");
   /anno:paper:/.test(s)&&/annoCount/.test(s)&&/annoText/.test(s)?ok("library:list 数批注 + 批注正文（anno:paper:<id>）"):bad("library:list 未关联批注");

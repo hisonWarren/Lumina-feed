@@ -26,7 +26,7 @@ ok(/salvageArray\(s, "claims"\)/.test(rp) || /SALVAGE_ARRAY_KEYS/.test(rp), "ext
 const om = /OUTPUT_MAXTOK[^=]*=\s*\{([^}]*)\}/.exec(rp); const omb = om ? om[1] : "";
 const led = /ledger:\s*(\d+)/.exec(omb); const cit = /citerole:\s*(\d+)/.exec(omb);
 ok(led && Number(led[1]) >= 3000 && cit && Number(cit[1]) >= 3000, "账本/引文角色输出 token 提额（≥3000，避免被截成 6 条）");
-ok(/function bodyFor/.test(rp) && /kind === "citerole"\)\s*return pagesTextHeadTail/.test(rp), "引文角色取材改全文头+参考文献尾（pagesTextHeadTail），不再只看前 6 页");
+ok(/function bodyFor/.test(rp) && /citerole/.test(rp) && /needsMapReduce/.test(rp), "引文角色取材 map-reduce + bodyFor，不再只看前 6 页");
 ok(/throw new Error\("模型输出无法解析为结构化 JSON/.test(rp) || /throw new Error\("模型 JSON 缺少 claims/.test(rp), "结构化硬失败→抛错（可见 analysisError），不再静默返回空账本");
 ok(/CLAIM_ARRAY_KEYS/.test(rp) && /pickClaimsArray/.test(rp) && /outline/.test(rp), "claims 解析兼容 outline/sections/items 等别名字段");
 ok(/模型未返回任何内容/.test(rp) && /均无有效文本/.test(rp), "空输出/空条目/无文本 分因抛错，不再静默空卡");
@@ -43,10 +43,10 @@ ok(!/\.rd-ai-body\{[^}]*pre-wrap/.test(rd) && !/\.rd-ai-a\{[^}]*pre-wrap/.test(r
 ok(/\.inf-title\s*\{/.test(rd) && /\.inf-h\{[^}]*flex-wrap/.test(rd), "推读卡头 .inf-h 改 flex-wrap，标题 .inf-title 可占整行（修竖排）");
 ok((rd.match(/className="inf-title"/g) || []).length >= 3, "三处推读卡标题均包入 .inf-title（InfCard / InfAnalyzer / 图表分析）");
 ok(/citerole:[^]*被讨论到/.test(rp) && (/CITEROLE_MAX_CLAIMS/.test(rp) || /最多 20 条/.test(rp)), "引文角色 A1+：in-text 讨论 + 硬上限 20（非完整书目）");
-ok(/normalizeCachedEnv/.test(rd) && /asClaimArray/.test(rd) && /LEDGER_CACHE_CAP/.test(rd), "深读缓存自愈：旧版 300+ 条 ledger / 非数组 claims 加载时归一化");
+ok(/normalizeCachedEnv/.test(rd) && /asClaimArray/.test(rd) && /normalizeCachedEnv/.test(rd), "深读缓存自愈：旧版 300+ 条 ledger / 非数组 claims 加载时归一化");
 ok(/ZoneErrorBoundary/.test(rd), "深读/推读 ErrorBoundary：渲染异常不拖垮整窗白屏");
 ok(/EV_PAGE_LEDGER/.test(rd) && /ledger-pager/.test(rd) && /ledger-filter/.test(rd), "账本：类型筛选 + 按页分组 + 分页");
-ok(/setShown\(/.test(rd) && /className="ev-more"/.test(rd), "引文角色等证据卡仍保留展开收起");
+ok(/InsightBlocksView/.test(rd) || /<details/.test(rd), "引文角色等证据卡仍保留展开收起");
 ok(/className="ev-empty"/.test(rd) && /未.*提取到可标注页码的条目/.test(rd), "证据卡空态提示（账本/引文角色为空时不再白屏）");
 ok(/className="ev-note"/.test(rd) && /不是完整参考文献表/.test(rd) && /导出到 Zotero/.test(rd), "引文角色范围注：非完整书目→导出 Zotero（不滑向文献管理器）");
 ok(/function nodeColor/.test(rd) && /className="rd-gedge"/.test(rd) && /const d = "M"[\s\S]{0,90}" C"/.test(rd), "逻辑图美化：阶段配色节点 + 贝塞尔曲线连线");

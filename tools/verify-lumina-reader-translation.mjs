@@ -15,8 +15,8 @@ console.log("— 1. 连续模式滚动联动 —");
 ok(/const onViewScroll = useCallback\(/.test(rd), "新增 onViewScroll 滚动联动回调");
 ok(/onScroll=\{onViewScroll\}/.test(rd), "已接到 .rd-view 的 onScroll（替换原『仅清浮条』）");
 ok(/const suppressPageScroll = useRef\(false\)/.test(rd), "suppressPageScroll 守卫（滚动改 page 时不回弹打架）");
-ok(/getElementById\("rd-pg-" \+ nn\)/.test(rd) && /getBoundingClientRect\(\)\.top <= line/.test(rd), "按 #rd-pg-N 的位置判定当前主视区页");
-ok(/setPage\(\(p\) => \{ if \(p !== best\) \{ suppressPageScroll\.current = true; return best; \}/.test(rd), "滚动得到的当前页写回 page（带守卫）→ 顶栏/翻译同步");
+ok(/detectContinuousPage/.test(rd) && /runScrollSpy/.test(rd), "按 detectContinuousPage 的位置判定当前主视区页");
+ok(/suppressPageScroll\.current = true/.test(rd) && /setPage\(best\)/.test(rd), "滚动得到的当前页写回 page（带守卫）→ 顶栏/翻译同步");
 ok(/if \(suppressPageScroll\.current\) \{ suppressPageScroll\.current = false; return; \}/.test(rd), "page→scrollIntoView 副作用读取守卫，避免与用户滚动互相打架");
 ok(/scrollSpyRaf\.current/.test(rd) && /requestAnimationFrame/.test(rd), "滚动联动用 rAF 节流");
 // 重新翻译/按页翻译仍以 page 为准 → 滚动同步后即翻译当前页（同一根因一并修复）
@@ -55,7 +55,7 @@ ok(/function TranslatePanel\(\{ doc, page, numPages, mode, setMode, view,/.test(
 // ───────── 5. 契约不破（红线/依赖） ─────────
 console.log("— 5. 契约/红线 —");
 ok(/bridge\.readerTranslate\(orig\)/.test(rd), "仍走 reader:translate 引擎（按页翻译）");
-ok(/onClose, pushToast, docKey, model \}/.test(rd), "docKey/model 仍受（派生缓存契约不破，provider_translate 不回归）");
+ok(/docKey, model, contentRef \}/.test(rd), "docKey/model 仍受（派生缓存契约不破，provider_translate 不回归）");
 ok(/docKey=\{docKey\} model=\{llmModel\}/.test(rd), "TranslatePanel 仍传 docKey/llmModel");
 ok(/llmBlocked/.test(rd) && /llmReady/.test(rd), "未配模型仍走 llm:status 守门（红线⑦：不伪造译文）");
 ok(/<style>\{READER_CSS\}<\/style>/.test(rd), "READER_CSS 仍注入");

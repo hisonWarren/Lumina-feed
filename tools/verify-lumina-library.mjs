@@ -6,6 +6,7 @@ const ok=(m)=>console.log("  \x1b[32m✓\x1b[0m "+m); const bad=(m)=>{console.lo
 const read=(p)=>fs.readFileSync(path.join(ROOT,p),"utf8"); const exists=(p)=>fs.existsSync(path.join(ROOT,p));
 function strip(s){return s.replace(/\/\*[\s\S]*?\*\//g," ").replace(/"(?:\\.|[^"\\])*"/g,'""').replace(/'(?:\\.|[^'\\])*'/g,"''").replace(/`(?:\\.|[^`\\])*`/g,"``").replace(/\/\/[^\n]*/g," ");}
 function balance(p){const s=strip(read(p));for(const[o,c]of[["{","}"],["(",")"],["[","]"]]){const a=s.split(o).length-1,b=s.split(c).length-1;if(a!==b){bad(`${p}: ${o}${c} 不平衡 (${a}/${b})`);return false;}}return true;}
+function jsxSyntaxCheck(p){try{execSync(`node tools/jsx-syntax-check.mjs ${p}`,{stdio:"pipe",cwd:process.cwd()});return true;}catch{return false;}}
 function nodeCheck(p){try{execSync(`node --check "${path.join(ROOT,p)}"`,{stdio:"pipe"});return true;}catch(e){bad(`${p}: node --check 失败 — ${String(e.stderr||e).split("\n")[0]}`);return false;}}
 
 console.log("\n— 1. 文件与前置（settings 已应用）—");
@@ -14,7 +15,8 @@ exists("src/ui/modules/Library.jsx")?ok("Library.jsx 新增"):bad("缺 Library.j
 if(exists("src/ui/LuminaApp.jsx")){ /import Settings from/.test(read("src/ui/LuminaApp.jsx"))?ok("settings 在（壳含 Settings）"):bad("缺 settings —— 请先应用 settings"); }
 
 console.log("\n— 2. 语法/平衡 —");
-["src/ui/modules/Library.jsx","src/ui/LuminaApp.jsx"].forEach((f)=>{ if(exists(f)&&balance(f)) ok(f+" 括号平衡"); });
+["src/ui/modules/Library.jsx"].forEach((f)=>{ if(exists(f)&&balance(f)) ok(f+" 括号平衡"); });
+jsxSyntaxCheck("src/ui/LuminaApp.jsx")&&ok("LuminaApp.jsx 语法（jsx-syntax-check）");
 if(exists("src/ui/cite.js")&&nodeCheck("src/ui/cite.js")) ok("cite.js node --check 通过");
 
 console.log("\n— 3. 引用引擎（CSL 中介 + 五样式 + 导出）—");

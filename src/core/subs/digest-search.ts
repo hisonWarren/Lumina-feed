@@ -195,6 +195,32 @@ export function todayPaperList(sub: Record<string, unknown> | null | undefined):
   return (sub.today as Paper[]).filter((p) => p && typeof p === "object" && p.id);
 }
 
+/**
+ * 简报列表：today 内嵌条目可能缺 abstract（旧快照/截断），从 papers 库补齐后再展示。
+ */
+export function enrichDigestPaper(
+  paper: Paper,
+  lookup?: (id: string) => Paper | undefined | null,
+): Paper {
+  if (!paper?.id || !lookup) return paper;
+  const stored = lookup(paper.id);
+  if (!stored) return paper;
+  const absToday = String(paper.abstract || "").trim();
+  const absStored = String(stored.abstract || "").trim();
+  if (absToday) return paper;
+  if (!absStored) return paper;
+  return { ...paper, abstract: stored.abstract };
+}
+
+export function enrichSubscriptionToday(
+  sub: Record<string, unknown>,
+  lookup: (id: string) => Paper | undefined | null,
+): Record<string, unknown> {
+  const today = todayPaperList(sub).map((p) => enrichDigestPaper(p, lookup));
+  if (!today.length) return sub;
+  return { ...sub, today };
+}
+
 /** 单订阅待读数（today 中未在 readIds 的条数） */
 export function unreadTodayCount(sub: Record<string, unknown> | null | undefined): number {
   if (!sub || sub.enabled === false) return 0;

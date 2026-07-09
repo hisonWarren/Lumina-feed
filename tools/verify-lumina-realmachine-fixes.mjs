@@ -1,7 +1,13 @@
-import { readFileSync } from "node:fs";
+#!/usr/bin/env node
+import { readFileSync, existsSync } from "node:fs";
 import { execSync } from "node:child_process";
+function jsxSyntaxCheck(p) {
+  try { execSync(`node tools/jsx-syntax-check.mjs ${p}`, { stdio: "pipe", cwd: process.cwd() }); return true; }
+  catch { return false; }
+}
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log("  ✓ " + m); } else { fail++; console.log("  ✗ " + m); } };
+const exists = (p) => existsSync(p);
 const R = (p) => { try { return readFileSync(p, "utf8"); } catch { return ""; } };
 const bal = (s) => { const x = s.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/"(?:\\.|[^"\\])*"/g, '""').replace(/'(?:\\.|[^'\\])*'/g, "''").replace(/`(?:\\.|[^`\\])*`/g, "``").replace(/\/\/[^\n]*/g, " "); return x.split("{").length === x.split("}").length && x.split("(").length === x.split(")").length && x.split("[").length === x.split("]").length; };
 const tsOk = (p) => { try { execSync(`node --experimental-strip-types --check ${p}`, { stdio: "pipe" }); return true; } catch { return false; } };
@@ -20,14 +26,14 @@ console.log("· 语法/平衡");
 ok(tsOk("electron/ipc.ts"), "ipc.ts TS 语法");
 ok(tsOk("src/core/reader/reader-ai.ts"), "reader-ai.ts TS 语法");
 ok(bal(br), "lumina-bridge.js 平衡");
-ok(bal(app), "LuminaApp.jsx 平衡");
+ok(jsxSyntaxCheck("src/ui/LuminaApp.jsx"), "LuminaApp.jsx 语法（jsx-syntax-check）");
 ok(bal(setg), "Settings.jsx 平衡");
 ok(bal(rdr), "Reader.jsx 平衡");
 ok(jsOk("tools/smoke-full-ai.mjs"), "smoke-full-ai.mjs 语法");
 
 console.log("· ISSUE-001/004 分析类 IPC 异常 → 拒绝信封（不再 null）");
 ok(/function analysisError\(kind: string, e: unknown/.test(ipc), "ipc 新增 analysisError 助手");
-ok(/import \{ analyzeReader, analyzeFigure, analyzeCorpus, KIND_REGISTRY, type AnalysisEnvelope \}/.test(ipc), "ipc 引入 KIND_REGISTRY（信封 lane 取自注册表）");
+ok(/KIND_REGISTRY/.test(ipc) && /analyzeReader/.test(ipc), "ipc 引入 KIND_REGISTRY（信封 lane 取自注册表）");
 ok(/catch \(e\) \{ console\.error\("reader:analyze 失败", e\); return analysisError\(kind, e\); \}/.test(ipc), "reader:analyze catch → analysisError");
 ok(/catch \(e\) \{ console\.error\("reader:figure 失败", e\); return analysisError\("figure", e, \{ vision: true/.test(ipc), "reader:figure catch → analysisError（vision 原因）");
 ok(/catch \(e\) \{ console\.error\("reader:corpus 失败", e\); return analysisError\(kind, e, \{ sourceBasis: "corpus" \}\); \}/.test(ipc), "reader:corpus catch → analysisError");

@@ -76,7 +76,7 @@ console.log("\n[6] Reader.jsx · 译菜单定位 + 翻译持久化");
 ok(has(reader, ".rd-trwrap{position:relative"), "CSS .rd-trwrap 定位上下文（修菜单落点）");
 ok(has(reader, '<span className="rd-trwrap">'), "译按钮 + 菜单已裹入 .rd-trwrap");
 ok(has(reader, ".rd-tmenu{position:absolute"), ".rd-tmenu 仍为 absolute（现锚 .rd-trwrap=译按钮）");
-ok(has(reader, "onClose, pushToast, docKey, model }"), "TranslatePanel 收 docKey + model");
+ok(has(reader, "docKey, model, contentRef }") || has(reader, "onClose, pushToast, docKey, model }") || has(reader, "docKey, model, contentRef"), "TranslatePanel 收 docKey + model");
 ok(has(reader, "const pmapRef = useRef({})"), "pmapRef 持久缓存");
 ok(has(reader, "translatePage = useCallback(async (pg, force)"), "translatePage(pg, force)");
 ok(has(reader, "命中持久缓存") && has(reader, "cached: true"), "命中缓存跳过 LLM");

@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld("luminaApi", {
   deleteSecret: (key: string) => invoke("secrets:delete", key),
   testLlm: (cfg) => invoke("llm:test", cfg),
   listModels: (cfg) => invoke("llm:listModels", cfg),
+  modelCatalogGet: () => invoke("modelCatalog:get"),
+  modelCatalogRefresh: () => invoke("modelCatalog:refresh"),
   llmStatus: () => invoke("llm:status"),
   onOpenLocalPdf: (cb: (payload: OpenLocalPdfPayload) => void) => {
     openLocalPdfHandler = cb;

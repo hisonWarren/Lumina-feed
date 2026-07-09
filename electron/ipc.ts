@@ -19,6 +19,12 @@ import { shouldPrefetchOnLocate, shouldPrefetchOaResult } from "../src/core/loca
 import { listSourceRegistry } from "../src/core/sources/index.ts";
 import { llmFromConfig, listModels } from "../src/core/summarize/llm-client.ts";
 import { PROVIDER_DEFAULT_MODEL } from "../src/core/summarize/model-presets.ts";
+import {
+  bootstrapModelCatalog,
+  getModelCatalogState,
+  initModelCatalogService,
+  refreshModelCatalog,
+} from "./model-catalog-service.ts";
 import { makeOaFullTextProvider, fetchPaperPdf, isOaMarkedPaper } from "../src/core/oa/provider.ts";
 import { fetchResultForIpc } from "../src/core/oa/fetch-result-ipc.ts";
 import { attemptSignal } from "../src/core/oa/timeout.ts";
@@ -61,7 +67,7 @@ import type { SearchOpts } from "../src/core/sources/adapter.ts";
 import { shouldSignalMissingEmail, maybeMissingEmailReason } from "../src/core/oa/oa-extended.ts";
 import {
   applyDigestSearchOpts, buildDigestSpec, normalizeSubscription, freshHits, digestDateKey, digestSinceIso, digestRecencySinceIso, filterDigestRecency, filterDigestQuality, type DigestRunMeta,
-  withPaperMarkedRead, todayPaperList, subscriptionReadIds,
+  withPaperMarkedRead, todayPaperList, subscriptionReadIds, enrichDigestPaper, enrichSubscriptionToday,
 } from "../src/core/subs/digest-search.ts";
 import {
   type FetchContext,
@@ -171,6 +177,8 @@ function broadcastSettingsChanged(): void {
 export function registerIpc(deps: IpcDeps): void {
   const { store, secrets } = deps;
   const hasLlmSecret = async (k: string) => isValidSecretValue(await secrets.get(k));
+  initModelCatalogService({ userDataPath: app.getPath("userData"), appVersion: app.getVersion() });
+  void bootstrapModelCatalog();
   /** 升级后钥匙串有 key、DB 缺 llm 时尽早补写，避免各 IPC 路径各自漏调 hydrate */
   void hydrateLlmSettings(store, hasLlmSecret).catch(() => {});
   // 启动时按保留策略清理简报历史（snapshots + 每日报告缓存）；papers / 工作集永不受此影响
@@ -833,6 +841,19 @@ export function registerIpc(deps: IpcDeps): void {
     } catch (e: any) { return { ok: false, error: (e && e.message) ? String(e.message) : "拉取失败" }; }
   });
 
+  ipcMain.handle("modelCatalog:get", () => {
+    const st = getModelCatalogState();
+    return { ok: true, ...st };
+  });
+  ipcMain.handle("modelCatalog:refresh", async () => {
+    try {
+      const st = await refreshModelCatalog(true);
+      return { ok: true, ...st };
+    } catch (e: any) {
+      return { ok: false, error: (e && e.message) ? String(e.message) : "refresh_failed" };
+    }
+  });
+
   // ── 继续阅读（持久化 LRU · 元数据 only）──
   const enrichContinueRow = (row: ReadingHistoryRow): { title?: string; missing?: boolean; hasPdf?: boolean; provenance?: string } => {
     if (row.kind === "paper" && row.paper_id) {
@@ -1278,7 +1299,14 @@ export function registerIpc(deps: IpcDeps): void {
   // ── subscriptions：订阅 CRUD（SQLite 持久化）+ runNow 真检索（关键词/期刊）+ 成本闸 ──
   const ensureSubs = () => store.db.exec("CREATE TABLE IF NOT EXISTS subscriptions(id TEXT PRIMARY KEY, payload TEXT, updated_at TEXT);");
   ipcMain.handle("subs:list", () => {
-    try { ensureSubs(); const rows = store.db.prepare("SELECT payload FROM subscriptions ORDER BY updated_at DESC").all() as Array<{ payload: string }>; return rows.map((r) => JSON.parse(r.payload)); }
+    try {
+      ensureSubs();
+      const rows = store.db.prepare("SELECT payload FROM subscriptions ORDER BY updated_at DESC").all() as Array<{ payload: string }>;
+      return rows.map((r) => {
+        const sub = normalizeSubscription(JSON.parse(r.payload)) as Record<string, unknown>;
+        return enrichSubscriptionToday(sub, (id) => store.papers.getById(id));
+      });
+    }
     catch { return []; }
   });
   ipcMain.handle("subs:get", (_e, id: string) => {
@@ -1408,7 +1436,14 @@ export function registerIpc(deps: IpcDeps): void {
       const snap = loadSnapshot(store, dk, subId);
       const papers = snap.paperIds.map((id) => {
         const p = store.papers.getById(id);
-        return { id, title: p?.title || "(无标题)", year: p?.year, preprint: !!p?.isPreprint };
+        return {
+          id,
+          title: p?.title || "(无标题)",
+          year: p?.year,
+          preprint: !!p?.isPreprint,
+          abstract: p?.abstract || "",
+          doi: p?.doi,
+        };
       });
       return { ok: true, dateKey: dk, report, papers };
     } catch (e) {
@@ -1889,7 +1924,7 @@ async function persistSubscriptionToday(
   const poolDois = [...new Set([...recencyPool, ...searchPapers].map((p) => (p.doi ? String(p.doi).toLowerCase() : "")).filter(Boolean))];
   const next = {
     ...norm,
-    today: todayMerged,
+    today: todayMerged.map((p) => enrichDigestPaper(p, (id) => store.papers.getById(id))),
     todayDateKey: dateKey,
     readIds: sameDay ? (Array.isArray(norm.readIds) ? norm.readIds : []) : [],
     lastRunAt: new Date().toISOString(),
@@ -1919,6 +1954,7 @@ async function runSubscriptionNow(
   const asyncAi = !preview && flags.asyncAi !== false;
   const sender = flags.sender;
   const t0 = Date.now();
+  const enrichHits = (papers: Paper[]) => papers.map((p) => enrichDigestPaper(p, (id) => store.papers.getById(id)));
   try {
     let subPayload = sub;
     const norm0 = normalizeSubscription(sub) as Record<string, unknown>;
@@ -1939,7 +1975,7 @@ async function runSubscriptionNow(
     if (!preview && sameDay && norm.lastRunAt) {
       const msSince = now.getTime() - new Date(String(norm.lastRunAt)).getTime();
       if (Number.isFinite(msSince) && msSince < 180_000) {
-        const cached = todayPaperList(norm);
+        const cached = enrichHits(todayPaperList(norm));
         return {
           ok: true,
           hits: cached,
@@ -2029,7 +2065,7 @@ async function runSubscriptionNow(
           }
         })();
         emitSubsProgress(sender, subId, { phase: "search", mode: "off", current: 1, total: 1, label: "检索完成" });
-        return { ok: true, hits: todayMerged, newCount: fresh.length, perSource: meta.perSource, meta, preview, aiSkippedReason: undefined };
+        return { ok: true, hits: enrichHits(todayMerged), newCount: fresh.length, perSource: meta.perSource, meta, preview, aiSkippedReason: undefined };
       }
       const { patchById, aiMeta } = await runDigestAiPhase(mode, norm, todayMerged, fresh, preview, store, secrets, subId, onProgress);
       todayMerged = mergeAiOntoToday(todayMerged, patchById);
@@ -2048,7 +2084,7 @@ async function runSubscriptionNow(
     emitSubsProgress(sender, subId, { phase: "search", mode: "off", current: 1, total: 1, label: "检索完成" });
     return {
       ok: true,
-      hits: todayMerged,
+      hits: enrichHits(todayMerged),
       newCount: fresh.length,
       perSource: meta.perSource,
       meta,

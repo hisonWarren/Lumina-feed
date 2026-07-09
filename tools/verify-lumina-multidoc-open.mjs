@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+import { execSync } from "node:child_process";
+function jsxSyntaxCheck(p) {
+  try { execSync(`node tools/jsx-syntax-check.mjs ${p}`, { stdio: "pipe", cwd: process.cwd() }); return true; }
+  catch { return false; }
+}
 // 结构验证：multidoc_open（多标签阅读 A2 + 本地 PDF 右键/命令行打开 B2）。
 // 构建于 finish 链之上。A2 可结构验证；B2 的 OS 文件关联/打包属真机（fileAssociations 见 DESIGN_NOTES，须接入 electron-builder）。
 import { readFileSync } from "node:fs";
@@ -31,7 +36,7 @@ ok(has(hub, "const MAX_TABS = 6") && has(hub, "最多同时打开"), "上限 6 +
 ok(has(hub, "const closeTab = useCallback") && has(hub, "rhx-tab-x"), "关闭标签");
 ok(has(hub, 'role="tablist"') && has(hub, '<Home size={14} />') && has(hub, "rhx-tab-nm"), "标签条 JSX（首页 + 各标签）");
 ok(has(hub, 'style={{ display: t.id === st.activeId ? "flex" : "none" }}'), "非活跃标签 display:none（已挂载隐藏，保留各自状态）");
-ok(has(hub, "<Reader source={t} onClose={() => closeTab(t.id)}"), "每标签独立 Reader（单篇，无跨标签 AI）");
+ok(/<Reader[\s\S]{0,200}source=\{t\}[\s\S]{0,200}onClose=\{\(\) => closeTab\(t\.id\)\}/.test(hub), "每标签独立 Reader（单篇，无跨标签 AI）");
 ok(has(hub, "const tabKey = (t)") && has(hub, "found.id"), "去重：同篇已开则激活不重开");
 
 console.log("\n[2] 本地 PDF 打开（B2 · 主进程 · 渲染层接入）");
@@ -54,7 +59,7 @@ ok(has(app, "@media (prefers-reduced-motion: reduce){ *,*::before,*::after{"), "
 
 console.log("\n[4] 括号平衡（JS/JSX；.ts 由 node --experimental-strip-types --check 权威校验，朴素计数器不剥离正则字面量故不用于 .ts）");
 ok(balanced(hub), "ReadHub.jsx 平衡");
-ok(balanced(app), "LuminaApp.jsx 平衡");
+ok(jsxSyntaxCheck("src/ui/LuminaApp.jsx"), "LuminaApp.jsx 语法（jsx-syntax-check）");
 ok(balanced(bridge), "lumina-bridge.js 平衡");
 ok(typeof main === "string" && main.length > 0, "main.ts 存在（语法见 strip-types）");
 ok(typeof preload === "string" && preload.length > 0, "preload.ts 存在（语法见 strip-types）");

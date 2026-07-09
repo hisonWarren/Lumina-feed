@@ -1,20 +1,22 @@
-// 简报 · 摘要展示（2–3 行 + 展开）；无摘要时不占位
+// 简报 · 摘要展示（默认 3 行截断 + 展开/收起）
 import React, { useState } from "react";
 
-export default function DigestAbstract({ abstract }) {
+export default function DigestAbstract({ abstract, className = "" }) {
   const [open, setOpen] = useState(false);
   const text = String(abstract || "").trim();
   if (!text) return null;
-  const long = text.length > 180 || text.split(/\s+/).length > 35;
   return (
-    <div className={"dg-abs" + (open ? " open" : "")}>
+    <div className={"dg-abs" + (open ? " open" : "") + (className ? ` ${className}` : "")}>
       <span className="dg-abs-label">摘要</span>
       <p className="dg-abs-text">{text}</p>
-      {long && (
-        <button type="button" className="dg-abs-toggle" onClick={() => setOpen((v) => !v)}>
-          {open ? "收起摘要" : "阅读摘要"}
-        </button>
-      )}
+      <button
+        type="button"
+        className="dg-abs-toggle"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        {open ? "收起摘要" : "展开摘要"}
+      </button>
     </div>
   );
 }

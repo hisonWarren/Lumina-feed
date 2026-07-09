@@ -635,6 +635,16 @@ export const bridge = {
     if (!api || !api.listModels) return { ok: false, error: "未连接本地引擎，无法拉取模型列表" };
     try { return await api.listModels(cfg); } catch (e) { return { ok: false, error: "拉取失败" }; }
   },
+  async modelCatalogGet() {
+    const api = A();
+    if (!api || !api.modelCatalogGet) return { ok: false };
+    try { return await api.modelCatalogGet(); } catch { return { ok: false }; }
+  },
+  async modelCatalogRefresh() {
+    const api = A();
+    if (!api || !api.modelCatalogRefresh) return { ok: false, error: "未连接本地引擎" };
+    try { return await api.modelCatalogRefresh(); } catch { return { ok: false, error: "refresh_failed" }; }
+  },
   async getTranslations(docKey) {
     const r = R(); if (!r || !r.getTranslations || !docKey) return {};
     try { return (await r.getTranslations(docKey)) || {}; } catch (e) { return {}; }

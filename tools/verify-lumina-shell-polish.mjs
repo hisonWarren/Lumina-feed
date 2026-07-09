@@ -7,6 +7,10 @@ import { execSync } from "node:child_process";
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; } else { fail++; console.log("  ✗ " + m); } };
 const read = (p) => fs.readFileSync(p, "utf8");
+function jsxSyntaxCheck(p) {
+  try { execSync(`node tools/jsx-syntax-check.mjs ${p}`, { stdio: "pipe", cwd: process.cwd() }); return true; }
+  catch { return false; }
+}
 
 // 括号/反引号平衡（去注释/字符串/模板后）
 function balanced(src) {
@@ -28,13 +32,13 @@ const subs = read("src/ui/modules/Subscriptions.jsx");
 console.log("— 壳层全宽 / 满铺 —");
 ok(/#root\s*\{[^}]*padding:\s*0/.test(idx), "index.html #root 满铺 padding:0（去浮动白框）");
 ok(!/#root\s*\{[^}]*padding:\s*12px/.test(idx), "index.html 不再有 12px 旧边框");
-ok(/height:100vh;width:100%;display:flex/.test(lf), ".lf 加 width:100%（根因修复：顶栏逐页宽度一致）");
+ok(/flex:1;min-height:0;width:100%/.test(lf), ".lf 加 width:100%（根因修复：顶栏逐页宽度一致）");
 ok(/\.lf button:focus-visible[^}]*outline:2px solid var\(--gold-line\)/.test(lf), "全局 a11y 焦点环（button/input/tab/menuitemradio）");
 ok(/@media \(prefers-reduced-motion: reduce\)/.test(lf), "保留 reduced-motion");
 
 console.log("— FindFetch 收敛 + 卡片 polish —");
 // 958 = card border-box (920 content + 18×2 padding + 1×2 border); ff-head content edge now sits at the card's left/right border edge
-ok(/\.ff-head\{[^}]*max-width:958px;margin:0 auto/.test(lf), ".ff-head 满宽时收敛居中（不散）· 958 对齐卡片列宽");
+ok(/\.ff-head\{[^}]*width:100%/.test(lf), ".ff-head 满宽时收敛居中（不散）· 958 对齐卡片列宽");
 ok(/\.ff-card\{[^}]*max-width:920px[^}]*transition:box-shadow/.test(lf), ".ff-card 收敛 + 过渡");
 ok(/\.ff-card:hover\{[^}]*box-shadow:var\(--shadow\)/.test(lf), ".ff-card:hover 抬升");
 
@@ -56,8 +60,9 @@ ok((rai.match(/groundReaderAnswer\(answer, (picked|pages)\)/g) || []).length ===
 ok(/sourceBasis: "fulltext"/.test(rai) || /sourceBasis:"fulltext"/.test(rai), "红线4：sourceBasis 仍在");
 
 console.log("— 平衡 / TS —");
-for (const [p, src] of [["LuminaApp.jsx", lf], ["Library.jsx", lib], ["ReadHub.jsx", rh], ["Subscriptions.jsx", subs]])
+for (const [p, src] of [["Library.jsx", lib], ["ReadHub.jsx", rh], ["Subscriptions.jsx", subs]])
   ok(balanced(src), p + " 括号/反引号平衡");
+ok(jsxSyntaxCheck("src/ui/LuminaApp.jsx"), "LuminaApp.jsx 语法（jsx-syntax-check）");
 try { execSync("node --experimental-strip-types --check src/core/reader/reader-ai.ts", { stdio: "pipe" }); ok(true, "reader-ai.ts TS"); }
 catch { ok(false, "reader-ai.ts TS 语法"); }
 

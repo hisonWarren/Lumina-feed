@@ -227,7 +227,7 @@ function SubDialog({ initial, onClose, onSave }) {
         <div className="subs-f"><label>运行时间</label><input className="subs-in" type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ maxWidth: 140 }} /></div>
         <div className="subs-f"><label>命中后的 AI 说明</label>
           <div className="subs-seg-grid">{AUTO_OPTS.map(([k, l]) => <button key={k} type="button" className={autoSummarize === k ? "on" : ""} onClick={() => setAuto(k)}>{l}{k === "blurb" ? <span className="subs-rec">推荐</span> : null}</button>)}</div>
-          <span className="subs-hint">推荐「一句相关」：每条写一句为何值得看，够用且省 API。「前 3 条深总结」最耗额度；未配大模型时自动跳过。今日总报告在「设置 → 通用」单独开关。</span>
+          <span className="subs-hint">推荐「一句相关」：每条写一句为何值得看，够用且省 API。「前 3 条深总结」最耗额度；未配大模型时自动跳过。此处「不自动总结」只管单条相关说明；今日报告由「设置 → 简报报告」总开关统一控制（与每条 AI 说明分开）。</span>
         </div>
         <div className="subs-f">
           <label>简报条目过滤</label>
@@ -248,6 +248,7 @@ function SubDialog({ initial, onClose, onSave }) {
                 {preview.length === 0 ? <div className="dg-preview-item">暂无样本命中</div> : preview.map((p) => (
                   <div key={p.id} className="dg-preview-item">
                     <div>{p.title}</div>
+                    <DigestAbstract abstract={p.abstract} />
                     {p.digestBlurb && <div className="dg-preview-blurb">{p.digestBlurb}</div>}
                   </div>
                 ))}

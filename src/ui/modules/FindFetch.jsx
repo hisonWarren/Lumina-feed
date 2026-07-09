@@ -131,6 +131,7 @@ const FF_CSS = `
 `;
 
 // 呈现层重排：relevance/cited 信任引擎 BM25；title/author/oldest 客户端二次排序。
+// 呈现层重排，非分面收窄
 function sortResults(list, by) {
   const arr = (list || []).slice();
   if (by === "relevance" || by === "cited") {
@@ -670,7 +671,7 @@ export default function FindFetch({
                   <code>心梗 [tiab] AND 心衰 [title]</code>
                   <code>Smith [author] AND apraxia [title]</code>
                 </div>
-                <p className="ff-sx-foot">支持 <code>AND</code> / <code>OR</code> · 粘贴 DOI 自动直达 · 手写字段标签见左侧范围（含主题词 MeSH）</p>
+                <p className="ff-sx-foot">支持 <code>AND</code> / <code>OR</code> · 粘贴 DOI 自动直达 · 手写字段标签见左侧范围（含主题词 MeSH）。非数据库分面；富筛选见「我的文献」。</p>
               </div>
             )}
           </div>

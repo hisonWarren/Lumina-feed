@@ -15,6 +15,7 @@ const exists = (p) => fs.existsSync(path.join(ROOT, p));
 function strip(s){ return s.replace(/\/\*[\s\S]*?\*\//g," ").replace(/"(?:\\.|[^"\\])*"/g,'""').replace(/'(?:\\.|[^'\\])*'/g,"''").replace(/`(?:\\.|[^`\\])*`/g,"``").replace(/\/\/[^\n]*/g," "); }
 function balance(p){ const s=strip(read(p)); for(const[o,c]of[["{","}"],["(",")"],["[","]"]]){const a=s.split(o).length-1,b=s.split(c).length-1; if(a!==b){bad(`${p}: ${o}${c} 不平衡 (${a}/${b})`);return false;}} return true; }
 function nodeCheck(p){ try{ execSync(`node --check "${path.join(ROOT,p)}"`,{stdio:"pipe"}); return true; }catch(e){ bad(`${p}: node --check 失败 — ${String(e.stderr||e).split("\n")[0]}`); return false; } }
+function tsCheck(p){ try{ execSync(`node --experimental-strip-types --check "${path.join(ROOT,p)}"`,{stdio:"pipe"}); return true; }catch{ return false; } }
 
 console.log("\n— 1. 前置（p2a 面板 + p1b 文本层 + engine）—");
 if(exists("src/ui/modules/Reader.jsx")){ const s=read("src/ui/modules/Reader.jsx"); /AssistantPanel/.test(s)?ok("p2a 助手面板在"):bad("缺 p2a —— 请先应用 reader_p2a"); }
@@ -24,7 +25,8 @@ if(exists("electron/preload.ts")){ /luminaReader/.test(read("electron/preload.ts
 console.log("\n— 2. 语法/平衡 —");
 ["src/ui/modules/Reader.jsx"].forEach((f)=>{ if(exists(f)&&balance(f)) ok(f+" 括号平衡"); });
 ["src/ui/lumina-bridge.js"].forEach((f)=>{ if(exists(f)&&nodeCheck(f)) ok(f+" node --check 通过"); });
-["electron/ipc.ts","electron/preload.ts","src/core/reader/reader-ai.ts"].forEach((f)=>{ if(exists(f)&&balance(f)) ok(f+" 括号平衡(TS)"); });
+["electron/ipc.ts","electron/preload.ts"].forEach((f)=>{ if(exists(f)&&balance(f)) ok(f+" 括号平衡(TS)"); });
+tsCheck("src/core/reader/reader-ai.ts")&&ok("reader-ai.ts strip-types");
 
 console.log("\n— 3. 翻译后端（非接地、无页码）—");
 if(exists("src/core/reader/reader-ai.ts")){ const s=read("src/core/reader/reader-ai.ts"); /export async function translateText/.test(s)?ok("reader-ai 导出 translateText"):bad("缺 translateText"); /llm\.complete/.test(s)?ok("经 LlmClient.complete"):wn("未见 complete"); }

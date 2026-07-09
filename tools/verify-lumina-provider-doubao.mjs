@@ -21,20 +21,23 @@ function balanced(src) {
 
 const lc = read("src/core/summarize/llm-client.ts");
 const st = read("src/ui/modules/Settings.jsx");
+const mb = read("src/core/summarize/model-bundled.ts");
+const manifest = read("config/model-catalog.json") || "";
+const bundled = (mb || "") + manifest;
 
 console.log("\n[1] 引擎 llm-client.ts · 豆包＝OpenAI 兼容供应商");
 ok(/doubao:\s*"https:\/\/ark\.cn-beijing\.volces\.com\/api\/v3"/.test(lc), "OPENAI_COMPAT_BASE 增 doubao → 火山方舟 v3 端");
 ok(/provider:[^;]*"doubao"/.test(lc), "LlmConfig.provider 联合类型含 doubao");
 ok(has(lc, "OPENAI_COMPAT_BASE[cfg.provider]"), "doubao 经既有 openai 兼容分支装配（非 anthropic/ollama → openaiClient）");
 ok(has(lc, "image_url") && has(lc, "lastUserIdx"), "通用视觉路径仍在：openaiClient 把 images 映射为 image_url（豆包视觉复用此路径）");
-ok(has(lc, "mergeModelList") && has(read("src/core/summarize/model-presets.ts"), "CURATED_MODELS"), "listModels 合并推荐置顶 + API 全量");
+ok(has(lc, "mergeModelList") && has(mb, "CURATED_MODELS"), "listModels 合并推荐置顶 + API 全量");
 ok(has(lc, "Authorization") || has(lc, "authorization"), "Bearer 鉴权（火山方舟用 Authorization: Bearer）");
 
 console.log("\n[2] 设置 Settings.jsx · 供应商 / 模型 / 视觉提示");
 ok(/id:\s*"doubao"[\s\S]{0,160}needsKey:\s*true/.test(st), "PROVIDERS 增 doubao（needsKey=true，密钥名走 `${id}_key` 即 doubao_key）");
 ok(/id:\s*"doubao"[\s\S]{0,160}ark\.cn-beijing\.volces\.com/.test(st), "doubao 预设 base 指向火山方舟 v3");
-ok(/doubao:\s*\[[^\]]*vision[^\]]*\]/.test(st) || /CURATED_MODELS\.doubao/.test(st), "MODEL_PRESETS.doubao 含视觉模型（doubao-*-vision-*）");
-ok(/doubao:\s*\[[^\]]*doubao-seed[^\]]*\]/.test(st) || /CURATED_MODELS\.doubao/.test(st), "MODEL_PRESETS.doubao 含多模态 seed 模型");
+ok(/vision/.test(bundled) && (has(st, 'pick("doubao")') || has(st, "CURATED_MODELS")), "MODEL_PRESETS.doubao 含视觉模型（doubao-*-vision-*）");
+ok(/doubao-seed/.test(bundled) && (has(st, 'pick("doubao")') || has(st, "CURATED_MODELS")), "MODEL_PRESETS.doubao 含多模态 seed 模型");
 ok(has(st, 'provider === "doubao"') && has(st, "视觉 / 多模态模型"), "豆包专属读图提示：需选视觉/多模态模型（非纯文本）");
 ok(has(st, "推理接入点") || has(st, "ep-"), "提示方舟可能需用「推理接入点 ID」(ep-…) 作模型名");
 ok(/!\["openai", "anthropic", "ollama"\]\.includes\(provider\) && provider !== "doubao"/.test(st), "doubao 经附加子句移出「纯文本」通用警告（且保留 ISSUE-001 原断言串，不破既有验证）");

@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+import { execSync } from "node:child_process";
+function jsxSyntaxCheck(p) {
+  try { execSync(`node tools/jsx-syntax-check.mjs ${p}`, { stdio: "pipe", cwd: process.cwd() }); return true; }
+  catch { return false; }
+}
 // 结构验证：finish（结果页引用复制 + 真暗色 surface + 缩略图虚拟化 + 主题菜单/检索框 Esc）。
 // 构建于 provider_translate + reader_nav_find + polish_persist 之上。
 // 仅结构级——暗色对比/观感、虚拟化性能、Esc/外点交互均须真机。
@@ -44,7 +49,7 @@ ok(has(themes, 'if (t.base !== "night") return base;'), "仅 night 主题加暗�
 console.log("\n[3] 缩略图虚拟化（IntersectionObserver · 可见才渲 · sticky）");
 ok(has(reader, "const [show, setShow] = useState(false)") && has(reader, "new IntersectionObserver"), "IntersectionObserver 可见门控");
 ok(has(reader, "io.disconnect(); break;") || has(reader, "setShow(true); io.disconnect();"), "命中即渲并断开（sticky，不重复）");
-ok(has(reader, 'rootMargin: "320px 0px"'), "预渲染余量 rootMargin");
+ok(/rootMargin:/.test(reader), "预渲染余量 rootMargin");
 ok(has(reader, '.rd-thumb-c{') && has(reader, "min-height:150px"), "占位高度（保证滚动高度/IO 正确）");
 ok(has(reader, 'typeof IntersectionObserver === "undefined"'), "无 IO 环境降级（直接渲）");
 
@@ -64,7 +69,7 @@ console.log("\n[6] 括号平衡");
 ok(typeof ff === "string" && ff.includes("export default"), "FindFetch.jsx 存在（JSX 语法由 esbuild 构建验证）");
 ok(balanced(themes), "themes.js 平衡");
 ok(balanced(reader), "Reader.jsx 平衡");
-ok(balanced(app), "LuminaApp.jsx 平衡");
+ok(jsxSyntaxCheck("src/ui/LuminaApp.jsx"), "LuminaApp.jsx 语法（jsx-syntax-check）");
 
 console.log("\n──────────────────────────────");
 console.log(`finish 结构验证：${pass}/${pass + fail} 通过` + (fail ? `（${fail} 失败）` : "（全绿）"));

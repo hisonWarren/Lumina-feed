@@ -9,7 +9,7 @@ const ok = (c, m) => { if (c) { pass++; console.log("  ✓ " + m); } else { fail
 
 const rd = read("src/ui/modules/Reader.jsx");
 console.log("\n[1] 助手面板 · 单滚动 + sticky 输入区");
-ok(/\.rd-zonepane\.assist\{[^}]*overflow-y:auto[^}]*scrollbar-gutter:stable/.test(rd), "assist 单容器滚动 + stable gutter");
+ok(/rd-zonepane\.assist[\s\S]{0,120}overflow-y:auto[\s\S]{0,60}scrollbar-gutter:stable/.test(rd), "assist 单容器滚动 + stable gutter");
 ok(/\.rd-assist-foot\{[^}]*position:sticky[^}]*bottom:0/.test(rd), "输入区 sticky 贴底");
 ok(!/rd-assist-scroll/.test(rd), "已移除双区 flex 撑满（rd-assist-scroll）");
 ok(/className="rd-assist-main"/.test(rd), "主内容区 rd-assist-main");
