@@ -27,6 +27,7 @@ if(exists("src/ui/modules/Settings.jsx")){ const s=read("src/ui/modules/Settings
   /deepseek/.test(s)&&/anthropic/.test(s)&&/openai/.test(s)&&/moonshot/.test(s)&&/ollama/.test(s)&&/custom/.test(s)?ok("六提供方（DeepSeek 默认 + Claude/OpenAI/Kimi/Ollama/自定义）"):bad("提供方不全");
   (/saveSettings/.test(s) || /persistSettings/.test(s) || /persistLlmFields/.test(s))?ok("保存 llm 配置（persistSettings / persistLlmFields）"):bad("未保存 llm");
   /baseUrl/.test(s)?ok("自定义/Ollama baseURL"):wn("未见 baseUrl");
+  /const refreshKeysStatus = useCallback/.test(s)&&/bridge\.sourcesStatus/.test(s)?ok("refreshKeysStatus 已定义（防设置白屏）"):bad("缺 refreshKeysStatus");
 }
 
 console.log("\n— 4. 密钥仅入钥匙串（红线3）—");
