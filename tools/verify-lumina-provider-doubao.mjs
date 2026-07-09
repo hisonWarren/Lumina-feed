@@ -27,7 +27,7 @@ ok(/doubao:\s*"https:\/\/ark\.cn-beijing\.volces\.com\/api\/v3"/.test(lc), "OPEN
 ok(/provider:[^;]*"doubao"/.test(lc), "LlmConfig.provider 联合类型含 doubao");
 ok(has(lc, "OPENAI_COMPAT_BASE[cfg.provider]"), "doubao 经既有 openai 兼容分支装配（非 anthropic/ollama → openaiClient）");
 ok(has(lc, "image_url") && has(lc, "lastUserIdx"), "通用视觉路径仍在：openaiClient 把 images 映射为 image_url（豆包视觉复用此路径）");
-ok(has(lc, "filterCuratedModels") && has(read("src/core/summarize/model-presets.ts"), "CURATED_MODELS"), "listModels 对各云端供应商做精选过滤");
+ok(has(lc, "mergeModelList") && has(read("src/core/summarize/model-presets.ts"), "CURATED_MODELS"), "listModels 合并推荐置顶 + API 全量");
 ok(has(lc, "Authorization") || has(lc, "authorization"), "Bearer 鉴权（火山方舟用 Authorization: Bearer）");
 
 console.log("\n[2] 设置 Settings.jsx · 供应商 / 模型 / 视觉提示");

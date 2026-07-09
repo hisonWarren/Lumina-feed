@@ -94,7 +94,7 @@ const SET_CSS = `
 .set-combo-rf:disabled{opacity:.6;cursor:default}
 .set-spin{display:inline-flex;animation:set-spin 1s linear infinite}
 @keyframes set-spin{to{transform:rotate(360deg)}}
-.set-combo-menu{position:absolute;top:calc(100% + 5px);left:0;right:0;z-index:30;background:var(--raise);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow-lg);padding:5px;max-height:264px;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+.set-combo-menu{position:absolute;top:calc(100% + 5px);left:0;right:0;z-index:30;background:var(--raise);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow-lg);padding:5px;max-height:min(52vh,380px);overflow-y:auto;display:flex;flex-direction:column;gap:2px}
 .set-combo-note{font-size:10.5px;color:var(--ink4);padding:5px 9px 3px}
 .set-combo-opt{display:flex;align-items:center;justify-content:space-between;gap:8px;border:none;background:transparent;color:var(--ink2);text-align:left;padding:8px 10px;border-radius:7px;cursor:pointer;font-size:12.5px}
 .set-combo-opt:hover{background:var(--surf2);color:var(--gold)}
@@ -383,12 +383,22 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
 
   const llmBlurTimer = useRef(null);
   const modelsFetchGenRef = useRef(0);
+  const modelComboRef = useRef(null);
   const scheduleLlmBlurSave = useCallback((overrides = {}) => {
     if (!backend) return;
     if (llmBlurTimer.current) clearTimeout(llmBlurTimer.current);
     llmBlurTimer.current = setTimeout(() => { void persistLlmFields(overrides); }, 600);
   }, [backend, persistLlmFields]);
   useEffect(() => () => { if (llmBlurTimer.current) clearTimeout(llmBlurTimer.current); }, []);
+
+  useEffect(() => {
+    if (!modelMenuOpen) return;
+    const onPointer = (e) => {
+      if (modelComboRef.current && !modelComboRef.current.contains(e.target)) setModelMenuOpen(false);
+    };
+    const t = setTimeout(() => document.addEventListener("pointerdown", onPointer, true), 0);
+    return () => { clearTimeout(t); document.removeEventListener("pointerdown", onPointer, true); };
+  }, [modelMenuOpen]);
 
   useEffect(() => {
     let alive = true;
@@ -741,19 +751,20 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                 </div>
                 <div className="set-row">
                   <span className="set-lbl">模型 <span className="set-lbl-sub">· 点选；可刷新拉取最新，或自填</span></span>
-                  <div className="set-combo">
+                  <div className="set-combo" ref={modelComboRef}>
                     <input className="set-combo-in set-mono" value={model} onChange={(e) => { setModel(e.target.value); scheduleLlmBlurSave({ model: e.target.value }); }} onBlur={() => void persistLlmFields({ model })} onFocus={() => setModelMenuOpen(true)} placeholder={preset.model || "模型名（点选或直接输入）"} aria-label="模型名" />
                     <button type="button" className="set-combo-tg" onClick={() => setModelMenuOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={modelMenuOpen} title="模型列表"><ChevronDown size={14} /></button>
                     <button type="button" className="set-combo-rf" onClick={() => fetchModels(provider)} disabled={modelsLoading} title={preset.needsKey && !llmKeySaved && !apiKey.trim() ? "拉取最新模型列表（需先在钥匙串保存 API Key）" : "拉取最新模型列表"}><span className={modelsLoading ? "set-spin" : ""}>{modelsLoading ? <Loader size={14} /> : <RefreshCw size={14} />}</span></button>
                     {modelMenuOpen && (
                       <div className="set-combo-menu" role="listbox">
                         {availModels.map((m) => (
-                          <button type="button" role="option" aria-selected={m === model} key={m} className={"set-combo-opt set-mono" + (m === model ? " on" : "")} onClick={() => { const prev = model; setModel(m); setModelMenuOpen(false); void persistLlmFields({ model: m }, () => setModel(prev)); }}>{m}{m === model ? <Check size={13} /> : null}</button>
+                          <button type="button" role="option" aria-selected={m === model} key={m} className={"set-combo-opt set-mono" + (m === model ? " on" : "")} onMouseDown={(e) => e.preventDefault()} onClick={() => { const prev = model; setModel(m); setModelMenuOpen(false); void persistLlmFields({ model: m }, () => setModel(prev)); }}>{m}{m === model ? <Check size={13} /> : null}</button>
                         ))}
                         {availModels.length === 0 && <div className="set-combo-note">可直接在框内输入模型名</div>}
                       </div>
                     )}
                   </div>
+                  <span className="set-hint">{fetchedModels && fetchedModels.length ? `已从 API 拉取 ${availModels.length} 个对话模型（推荐置顶）` : "显示内置推荐；保存 API Key 后点刷新可拉取账户可用全量列表"}</span>
                   {provider === "doubao" && (
                     <span className="set-hint">
                       「模型」可填 <b>Model ID</b>（模型广场，如 <span className="set-mono">doubao-seed-2-1-pro-260628</span>）或<b>推理接入点 ID</b>（在线推理，<span className="set-mono">ep-</span> 开头）——二者都填入此框、二选一。账户未开通的 Model ID 会 404；自建 <span className="set-mono">ep-</span> 接入点在账号内一定可用，<b>推荐</b>。

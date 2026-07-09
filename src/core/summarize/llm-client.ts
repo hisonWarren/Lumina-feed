@@ -2,7 +2,7 @@
 // 零依赖 global fetch；baseUrl/fetchImpl 可注入便于测试。
 // 安全(ADR-3)：apiKey 由调用方从钥匙串/env 取并传入，绝不写配置文件；Ollama 全本地不出网。
 import type { LlmClient, LlmMessage, LlmCompleteOpts } from "./types.ts";
-import { filterCuratedModels, DOUBAO_CURATED_MODELS } from "./model-presets.ts";
+import { mergeModelList, DOUBAO_CURATED_MODELS } from "./model-presets.ts";
 
 export { DOUBAO_CURATED_MODELS };
 
@@ -175,7 +175,7 @@ export async function listModels(cfg: LlmConfig, getKey: () => Promise<string | 
       if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
       const j: any = await res.json();
       let models = Array.isArray(j && j.data) ? j.data.map((m: any) => String((m && m.id) || "")).filter(Boolean) : [];
-      models = filterCuratedModels(cfg.provider, models);
+      models = mergeModelList(cfg.provider, models);
       return { ok: true, models };
     }
     if (!key) return { ok: false, error: "缺少 API key" };
@@ -185,7 +185,7 @@ export async function listModels(cfg: LlmConfig, getKey: () => Promise<string | 
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
     const j: any = await res.json();
     let models = Array.isArray(j && j.data) ? j.data.map((m: any) => String((m && m.id) || "")).filter(Boolean) : [];
-    models = filterCuratedModels(cfg.provider, models);
+    models = mergeModelList(cfg.provider, models);
     return { ok: true, models };
   } catch (e: any) { return { ok: false, error: (e && e.message) ? String(e.message) : "拉取失败" }; }
 }
