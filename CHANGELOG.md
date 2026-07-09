@@ -2,6 +2,12 @@
 
 本文件记录 Lumina Feed 各版本的用户可见变更。完整提交历史见 [GitHub Releases](https://github.com/hisonWarren/Lumina-feed/releases)。
 
+## [0.4.96] — 2026-07-09
+
+### 修复
+
+- **设置白屏**：修复 `refreshKeysStatus` 未定义导致点击设置后整页崩溃。
+
 ## [0.4.95] — 2026-07-09
 
 ### 新增

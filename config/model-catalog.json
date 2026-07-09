@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "catalogVerified": "2026-07-09",
-  "minAppVersion": "0.4.95",
+  "minAppVersion": "0.4.96",
   "sources": {
     "openai": "https://developers.openai.com/api/docs/models",
     "anthropic": "https://platform.claude.com/docs/en/about-claude/models/overview",

@@ -229,14 +229,12 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
     bridge.modelCatalogGet().then(applyCatalogState).catch(() => {});
   }, [backend, applyCatalogState]);
 
-  useEffect(() => {
-    if (!backend) return;
-    (async () => {
-      try {
-        const st = await bridge.sourcesStatus();
-        setKeysConfigured(st || {});
-      } catch { /* ignore */ }
-    })();
+  const refreshKeysStatus = useCallback(async () => {
+    if (!backend) { setKeysConfigured({}); return; }
+    try {
+      const st = await bridge.sourcesStatus();
+      setKeysConfigured(st || {});
+    } catch { /* ignore */ }
   }, [backend]);
 
   const refreshLlmKeyStatus = useCallback(async (prov) => {
