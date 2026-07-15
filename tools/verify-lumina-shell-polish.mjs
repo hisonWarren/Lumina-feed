@@ -56,7 +56,7 @@ ok(/\[a-z\]\[a-z0-9\+\\-\]\{2,\}/.test(rai), "拉丁词锚点（≥3，跨语言
 ok(/anchors\.length >= 1 && aCov >= hi\) \|\| cCov >= hi/.test(rai), "判据：锚点过半命中 OR CJK bigram 过半命中");
 ok(/\.replace\(\/\\\*\\\*\/g, ""\)\.replace\(\/\^\[\\s>#\*\\-\\d\.、\]\+\//.test(rai), "splitClaims 清理 Markdown 列表/加粗标记");
 ok(!/buildGroundedSummary/.test(rai), "不复活通用 buildGroundedSummary（阅读器专用接地）");
-ok((rai.match(/groundReaderAnswer\(answer, (picked|pages)\)/g) || []).length === 2, "两处调用点（picked/pages）保留");
+ok((rai.match(/groundReaderAnswer\(answer, (picked|pages)\)/g) || []).length >= 2, "两处以上调用点（picked/pages）保留");
 ok(/sourceBasis: "fulltext"/.test(rai) || /sourceBasis:"fulltext"/.test(rai), "红线4：sourceBasis 仍在");
 
 console.log("— 平衡 / TS —");

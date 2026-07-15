@@ -227,5 +227,6 @@ contextBridge.exposeInMainWorld("luminaReader", {
 
 contextBridge.exposeInMainWorld("luminaAnno", {
   get: (docKey: string) => invoke("annotations:get", docKey),
+  getMerged: (primaryKey: string, candidates?: string[]) => invoke("annotations:getMerged", primaryKey, candidates),
   save: (docKey: string, list: unknown) => invoke("annotations:save", docKey, list),
 });

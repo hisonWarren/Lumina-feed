@@ -28,12 +28,12 @@ console.log("\n— 2. 语法/平衡 —");
 
 console.log("\n— 3. 批注引擎（侧车 SQLite · 本地优先红线7）—");
 if(exists("electron/ipc.ts")){ const s=read("electron/ipc.ts");
-  s.includes('"annotations:get"')&&s.includes('"annotations:save"')?ok("注册 annotations:get/save"):bad("缺 annotations IPC");
+  s.includes('"annotations:get"')&&s.includes('"annotations:save"')&&s.includes('"annotations:getMerged"')?ok("注册 annotations:get/save/getMerged"):bad("缺 annotations IPC");
   /sources_cache/.test(s)&&/anno:/.test(s)?ok("以 anno:<docKey> 存 SQLite"):wn("未见 SQLite 持久化");
   s.includes('"reader:translate"')&&s.includes('"reader:summarize"')?ok("既有 reader IPC 不回归"):bad("既有 reader IPC 丢失");
 }
 if(exists("electron/preload.ts")){ /luminaAnno/.test(read("electron/preload.ts"))?ok("preload 暴露 luminaAnno"):bad("未暴露 luminaAnno"); }
-if(exists("src/ui/lumina-bridge.js")){ const s=read("src/ui/lumina-bridge.js"); /getAnnotations/.test(s)&&/saveAnnotations/.test(s)?ok("bridge get/saveAnnotations"):bad("缺批注桥"); /_annoMem/.test(s)?ok("无后端内存回退"):wn("缺 mock 回退"); }
+if(exists("src/ui/lumina-bridge.js")){ const s=read("src/ui/lumina-bridge.js"); /getAnnotationsMerged/.test(s)&&/saveAnnotations/.test(s)?ok("bridge getMerged/saveAnnotations"):bad("缺批注桥"); /_annoMem/.test(s)?ok("无后端内存回退"):wn("缺 mock 回退"); }
 if(exists("package.json")){ /pdf-lib/.test(read("package.json"))?ok("package.json 含 pdf-lib（导出依赖）"):bad("缺 pdf-lib 依赖"); }
 
 console.log("\n— 4. 导出（pdf-lib 带注释 PDF + 笔记 Markdown）—");
@@ -52,7 +52,10 @@ if(exists("src/ui/modules/Reader.jsx")){ const s=read("src/ui/modules/Reader.jsx
   /data-page=\{pageNum\}/.test(s)?ok("页锚 data-page（选区定位/坐标）"):bad("缺 data-page");
   /onViewMouseDown/.test(s)&&/rd-snip/.test(s)?ok("截取框选（onViewMouseDown + 选框）"):bad("缺截取");
   /querySelectorAll\(".textLayer span"\)/.test(s)?ok("截取取区域内文本 → 接地解释"):wn("未见区域取文");
-  /bridge\.getAnnotations/.test(s)&&/bridge\.saveAnnotations/.test(s)?ok("会话留存：开/存批注"):bad("缺持久化");
+  /bridge\.getAnnotationsMerged/.test(s)&&/bridge\.saveAnnotations/.test(s)?ok("会话留存：合并加载/存批注"):bad("缺持久化");
+  /clearTimeout\(t\)/.test(s)&&/saveAnnotations\(key, annosRef/.test(s)?ok("关页 flush 防抖批注"):wn("未见 unmount flush");
+  /focus-exit|退出专注/.test(s)&&/\.rd\.focus \.rd-toolbar\{display:none/.test(s)?ok("专注模式藏工具栏"):wn("专注模式未加强");
+  /可借外部知识/.test(s)&&/askMode/.test(s)?ok("Ask 外部知识模式 UI"):wn("缺 Ask mode UI");
   /loadedRef/.test(s)?ok("载入完成前不覆盖（防空写）"):wn("未见载入门");
   /docKey/.test(s)?ok("以 docKey(文件名+字节长度) 为键"):bad("缺 docKey");
   /exportAnnotatedPdf/.test(s)&&/exportNotesMarkdown/.test(s)?ok("接导出"):bad("未接导出");

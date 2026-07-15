@@ -5,11 +5,12 @@ import type { LlmClient } from "../summarize/types.ts";
 
 export interface ReaderPage { page: number; text: string }
 export interface ReaderCitation { page: number }
-export type ReaderSourceBasis = "fulltext" | "pages" | "abstract";
+export type ReaderSourceBasis = "fulltext" | "pages" | "abstract" | "mixed" | "external";
+export type AskMode = "paper" | "general";
 
 export interface ReaderAnswer {
   text: string;
-  sourceBasis: ReaderSourceBasis; // fulltext=全文管线；pages=仅部分页（应诚实标出）
+  sourceBasis: ReaderSourceBasis; // fulltext=全文管线；pages=仅部分页；mixed=文中+背景；external=外部知识
   model: string;
   groundedRatio: number;
   banner?: string;
@@ -26,6 +27,8 @@ export interface AskReaderOpts {
   signal?: AbortSignal;
   priorTurns?: ReaderQaTurn[];
   artifacts?: ReaderAskArtifacts;
+  /** paper=仅据本文（默认）；general=可借外部知识，须诚实标注 */
+  mode?: AskMode;
 }
 
 export const ASK_PRIOR_TURN_CAP = 2;
@@ -123,9 +126,19 @@ const SYS_BASE =
   "每一处结论/论断后用方括号页码标注来源，如 [p.3]；同一句可标多个。" +
   "若提供文本不足以回答，请直说「依据所给页面无法确定」。用简体中文，简洁。";
 
+/** 可借外部知识：背景不得伪造页码；文中论断仍须 [p.X]。 */
+const SYS_GENERAL =
+  "你是学术阅读助手。可结合开放世界知识与下方可选的论文页面文本作答。" +
+  "凡直接依据论文正文的论断必须用方括号页码标注，如 [p.3]；同一句可标多个。" +
+  "纯背景知识、学科常识、术语释义不得标注页码，并在该句或该段开头用「（背景）」标明。" +
+  "严禁为外部知识伪造页码。用简体中文，简洁。";
+
 const MEMORY_SYS =
   "\n若附有「前文要点」或「本篇制品」，仅用于理解指代（如「它」「刚才」「第二点」指什么）；" +
   "最终论断必须仍依据页面文本重新核验并标注页码，不得把前文或制品当作证据。";
+
+const MEMORY_SYS_GENERAL =
+  "\n若附有「前文要点」或「本篇制品」，可用于理解指代；文中论断仍须按页面核验并标 [p.X]，背景知识标「（背景）」且不得伪造页码。";
 
 /** 从上一轮回答抽取带页码的要点行（L2 浅记忆，上限 4 条）。 */
 function extractGroundedSnippets(answer: string, maxSnippets = 4): string {
@@ -370,20 +383,25 @@ async function composeAnswerText(
   llm: LlmClient,
   signal?: AbortSignal,
   memoryBlock?: string,
+  mode: AskMode = "paper",
 ): Promise<string> {
   const qq = (question || "").trim();
   const mem = (memoryBlock || "").trim();
   const memPrefix = mem ? mem + "\n\n" : "";
-  const memSys = mem ? MEMORY_SYS : "";
+  const general = mode === "general";
+  const baseSys = general ? SYS_GENERAL : SYS_BASE;
+  const memSys = mem ? (general ? MEMORY_SYS_GENERAL : MEMORY_SYS) : "";
   const locateQ = extractLocateQuery(qq);
-  const locateHint = isLocateQuestion(locateQ)
+  const locateHint = !general && isLocateQuestion(locateQ)
     ? "\n这是定位类问题：只引用原文中与锚点词（如数值/单位）直接相关的句子，附 [p.X]；不要复述用户问题里的背景；找不到才说「依据所给页面无法确定」。"
     : "";
   if (totalChars(pages) <= ONE_PASS_CAP) {
-    const sys =
-      SYS_BASE + memSys +
-      "\n任务：依据下方提供的论文页面文本，直接回答用户问题；每一处论断后标注信息实际所在的页码 [p.X]（信息在哪页就标哪页，不要把所有点都标第 1 页）。若文本不足以回答，请直说「依据所给页面无法确定」。"
-      + locateHint;
+    const sys = general
+      ? baseSys + memSys +
+        "\n任务：回答用户问题。可依据下方论文页面与必要背景知识；文中论断标真实页码 [p.X]，背景标「（背景）」且不伪造页码。"
+      : baseSys + memSys +
+        "\n任务：依据下方提供的论文页面文本，直接回答用户问题；每一处论断后标注信息实际所在的页码 [p.X]（信息在哪页就标哪页，不要把所有点都标第 1 页）。若文本不足以回答，请直说「依据所给页面无法确定」。"
+        + locateHint;
     return await llm.complete(
       [
         { role: "system", content: sys },
@@ -395,10 +413,12 @@ async function composeAnswerText(
   const chunks = chunkByPages(pages, MAP_CHUNK, MAX_CHUNKS);
   const mapped = await Promise.all(chunks.map((c) => mapChunkForQuestion(c, qq, llm, signal).catch(() => "")));
   const notes = mapped.map((m) => (m && m !== "（无）" ? m : "")).filter(Boolean).join("\n");
-  const reduceSys =
-    SYS_BASE + memSys +
-    "\n下面是从全文各部分抽取的、与用户问题相关的要点清单（带页码）。请据此直接回答问题；每处论断保留并标注它所依据的真实页码 [p.X]（沿用要点里的页码，不要一律标第 1 页）；只用要点中的信息，不杜撰数字、不引入要点之外的内容。若要点不足以回答，请直说「依据所给页面无法确定」。"
-    + locateHint;
+  const reduceSys = general
+    ? baseSys + memSys +
+      "\n下面是从全文各部分抽取的相关要点（带页码）。请回答用户问题：文中论断保留真实 [p.X]；需要的背景知识标「（背景）」且不得伪造页码；不得把背景写成论文原文。"
+    : baseSys + memSys +
+      "\n下面是从全文各部分抽取的、与用户问题相关的要点清单（带页码）。请据此直接回答问题；每处论断保留并标注它所依据的真实页码 [p.X]（沿用要点里的页码，不要一律标第 1 页）；只用要点中的信息，不杜撰数字、不引入要点之外的内容。若要点不足以回答，请直说「依据所给页面无法确定」。"
+      + locateHint;
   return await llm.complete(
     [
       { role: "system", content: reduceSys },
@@ -415,10 +435,38 @@ export async function askReader(
   llm: LlmClient,
   opts: AskReaderOpts = {},
 ): Promise<ReaderAnswer> {
+  const mode: AskMode = opts.mode === "general" ? "general" : "paper";
   const memoryBlock = buildAskMemoryBlock(opts.priorTurns, opts.artifacts);
-  const located = tryLocateAnswer(pages, question);
-  const raw = located ?? await composeAnswerText(pages, question, llm, opts.signal, memoryBlock || undefined);
+  const located = mode === "paper" ? tryLocateAnswer(pages, question) : null;
+  const raw = located ?? await composeAnswerText(pages, question, llm, opts.signal, memoryBlock || undefined, mode);
   const answer = normalizeAnswerCites(raw);
+  const citations = extractCitations(answer);
+  if (mode === "general") {
+    const hasBg = /（背景）|\(背景\)/.test(answer);
+    if (!citations.length) {
+      return {
+        text: answer,
+        sourceBasis: "external",
+        model: llm.model,
+        groundedRatio: 1,
+        banner: hasBg ? undefined : "○ 本题以外部知识为主——未引用本文页码",
+        citations: [],
+        pageCount: pages.length,
+        pagesUsed: 0,
+      };
+    }
+    const g = groundReaderAnswer(answer, pages);
+    return {
+      text: answer,
+      sourceBasis: "mixed",
+      model: llm.model,
+      groundedRatio: g.groundedRatio,
+      banner: g.banner || (hasBg ? "◐ 文中引用已接地；带「（背景）」处为外部知识" : undefined),
+      citations,
+      pageCount: pages.length,
+      pagesUsed: pages.length,
+    };
+  }
   const g = groundReaderAnswer(answer, pages);
   return {
     text: answer,
@@ -426,7 +474,7 @@ export async function askReader(
     model: llm.model,
     groundedRatio: g.groundedRatio,
     banner: g.banner,
-    citations: extractCitations(answer),
+    citations,
     pageCount: pages.length,
     pagesUsed: pages.length,
   };

@@ -50,6 +50,7 @@ if(exists("electron/preload.ts")){ const s=read("electron/preload.ts");
 console.log("\n— 6. 阅读器接地 AI 契约（红线 2/4：只单篇 · sourceBasis · 页码引用 · 不替判定）—");
 if(exists("src/core/reader/reader-ai.ts")){ const s=read("src/core/reader/reader-ai.ts");
   /export async function summarizeReader/.test(s)&&/export async function askReader/.test(s)?ok("导出 summarizeReader + askReader"):bad("接地 AI 导出不全");
+  /AskMode|mode === "general"/.test(s)&&/SYS_GENERAL|可借外部/.test(s)?ok("askReader 支持 general 模式"):wn("未见 Ask general");
   /buildAskMemoryBlock/.test(s)&&/ASK_PRIOR_TURN_CAP/.test(s)?ok("问答 L1+L2 记忆块"):bad("缺问答记忆");
   /sourceBasis:\s*"fulltext"/.test(s)?ok("回答带 sourceBasis:fulltext"):bad("缺 sourceBasis");
   /groundReaderAnswer/.test(s)?ok("阅读器专用页锚接地 groundReaderAnswer（按 claim 在引用页核验·接地比例/横幅）"):bad("未接地");

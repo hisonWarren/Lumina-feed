@@ -59,6 +59,7 @@ const HUB_CSS = `
 const RHX_CSS = `
 .rhx{height:100%;display:flex;flex-direction:column;min-height:0}
 .rhx-tabs{display:flex;align-items:center;gap:4px;padding:7px 12px 0;background:var(--surf);border-bottom:1px solid var(--line);overflow-x:auto;flex-shrink:0}
+.rhx.focus-reading .rhx-tabs{display:none}
 .rhx-tab{display:inline-flex;align-items:center;gap:6px;max-width:210px;border:1px solid var(--line);border-bottom:none;background:var(--surf2);color:var(--ink2);border-radius:9px 9px 0 0;padding:7px 10px;font-size:12px;cursor:pointer;font-family:inherit;white-space:nowrap;flex-shrink:0}
 .rhx-tab:hover{color:var(--ink)}
 .rhx-tab.on{background:var(--gold);color:#fff;border-color:var(--gold)}
@@ -250,6 +251,7 @@ export default function ReaderModule({ pushToast, incoming, onIncomingHandled, r
   const [downloaded, setDownloaded] = useState([]);
   const [loadingDl, setLoadingDl] = useState(true);
   const [showAllDl, setShowAllDl] = useState(false);
+  const [readerFocus, setReaderFocus] = useState(false);
 
   const refreshContinue = useCallback(async () => {
     setLoadingContinue(true);
@@ -591,7 +593,7 @@ export default function ReaderModule({ pushToast, incoming, onIncomingHandled, r
 
   const showHub = st.activeId === null;
   return (
-    <div className="rhx">
+    <div className={"rhx" + (readerFocus && !showHub ? " focus-reading" : "")}>
       <style>{RHX_CSS}</style>
       {st.tabs.length > 0 && (
         <div className="rhx-tabs" role="tablist" aria-label="打开的 PDF">
@@ -635,6 +637,7 @@ export default function ReaderModule({ pushToast, incoming, onIncomingHandled, r
               onLibraryRemove={onLibraryRemove}
               onSourceUpgrade={upgradeTabSource}
               onPaperRename={onPaperRename}
+              onFocusChange={t.id === st.activeId ? setReaderFocus : undefined}
             />
           </div>
         ))}

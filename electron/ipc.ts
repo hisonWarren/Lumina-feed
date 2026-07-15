@@ -36,6 +36,7 @@ import { summarizeGrounded } from "../src/core/trust/index.ts";
 import { analyzeReader, analyzeFigure, analyzeCorpus, KIND_REGISTRY, type AnalysisEnvelope, type CorpusPaper, type CorpusInputTier } from "../src/core/reader/reader-plus.ts";
 import { saveGrounding } from "../src/core/trust/audit.ts";
 import { summarizeReader, askReader, translateText, type ReaderPage } from "../src/core/reader/reader-ai.ts";
+import { migrateDocKeys } from "../src/core/store/doc-migrate.ts";
 import {
   clearReadingHistory,
   ensureReadingHistoryTable,
@@ -1052,11 +1053,12 @@ export function registerIpc(deps: IpcDeps): void {
     const llm = await makeLlm();
     return summarizeReader((payload && payload.pages) || [], llm);
   });
-  ipcMain.handle("reader:ask", async (_e, payload: { pages?: ReaderPage[]; question?: string; priorTurns?: { q: string; a?: string }[]; artifacts?: { summary?: string; outline?: string } }) => {
+  ipcMain.handle("reader:ask", async (_e, payload: { pages?: ReaderPage[]; question?: string; priorTurns?: { q: string; a?: string }[]; artifacts?: { summary?: string; outline?: string }; mode?: "paper" | "general" }) => {
     const llm = await makeLlm();
     return askReader((payload && payload.pages) || [], (payload && payload.question) || "", llm, {
       priorTurns: payload && payload.priorTurns,
       artifacts: payload && payload.artifacts,
+      mode: payload && payload.mode === "general" ? "general" : "paper",
     });
   });
   ipcMain.handle("reader:translate", async (_e, payload: { text?: string }) => {
@@ -1254,6 +1256,20 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle("annotations:get", (_e, docKey: string) => {
     try { ensureAnno(); const r: any = store.db.prepare("SELECT payload FROM sources_cache WHERE key=?").get("anno:" + docKey); return r && r.payload ? JSON.parse(r.payload) : []; }
     catch { return []; }
+  });
+  /** 打开文献：把候选 docKey 的 anno/translate/navmark 合并到主 key，再返回批注（修复 hash↔paper 漂移）。 */
+  ipcMain.handle("annotations:getMerged", (_e, primaryKey: string, candidates?: string[]) => {
+    try {
+      ensureAnno();
+      const primary = String(primaryKey || "").trim();
+      if (!primary) return [];
+      const keys = [...new Set([primary, ...((candidates || []).map((k) => String(k || "").trim()).filter(Boolean))])];
+      for (const k of keys) {
+        if (k !== primary) migrateDocKeys(store.db, [k], primary);
+      }
+      const r: any = store.db.prepare("SELECT payload FROM sources_cache WHERE key=?").get("anno:" + primary);
+      return r && r.payload ? JSON.parse(r.payload) : [];
+    } catch { return []; }
   });
   ipcMain.handle("annotations:save", (_e, docKey: string, list: unknown) => {
     try {

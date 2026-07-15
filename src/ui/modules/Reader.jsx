@@ -271,8 +271,17 @@ const READER_CSS = `
   .inf-h .chev,.rd-tool,.rd-pchip,.reveal-btn,.rd-swipe-save,.rd-zone,.rd-btn,.rd-pop button,.rd-cite{transition:none !important}
 }
 .rd.focus .rd-side{display:none}
-.rd.focus .rd-topbar{opacity:.55}
-.rd.focus .rd-topbar:hover{opacity:1}
+.rd.focus .rd-toolbar{display:none!important}
+.rd.focus .rd-topbar{display:none!important}
+.rd.focus .rd-right{display:none!important;width:0!important;min-width:0!important;border:none!important}
+.rd.focus .rd-view{padding-top:12px}
+.rd-focus-exit{display:none;position:absolute;top:10px;right:12px;z-index:45;align-items:center;gap:6px;border:1px solid var(--line);background:color-mix(in srgb,var(--surf) 92%,transparent);backdrop-filter:blur(8px);color:var(--ink2);border-radius:10px;padding:7px 11px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;box-shadow:var(--shadow)}
+.rd-focus-exit:hover{border-color:var(--gold);color:var(--gold)}
+.rd.focus .rd-focus-exit{display:inline-flex}
+.rd-ask-mode{display:inline-flex;gap:3px;background:var(--surf2);border:1px solid var(--line);border-radius:9px;padding:3px;align-self:flex-start}
+.rd-ask-mode button{border:none;background:transparent;color:var(--ink2);padding:5px 10px;border-radius:7px;cursor:pointer;font-size:11.5px;font-family:inherit;font-weight:500}
+.rd-ask-mode button.on{background:var(--gold);color:#fff}
+.rd-ask-mode button:disabled{opacity:.55;cursor:default}
 .rd-right{position:relative;flex-shrink:0;min-width:0;border-left:1px solid var(--line);background:var(--surf);display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box}
 .rd-resize-left{left:0;right:auto}
 .rd-right-body{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden}
@@ -783,6 +792,8 @@ function BasisBadge({ basis, pagesUsed, pageCount }) {
   let label = "● 基于摘要";
   let cls = "rd-basis";
   if (basis === "fulltext") { label = "● 基于全文"; cls += " ft"; }
+  else if (basis === "mixed") { label = "◐ 文中+背景"; cls += " ft"; }
+  else if (basis === "external") { label = "○ 外部知识"; cls += " pg"; }
   else if (basis === "pages") {
     cls += " pg";
     label = pagesUsed && pageCount && pagesUsed < pageCount ? `● 基于 ${pagesUsed}/${pageCount} 页` : "● 基于相关页";
@@ -1617,6 +1628,9 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
   const [qa, setQa] = useState([]);
   const [q, setQ] = useState("");
   const [asking, setAsking] = useState(false);
+  const [askMode, setAskMode] = useState(() => {
+    try { return localStorage.getItem("lumina_reader_ask_mode") === "general" ? "general" : "paper"; } catch { return "paper"; }
+  });
   const [outlineEnv, setOutlineEnv] = useState(null);
   const [outlining, setOutlining] = useState(false);
   const [outlineOpen, setOutlineOpen] = useState(false);
@@ -1624,6 +1638,11 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
   const qaEndRef = useRef(null);
   const assistScrollRef = useRef(null);
   const qInputRef = useRef(null);
+
+  const setAskModePersist = useCallback((mode) => {
+    setAskMode(mode);
+    try { localStorage.setItem("lumina_reader_ask_mode", mode); } catch { /* ignore */ }
+  }, []);
 
   const scrollAssistToBottom = useCallback((smooth = true) => {
     const root = assistScrollRef.current;
@@ -1700,10 +1719,10 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
       if (summary && summary.text) artifacts.summary = summary.text;
       const ol = outlineArtifactText(outlineEnv);
       if (ol) artifacts.outline = ol;
-      const r = await bridge.readerAsk(pages, qq, { priorTurns, artifacts });
+      const r = await bridge.readerAsk(pages, qq, { priorTurns, artifacts, mode: askMode });
       setQa((list) => {
         const next = list.map((x, i) => (i === list.length - 1
-          ? { q: qq, a: r ? r.text : "（无回答）", sourceBasis: r && r.sourceBasis, groundedRatio: r && r.groundedRatio, banner: r && r.banner, pageCount: r && r.pageCount, pagesUsed: r && r.pagesUsed, loading: false }
+          ? { q: qq, a: r ? r.text : "（无回答）", sourceBasis: r && r.sourceBasis, groundedRatio: r && r.groundedRatio, banner: r && r.banner, pageCount: r && r.pageCount, pagesUsed: r && r.pagesUsed, askMode, loading: false }
           : x));
         const key = analysisDocKey(source);
         if (key && next.length) saveCachedAnalysis(source, { kind: "qa", lane: "evidence", model: (r && r.model) || "", title: "接地问答", claims: [], messages: next });
@@ -1713,7 +1732,7 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
     } catch (e) {
       setQa((list) => list.map((x, i) => (i === list.length - 1 ? { q: qq, a: "（出错，请稍后重试）", loading: false } : x)));
     } finally { setAsking(false); }
-  }, [ensurePages, asking, source, scrollAssistToBottom, resizeQInput, pushToast, qa, summary, outlineEnv]);
+  }, [ensurePages, asking, source, scrollAssistToBottom, resizeQInput, pushToast, qa, summary, outlineEnv, askMode]);
 
   useEffect(() => {
     resizeQInput();
@@ -1730,7 +1749,7 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
   const AnswerMeta = ({ basis, ratio, pagesUsed, pageCount }) => (
     <div className="rd-ai-meta">
       <BasisBadge basis={basis} pagesUsed={pagesUsed} pageCount={pageCount} />
-      {typeof ratio === "number" && <span className="rd-gr">接地 {Math.round(ratio * 100)}%</span>}
+      {typeof ratio === "number" && basis !== "external" && <span className="rd-gr">接地 {Math.round(ratio * 100)}%</span>}
     </div>
   );
 
@@ -1790,7 +1809,7 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
 
         {qa.length > 0 && (
           <div className="rd-assist-block">
-            <div className="rd-assist-block-h">问答记录（全文检索 · 回答带页码，点击跳页{qa.filter((x) => x.a && !x.loading).length > 0 ? " · 追问会参考最近 2 轮" : ""}）</div>
+            <div className="rd-assist-block-h">问答记录（{askMode === "general" ? "可借外部知识 · 文中仍标页码" : "全文检索 · 回答带页码"}，点击跳页{qa.filter((x) => x.a && !x.loading).length > 0 ? " · 追问会参考最近 2 轮" : ""}）</div>
             <div className="rd-ai-flow">
               {qa.map((item, i) => (
                 <div key={i} className="rd-ai-qa">
@@ -1814,10 +1833,18 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
 
       <div className="rd-assist-foot">
         {qa.length === 0 && (
-          <div className="rd-scaffold rd-assist-hint" role="status">在下方选预设问题或输入自定义问题；将通读全文后作答。追问时会参考最近 2 轮问答与本篇总结/大纲（仍须页码可核）。</div>
+          <div className="rd-scaffold rd-assist-hint" role="status">
+            {askMode === "general"
+              ? "当前可借外部知识作答：文中论断仍标页码；背景会标「（背景）」且不伪造页码。"
+              : "在下方选预设问题或输入自定义问题；将通读全文后作答。追问时会参考最近 2 轮问答与本篇总结/大纲（仍须页码可核）。"}
+          </div>
         )}
         <div className="rd-assist-compose">
           <div className="rd-assist-block-h">问这一篇</div>
+          <div className="rd-ask-mode" role="group" aria-label="回答范围">
+            <button type="button" className={askMode === "paper" ? "on" : ""} aria-pressed={askMode === "paper"} disabled={asking} onClick={() => setAskModePersist("paper")}>仅据本文</button>
+            <button type="button" className={askMode === "general" ? "on" : ""} aria-pressed={askMode === "general"} disabled={asking} onClick={() => setAskModePersist("general")}>可借外部知识</button>
+          </div>
           <div className="rd-ai-presets">
             {PRESET_Q.map((pq, i) => <button key={i} className="rd-ai-chip" onClick={() => doAsk(pq)} disabled={asking}>{pq}</button>)}
           </div>
@@ -1826,7 +1853,7 @@ function AssistantPanel({ ensurePages, source, onGoto, pushToast, explainReq, pu
               ref={qInputRef}
               rows={1}
               value={q}
-              placeholder="输入问题，回车提问…"
+              placeholder={askMode === "general" ? "可问背景/概念，或继续问本文…" : "输入问题，回车提问…"}
               onChange={(e) => { setQ(e.target.value); resizeQInput(); }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); doAsk(q); }
@@ -2134,7 +2161,7 @@ function ReaderPanel({ zone, setZone, doc, source, docKey, onGoto, pushToast, ex
   );
 }
 
-export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryImport, onLibraryRemove, onSourceUpgrade, onPaperRename }) {
+export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryImport, onLibraryRemove, onSourceUpgrade, onPaperRename, onFocusChange }) {
   const [doc, setDoc] = useState(null);
   const [numPages, setNumPages] = useState(0);
   const [page, setPage] = useState(1);
@@ -2167,8 +2194,11 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
   const [snipMode, setSnipMode] = useState(false);
   const [snipRect, setSnipRect] = useState(null);
   const loadedRef = useRef(false);
+  const annosRef = useRef([]);
+  const annoPendingRef = useRef({ key: "", list: null });
   const snipStart = useRef(null);
   const docKey = useMemo(() => readerDocKey(source), [source]);
+  const docKeyCands = useMemo(() => readerDocKeyCandidates(source), [source]);
   const inLibrary = !!(source && source.paperId && inLibFn && inLibFn(source.paperId));
   const canImport = !!(onLibraryImport && source && ((source.data && source.data.byteLength) || source.paperId));
   const [importing, setImporting] = useState(false);
@@ -2473,7 +2503,18 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
 
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === "Escape") { if (snipMode) { setSnipMode(false); setSnipRect(null); } else if (transMenuOpen) { setTransMenuOpen(false); } else if (zoomMenuOpen) { setZoomMenuOpen(false); } else if (sel) { setSel(null); } else if (findOpen) { setFindOpen(false); setFind(null); setFindQuery(""); if (findDebounceRef.current) clearTimeout(findDebounceRef.current); } else if (aiOpen) { setAiOpen(false); } else if (transMode) { setTransMode(null); } else onClose(); return; }
+      if (e.key === "Escape") {
+        if (snipMode) { setSnipMode(false); setSnipRect(null); }
+        else if (transMenuOpen) { setTransMenuOpen(false); }
+        else if (zoomMenuOpen) { setZoomMenuOpen(false); }
+        else if (sel) { setSel(null); }
+        else if (findOpen) { setFindOpen(false); setFind(null); setFindQuery(""); if (findDebounceRef.current) clearTimeout(findDebounceRef.current); }
+        else if (focus) { setFocus(false); }
+        else if (aiOpen) { setAiOpen(false); }
+        else if (transMode) { setTransMode(null); }
+        else onClose();
+        return;
+      }
       const t = e.target;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return; // 输入框内不抢快捷键
       const mod = e.metaKey || e.ctrlKey;
@@ -2497,7 +2538,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, numPages, step, findOpen, sel, transMenuOpen, transMode, snipMode, aiOpen, zoomMenuOpen, doc, page, rotation, view]); // undoAnno/redoAnno/fitSpread stable via refs
+  }, [onClose, numPages, step, findOpen, sel, transMenuOpen, transMode, snipMode, aiOpen, zoomMenuOpen, doc, page, rotation, view, focus]); // undoAnno/redoAnno/fitSpread stable via refs
 
   useEffect(() => {
     if (view !== "continuous") return;
@@ -2707,28 +2748,54 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
 
   useEffect(() => {
     let alive = true; loadedRef.current = false;
+    setAnnos([]);
+    annosRef.current = [];
     annoUndoRef.current = [];
     annoRedoRef.current = [];
     setAnnoHistTick((t) => t + 1);
-    bridge.getAnnotations(docKey).then((list) => {
+    const primary = docKey;
+    const cands = docKeyCands;
+    bridge.getAnnotationsMerged(primary, cands).then((list) => {
       if (alive) {
-        setAnnos(Array.isArray(list) ? list : []);
+        const next = Array.isArray(list) ? list : [];
+        setAnnos(next);
+        annosRef.current = next;
+        annoPendingRef.current = { key: primary, list: next };
         loadedRef.current = true;
       }
-    }).catch(() => { loadedRef.current = true; });
-    return () => { alive = false; };
-  }, [docKey]);
+    }).catch(() => { if (alive) loadedRef.current = true; });
+    return () => {
+      alive = false;
+      const pending = annoPendingRef.current;
+      if (pending.key === primary && pending.list) {
+        void bridge.saveAnnotations(primary, pending.list);
+      }
+    };
+  }, [docKey, docKeyCands]);
   useEffect(() => {
     let alive = true;
     bridge.getNavmarks(docKey).then((m) => { if (alive) setNavmarks(Array.isArray(m) ? m : []); }).catch(() => {});
     return () => { alive = false; };
   }, [docKey]);
   useEffect(() => {
-    if (!loadedRef.current) return;
-    const t = setTimeout(() => { bridge.saveAnnotations(docKey, annos); }, 600);
-    return () => clearTimeout(t);
+    annosRef.current = annos;
+    if (!loadedRef.current || !docKey) return;
+    annoPendingRef.current = { key: docKey, list: annos };
+    const key = docKey;
+    const snapshot = annos;
+    const t = setTimeout(() => {
+      void bridge.saveAnnotations(key, snapshot);
+      if (annoPendingRef.current.key === key) annoPendingRef.current = { key: "", list: null };
+    }, 600);
+    return () => {
+      clearTimeout(t);
+      // 关页/切文献：立刻 flush，避免 600ms 防抖被取消丢批注
+      void bridge.saveAnnotations(key, annosRef.current);
+    };
   }, [annos, docKey]);
   useEffect(() => { bridge.getSettings().then((s) => setLlmModel((s && s.llm && s.llm.model) || "")).catch(() => {}); }, []);
+  useEffect(() => { onFocusChange && onFocusChange(!!focus); }, [focus, onFocusChange]);
+  useEffect(() => () => { onFocusChange && onFocusChange(false); }, [onFocusChange]);
 
   const pushAnnoHistory = useCallback((prev) => {
     if (!loadedRef.current) return;
@@ -2991,6 +3058,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
   return (
     <div className={"rd" + (focus ? " focus" : "") + (night ? " night" : "")} ref={rootRef} onContextMenu={onReaderContextMenu}>
       <style>{READER_CSS}</style>
+      <button type="button" className="rd-focus-exit" onClick={() => setFocus(false)} title="退出专注 (Esc)"><Expand size={14} /> 退出专注</button>
 
       <div className="rd-topbar">
         <button className="rd-back" onClick={onClose}><ArrowLeft size={15} /> 返回</button>
@@ -3066,12 +3134,12 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
           <button className="rd-btn" onClick={rotateCcw} title="逆时针旋转 (Shift+R)"><RotateCcw size={15} /></button>
           <button className={"rd-btn" + (hand ? " on" : "")} onClick={() => setHand((v) => !v)} title="抓手（按住拖动平移）"><Hand size={15} /></button>
           <button className={"rd-btn" + (night ? " on" : "")} onClick={() => setNight((v) => !v)} title="夜读反色"><Moon size={15} /></button>
-          <button className={"rd-btn" + (focus ? " on" : "")} onClick={() => setFocus((v) => !v)} title="专注模式"><Expand size={15} /></button>
+          <button className={"rd-btn" + (focus ? " on" : "")} onClick={() => setFocus((v) => !v)} title="专注模式 · 隐藏顶栏工具栏与标签（Esc 退出）"><Expand size={15} /></button>
         </div>
         <div className="rd-grp" style={{ position: "relative" }}>
           <button className={"rd-btn" + (findOpen ? " on" : "")} onClick={() => (findOpen ? closeFind() : setFindOpen(true))} title="页内查找 (Ctrl/⌘ F)"><Search size={15} /> 查找</button>
-          <button className={"rd-btn" + (aiOpen && zone === "assist" ? " on" : "")} onClick={() => { if (aiOpen && zone === "assist") setAiOpen(false); else { setAiOpen(true); setZone("assist"); setTransMode(null); } }} title="阅读助手"><Sparkles size={15} /> 助手</button>
-          <button className={"rd-btn" + (aiOpen && zone === "notes" ? " on" : "")} onClick={() => { if (aiOpen && zone === "notes") setAiOpen(false); else { setAiOpen(true); setZone("notes"); setTransMode(null); } }} title="批注"><Highlighter size={15} /> 批注</button>
+          <button className={"rd-btn" + (aiOpen && zone === "assist" ? " on" : "")} onClick={() => { if (aiOpen && zone === "assist") setAiOpen(false); else { setFocus(false); setAiOpen(true); setZone("assist"); setTransMode(null); } }} title="阅读助手"><Sparkles size={15} /> 助手</button>
+          <button className={"rd-btn" + (aiOpen && zone === "notes" ? " on" : "")} onClick={() => { if (aiOpen && zone === "notes") setAiOpen(false); else { setFocus(false); setAiOpen(true); setZone("notes"); setTransMode(null); } }} title="批注"><Highlighter size={15} /> 批注</button>
           <button className="rd-btn" disabled={!canUndoAnno} onClick={undoAnno} title="撤销批注 (Ctrl/⌘ Z)"><Undo2 size={15} /> 撤销</button>
           <button className="rd-btn" disabled={!canRedoAnno} onClick={redoAnno} title="重做批注 (Ctrl/⌘ Y)"><Redo2 size={15} /> 重做</button>
           <button className={"rd-btn" + (snipMode ? " on" : "")} onClick={() => setSnipMode((v) => !v)} title="截图分析（框选图表→视觉分析，进推读车道）"><Crop size={15} /> 截图</button>

@@ -258,7 +258,7 @@ export const bridge = {
   },
   async readerAsk(pages, question, opts = {}) {
     const r = R(); if (!r || !r.ask) return mockReaderAnswer(question);
-    return r.ask({ pages, question, priorTurns: opts.priorTurns, artifacts: opts.artifacts });
+    return r.ask({ pages, question, priorTurns: opts.priorTurns, artifacts: opts.artifacts, mode: opts.mode });
   },
   async readerTranslate(text) {
     const r = R();
@@ -318,6 +318,28 @@ export const bridge = {
   async getAnnotations(docKey) {
     const n = N(); if (!n || !n.get) return _annoMem[docKey] || [];
     try { return (await n.get(docKey)) || []; } catch (e) { return []; }
+  },
+  async getAnnotationsMerged(primaryKey, candidates = []) {
+    const n = N();
+    if (!n) {
+      const keys = [...new Set([primaryKey, ...candidates].filter(Boolean))];
+      let merged = [];
+      const seen = new Set();
+      for (const k of keys) {
+        for (const a of (_annoMem[k] || [])) {
+          const id = a && a.id;
+          if (id && seen.has(id)) continue;
+          if (id) seen.add(id);
+          merged.push(a);
+        }
+      }
+      if (primaryKey) _annoMem[primaryKey] = merged;
+      return merged;
+    }
+    if (n.getMerged) {
+      try { return (await n.getMerged(primaryKey, candidates)) || []; } catch (e) { return []; }
+    }
+    try { return (await n.get(primaryKey)) || []; } catch (e) { return []; }
   },
   async saveAnnotations(docKey, list) {
     const n = N(); if (!n || !n.save) { _annoMem[docKey] = list; return true; }

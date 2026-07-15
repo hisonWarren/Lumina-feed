@@ -25,7 +25,7 @@ const rai = read("src/core/reader/reader-ai.ts");
 console.log("\n[0] 回归守卫：确认 04-§5 三 bug 已修（realmachine_fixes，非本补丁）");
 ok(has(ipc, 'ipcMain.handle("reader:figure"') && has(ipc, "analysisError(\"figure\"") && !/reader:figure[\s\S]{0,400}return null/.test(ipc || ""), "BUG1 已修：reader:figure 失败返回拒绝信封（非 null）");
 ok(has(rai, "function groundReaderAnswer") && has(rai, "修复 groundedRatio 恒 0"), "BUG3 已修：groundReaderAnswer 真实实现");
-ok(/askReader[\s\S]{0,600}groundReaderAnswer/.test(rai || "") && /summarizeReader[\s\S]{0,600}groundReaderAnswer/.test(rai || ""), "BUG3 已接线：ask/summarize 均调用并返回 groundedRatio");
+ok(/export async function askReader[\s\S]{0,2500}groundReaderAnswer/.test(rai || "") && /export async function summarizeReader[\s\S]{0,800}groundReaderAnswer/.test(rai || ""), "BUG3 已接线：ask/summarize 均调用并返回 groundedRatio");
 ok(has(ipc, "ok: false") || has(read("src/core/oa/pdf-fetch.ts"), "reason"), "BUG2：OA 取文失败返回具体原因（realmachine_fixes）");
 
 console.log("\n[1] 后台运行 / 托盘（main 进程）");

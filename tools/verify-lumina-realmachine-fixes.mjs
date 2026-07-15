@@ -60,7 +60,7 @@ console.log("· ISSUE-003 阅读器专用接地（groundedRatio 不再恒 0）")
 ok(/function groundReaderAnswer\(answer: string, pages: ReaderPage\[\]/.test(rai), "新增 groundReaderAnswer（页锚 + token 覆盖）");
 ok(/function claimPageRefs\(/.test(rai) && /\[p\\\.\(\\d\+\)\\\]/.test(rai.replace(/\\\\/g, "\\")) || /claimPageRefs/.test(rai), "claim 抽取 [p.X] 参与计分");
 ok(!/buildGroundedSummary/.test(rai), "移除通用 buildGroundedSummary（逐句字符级匹配）");
-ok((rai.match(/groundReaderAnswer\(answer, (picked|pages)\)/g) || []).length === 2, "askReader + summarizeReader 两处改用页锚接地");
+ok((rai.match(/groundReaderAnswer\(answer, (picked|pages)\)/g) || []).length >= 2, "askReader + summarizeReader 两处改用页锚接地");
 
 console.log("· ISSUE-004 UI 兜底 + ISSUE-005 烟测断言");
 ok((rdr.match(/请重试/g) || []).length >= 4, "Reader.jsx 四处分析 null → toast「请重试」");
