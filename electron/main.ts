@@ -15,6 +15,15 @@ import { installDefaultLimiters } from "../src/core/sources/rate-limit.ts";
 import { installContextMenuBridge, runContextAction } from "./context-menu.ts";
 import { installTrayMenuController, type AppNavigatePayload } from "./tray-menu.ts";
 import { bindPdfStorageStore, activePdfStorageDir, pdfPathForId } from "./pdf-storage.ts";
+import {
+  ASCII_UA,
+  installAsciiUserAgent,
+  installByteStringExceptionGuard,
+  installSafeGlobalFetch,
+} from "./safe-fetch.ts";
+
+// Before any net I/O: ASCII UA + ByteString-safe fetch (U+2019 in headers crashes Electron undici).
+installByteStringExceptionGuard();
 
 function appVersion(): string {
   try {
@@ -199,6 +208,7 @@ async function createWindow() {
       nodeIntegration: false,
     },
   });
+  try { win.webContents.setUserAgent(ASCII_UA); } catch { /* ignore */ }
   installTextEditingSupport(win);
   // 须在 loadURL 之前注册：await 返回时 did-finish-load 已触发，晚挂监听会漏掉冷启动 PDF
   let firstLoad = true;
@@ -231,6 +241,8 @@ async function createWindow() {
 
 app.whenReady().then(async () => {
   if (!gotLock) return;
+  installAsciiUserAgent();
+  installSafeGlobalFetch();
   installDefaultLimiters();
   store = initStore(await openBetterSqlite(path.join(app.getPath("userData"), "lumina.db")));
   bindPdfStorageStore(store);

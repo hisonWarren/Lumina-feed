@@ -5,7 +5,7 @@ import { RefreshCw, Save, Loader } from "lucide-react";
 const ROWS = [
   { key: "libgen", label: "LibGen 镜像", placeholder: "https://libgen.li\n每行一个 URL" },
   { key: "annas", label: "Anna's Archive 镜像", placeholder: "https://annas-archive.gl" },
-  { key: "scihub", label: "Sci-Hub 镜像", placeholder: "https://sci-hub.se" },
+  { key: "scihub", label: "Sci-Hub 镜像", placeholder: "https://sci-hub.jp" },
 ];
 
 function linesToArr(text) {
@@ -54,7 +54,7 @@ export default function MirrorSettingsPanel({ value = {}, onSave, onProbe, pushT
   return (
     <div className="lf-mirror-panel set-sec">
       <div className="set-sec-t">全文库镜像（LibGen / Anna / Sci-Hub）</div>
-      <p className="set-hint">留空则使用内置默认列表；保存后取文与检索会按探活延迟自动排序镜像。</p>
+      <p className="set-hint">留空用内置默认可达镜像；自定义列表会优先使用，并自动并入内置列表以免漏掉可用主机。保存后按探活延迟排序。</p>
       {ROWS.map((row) => (
         <div key={row.key} className="lf-mirror-row">
           <label className="set-lbl">{row.label}</label>

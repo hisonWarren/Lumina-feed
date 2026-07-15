@@ -48,8 +48,16 @@ function formatCites(n) {
 
 function hi(text, terms) {
   if (!terms || !terms.length || !text) return text;
-  const low = terms.map((t) => t.toLowerCase());
-  const re = new RegExp("(" + terms.map((t) => escapeRe(t)).join("|") + ")", "ig");
+  // 过滤过短拉丁/数字 token，避免 10 嵌在 1016 里被标亮
+  const usable = terms.filter((t) => {
+    const s = String(t || "");
+    if (/^10\.\d{4,9}\//i.test(s)) return true;
+    if (/[\u4e00-\u9fa5]/.test(s)) return s.length >= 2;
+    return s.length >= 3;
+  });
+  if (!usable.length) return text;
+  const low = usable.map((t) => t.toLowerCase());
+  const re = new RegExp("(" + usable.map((t) => escapeRe(t)).join("|") + ")", "ig");
   return text.split(re).map((part, i) => (low.includes(part.toLowerCase()) ? <mark key={i}>{part}</mark> : <span key={i}>{part}</span>));
 }
 

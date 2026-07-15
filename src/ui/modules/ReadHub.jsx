@@ -1,6 +1,6 @@
 // Lumina Feed · 阅读模块外壳 + 落地页 (ReadHub)
 // 继续阅读：持久化 LRU（元数据）· 打开时再读盘；已下载全文按最近打开排序。
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
 import { FolderOpen, Upload, Clock, Download, FileText, BookOpen, BookMarked, Loader, Home, X, ChevronDown, ChevronUp, Trash2, AlertCircle } from "lucide-react";
 import { bridge } from "../lumina-bridge.js";
 import { loadJsonPref, saveJsonPref } from "../ui-prefs.js";
@@ -58,19 +58,35 @@ const HUB_CSS = `
 `;
 const RHX_CSS = `
 .rhx{height:100%;display:flex;flex-direction:column;min-height:0}
-.rhx-tabs{display:flex;align-items:center;gap:4px;padding:7px 12px 0;background:var(--surf);border-bottom:1px solid var(--line);overflow-x:auto;flex-shrink:0}
+.rhx-tabs{display:flex;align-items:center;gap:3px;padding:7px 12px 0;background:var(--surf);border-bottom:1px solid var(--line);overflow-x:auto;flex-shrink:0;scrollbar-width:thin}
 .rhx.focus-reading .rhx-tabs{display:none}
-.rhx-tab{display:inline-flex;align-items:center;gap:6px;max-width:210px;border:1px solid var(--line);border-bottom:none;background:var(--surf2);color:var(--ink2);border-radius:9px 9px 0 0;padding:7px 10px;font-size:12px;cursor:pointer;font-family:inherit;white-space:nowrap;flex-shrink:0}
+.rhx-tab{display:inline-flex;align-items:center;gap:5px;max-width:210px;border:1px solid var(--line);border-bottom:none;background:var(--surf2);color:var(--ink2);border-radius:9px 9px 0 0;padding:7px 10px;font-size:12px;cursor:pointer;font-family:inherit;white-space:nowrap;flex-shrink:0;min-width:0}
+.rhx.tabs-dense .rhx-tab{max-width:140px;padding:6px 7px;gap:4px}
+.rhx.tabs-dense .rhx-tab-nm{max-width:88px}
+.rhx.tabs-crowded .rhx-tab{max-width:96px;padding:6px 6px;gap:3px}
+.rhx.tabs-crowded .rhx-tab-nm{max-width:52px}
+.rhx.tabs-crowded .rhx-tab svg:first-child{display:none}
 .rhx-tab:hover{color:var(--ink)}
 .rhx-tab.on{background:var(--gold);color:#fff;border-color:var(--gold)}
-.rhx-home{padding:7px 9px}
+.rhx-home{padding:7px 9px;flex-shrink:0}
 .rhx-tab-nm{overflow:hidden;text-overflow:ellipsis;max-width:150px}
-.rhx-tab-x{display:inline-flex;align-items:center;border-radius:4px;padding:1px;opacity:.7}
+.rhx-tab-x{display:inline-flex;align-items:center;border-radius:4px;padding:1px;opacity:.7;flex-shrink:0}
 .rhx-tab-x:hover{opacity:1;background:rgba(255,255,255,.22)}
 .rhx-tab:not(.on) .rhx-tab-x:hover{background:var(--line2)}
+.rhx-tab-count{margin-left:auto;flex-shrink:0;font-size:10.5px;color:var(--ink3);padding:0 4px 2px;font-family:'Space Mono',monospace}
 .rhx-stage{flex:1;min-height:0;position:relative;display:flex}
 .rhx-pane{flex:1;min-height:0;flex-direction:column}
+.rhx-ctx{position:fixed;z-index:2000;background:var(--raise);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow-lg);padding:6px;min-width:200px;animation:rhxCtxIn .12s ease}
+@keyframes rhxCtxIn{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+.rhx-ctx-item{display:flex;align-items:center;width:100%;border:none;background:transparent;border-radius:8px;padding:8px 10px;cursor:pointer;font-family:inherit;font-size:13px;color:var(--ink2);text-align:left}
+.rhx-ctx-item:hover:not(:disabled){background:var(--surf2);color:var(--ink)}
+.rhx-ctx-item:disabled{opacity:.36;cursor:default}
+.rhx-ctx-sep{height:1px;background:var(--line);margin:4px 6px}
+@media (prefers-reduced-motion: reduce){ .rhx-ctx{animation:none} }
 `;
+
+const TAB_SOFT_WARN = 12;
+const TAB_SOFT_WARN_STEP = 6;
 
 function formatRelativeTime(iso) {
   if (!iso) return "";
@@ -238,14 +254,73 @@ function ReadHub({
   );
 }
 
-const MAX_TABS = 6;
 const TABS_PREF_KEY = "lumina_reader_open_tabs";
 let _tabSeq = 0;
 const tabKey = (t) => t.entryKey || (t.paperId ? "p:" + t.paperId : (t.localPath ? "l:" + t.localPath : "n:" + t.name));
 
+function TabContextMenu({ menu, onAction, onClose }) {
+  const ref = useRef(null);
+  const [pos, setPos] = useState({ left: menu.x, top: menu.y });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const pad = 8;
+    const rect = el.getBoundingClientRect();
+    let left = menu.x;
+    let top = menu.y;
+    if (left + rect.width > window.innerWidth - pad) left = window.innerWidth - rect.width - pad;
+    if (top + rect.height > window.innerHeight - pad) top = window.innerHeight - rect.height - pad;
+    if (left < pad) left = pad;
+    if (top < pad) top = pad;
+    setPos({ left, top });
+  }, [menu.x, menu.y]);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onDown);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("mousedown", onDown); };
+  }, [onClose]);
+  const items = [
+    { id: "close", label: "关闭" },
+    { id: "closeOthers", label: "关闭其他标签页", disabled: !menu.hasOthers },
+    { type: "sep" },
+    { id: "closeLeft", label: "关闭左侧标签页", disabled: !menu.hasLeft },
+    { id: "closeRight", label: "关闭右侧标签页", disabled: !menu.hasRight },
+  ];
+  return (
+    <div
+      ref={ref}
+      className="rhx-ctx"
+      role="menu"
+      aria-label="标签页菜单"
+      style={{ left: pos.left + "px", top: pos.top + "px" }}
+      onMouseDown={(e) => e.preventDefault()}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {items.map((item, i) => item.type === "sep" ? (
+        <div key={"s" + i} className="rhx-ctx-sep" role="separator" />
+      ) : (
+        <button
+          key={item.id}
+          type="button"
+          role="menuitem"
+          className="rhx-ctx-item"
+          disabled={!!item.disabled}
+          onClick={() => { if (!item.disabled) { onAction(item.id); onClose(); } }}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function ReaderModule({ pushToast, incoming, onIncomingHandled, readTarget, onReadTargetHandled, inLibFn, onAddToLibrary, onImportLocal, onLibraryRemove, onPaperRename }) {
   const [st, setSt] = useState({ tabs: [], activeId: null });
+  const [tabMenu, setTabMenu] = useState(null);
   const tabsRestoredRef = useRef(false);
+  const softWarnAtRef = useRef(0);
   const [continueList, setContinueList] = useState([]);
   const [loadingContinue, setLoadingContinue] = useState(true);
   const [downloaded, setDownloaded] = useState([]);
@@ -351,7 +426,6 @@ export default function ReaderModule({ pushToast, incoming, onIncomingHandled, r
       const key = tabKey(item);
       const found = s.tabs.find((t) => tabKey(t) === key);
       if (found) return { ...s, activeId: found.id };
-      if (s.tabs.length >= MAX_TABS) return s;
       const id = ++_tabSeq;
       return {
         tabs: [...s.tabs, {
@@ -372,24 +446,30 @@ export default function ReaderModule({ pushToast, incoming, onIncomingHandled, r
   useEffect(() => {
     if (!st.tabs.length && st.activeId === null) {
       try { sessionStorage.removeItem(TABS_PREF_KEY); } catch { /* ignore */ }
+      softWarnAtRef.current = 0;
       return;
+    }
+    const n = st.tabs.length;
+    if (n >= TAB_SOFT_WARN) {
+      const bucket = TAB_SOFT_WARN + Math.floor((n - TAB_SOFT_WARN) / TAB_SOFT_WARN_STEP) * TAB_SOFT_WARN_STEP;
+      if (bucket > softWarnAtRef.current) {
+        softWarnAtRef.current = bucket;
+        pushToast && pushToast(`已打开 ${n} 个标签，标签已自动收缩；右键可批量关闭`);
+      }
+    } else {
+      softWarnAtRef.current = 0;
     }
     const activeTab = st.tabs.find((t) => t.id === st.activeId);
     saveJsonPref("session", TABS_PREF_KEY, {
       activeKey: activeTab ? tabKey(activeTab) : null,
       tabs: st.tabs.map(({ name, paperId, localPath, contentHash, entryKey, startPage }) => ({ name, paperId, localPath, contentHash, entryKey, startPage })),
     });
-  }, [st]);
+  }, [st, pushToast]);
 
   const openWithPayload = useCallback(async (payload) => {
-    const dup = st.tabs.some((t) => tabKey(t) === tabKey(payload));
-    if (!dup && st.tabs.length >= MAX_TABS) {
-      pushToast && pushToast("最多同时打开 " + MAX_TABS + " 个标签，请先关闭一个");
-      return false;
-    }
     mountTab(payload);
     return true;
-  }, [st.tabs, pushToast, mountTab]);
+  }, [mountTab]);
 
   const openFromFile = useCallback(async (file) => {
     if (!file) return;
@@ -493,6 +573,45 @@ export default function ReaderModule({ pushToast, incoming, onIncomingHandled, r
     });
   }, []);
 
+  const closeTabsByPredicate = useCallback((pred) => {
+    setSt((s) => {
+      const oldIdx = s.tabs.findIndex((t) => t.id === s.activeId);
+      const next = s.tabs.filter((t, i) => !pred(t, i, s.tabs));
+      if (!next.length) return { tabs: [], activeId: null };
+      if (next.some((t) => t.id === s.activeId)) return { tabs: next, activeId: s.activeId };
+      // 活跃被关掉：优先保留邻近右侧，再左侧
+      let pick = next.find((t) => s.tabs.indexOf(t) >= oldIdx);
+      if (!pick) pick = next[next.length - 1];
+      return { tabs: next, activeId: pick.id };
+    });
+  }, []);
+
+  const onTabContextMenu = useCallback((e, tab) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const idx = st.tabs.findIndex((t) => t.id === tab.id);
+    if (idx < 0) return;
+    setTabMenu({
+      x: e.clientX,
+      y: e.clientY,
+      tabId: tab.id,
+      hasOthers: st.tabs.length > 1,
+      hasLeft: idx > 0,
+      hasRight: idx < st.tabs.length - 1,
+    });
+  }, [st.tabs]);
+
+  const onTabMenuAction = useCallback((action) => {
+    if (!tabMenu) return;
+    const id = tabMenu.tabId;
+    const idx = st.tabs.findIndex((t) => t.id === id);
+    if (idx < 0) return;
+    if (action === "close") closeTab(id);
+    else if (action === "closeOthers") closeTabsByPredicate((t) => t.id !== id);
+    else if (action === "closeLeft") closeTabsByPredicate((_t, i) => i < idx);
+    else if (action === "closeRight") closeTabsByPredicate((_t, i) => i > idx);
+  }, [tabMenu, st.tabs, closeTab, closeTabsByPredicate]);
+
   useEffect(() => {
     if (!incoming || !incoming.data) return;
     (async () => {
@@ -592,19 +711,34 @@ export default function ReaderModule({ pushToast, incoming, onIncomingHandled, r
   }, [onImportLocal, patchContinueAfterImport, refreshContinue]);
 
   const showHub = st.activeId === null;
+  const tabN = st.tabs.length;
+  const density = tabN >= 16 ? " tabs-crowded" : tabN >= 8 ? " tabs-dense" : "";
   return (
-    <div className={"rhx" + (readerFocus && !showHub ? " focus-reading" : "")}>
+    <div className={"rhx" + (readerFocus && !showHub ? " focus-reading" : "") + density}>
       <style>{RHX_CSS}</style>
       {st.tabs.length > 0 && (
         <div className="rhx-tabs" role="tablist" aria-label="打开的 PDF">
           <button type="button" className={"rhx-tab rhx-home" + (showHub ? " on" : "")} onClick={() => setSt((s) => ({ ...s, activeId: null }))} title="阅读首页" aria-label="阅读首页"><Home size={14} /></button>
           {st.tabs.map((t) => (
-            <button type="button" key={t.id} role="tab" aria-selected={t.id === st.activeId} className={"rhx-tab" + (t.id === st.activeId ? " on" : "")} onClick={() => setSt((s) => ({ ...s, activeId: t.id }))} title={t.name}>
+            <button
+              type="button"
+              key={t.id}
+              role="tab"
+              aria-selected={t.id === st.activeId}
+              className={"rhx-tab" + (t.id === st.activeId ? " on" : "")}
+              onClick={() => setSt((s) => ({ ...s, activeId: t.id }))}
+              onContextMenu={(e) => onTabContextMenu(e, t)}
+              title={t.name + "（右键批量关闭）"}
+            >
               <FileText size={13} /><span className="rhx-tab-nm">{t.name}</span>
               <span className="rhx-tab-x" role="button" title="关闭标签" onClick={(e) => { e.stopPropagation(); closeTab(t.id); }}><X size={12} /></span>
             </button>
           ))}
+          {tabN >= 8 && <span className="rhx-tab-count" title="已打开标签数">{tabN}</span>}
         </div>
+      )}
+      {tabMenu && (
+        <TabContextMenu menu={tabMenu} onAction={onTabMenuAction} onClose={() => setTabMenu(null)} />
       )}
       <div className="rhx-stage">
         <div className="rhx-pane" style={{ display: showHub ? "flex" : "none" }}>

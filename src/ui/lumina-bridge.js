@@ -72,8 +72,24 @@ const mapType = (studyTypes) => {
 const mapOa = (s) => (s === "gold" ? "gold" : (s === "green" || s === "hybrid" || s === "bronze") ? "green" : "closed");
 const deriveMatched = (query, hay) => {
   if (!query) return [];
+  const q = String(query).trim();
   const text = (hay || "").toLowerCase();
-  return [...new Set(String(query).toLowerCase().match(/[a-z0-9\u4e00-\u9fa5]{2,}/g) || [])].filter((w) => text.includes(w)).slice(0, 6);
+  // DOI / 标识符：高亮整段规范化 DOI，避免 10 / S1355 碎片假匹配
+  //（用 RegExp 构造，避免 /\// 被朴素平衡器用 // 注释规则吃掉）
+  const doiOrgRe = new RegExp("^https?:\\/\\/(?:dx\\.)?doi\\.org\\/", "i");
+  const doiish = q.replace(/\s+/g, "").replace(doiOrgRe, "").replace(/^doi:/i, "");
+  const doiRe = new RegExp("^10\\.\\d{4,9}/", "i");
+  if (doiRe.test(doiish)) {
+    const d = doiish.toLowerCase();
+    const only = [];
+    if (text.includes(d)) only.push(d);
+    return only;
+  }
+  // 关键词：拉丁 token ≥3；中文 ≥2；跳过纯两位数字
+  const reTok = /[a-z]{3,}|[0-9]{3,}|[\u4e00-\u9fa5]{2,}/g;
+  const found = q.toLowerCase().match(reTok);
+  const toks = Array.from(new Set(found || []));
+  return toks.filter((w) => text.includes(w)).slice(0, 8);
 };
 
 export function toCardModel(p, query) {

@@ -1,6 +1,7 @@
 // lumina-feed · 期刊信息工具 IPC（live 查询 + 手动更新数据集）
 // 数据策略：OpenAlex/DOAJ 每次 live 查询；SCImago 分区、预警名单为「在线拉取 + 手动更新」磁盘缓存。
-import { ipcMain, app, session } from "electron";
+import { ipcMain, app } from "electron";
+import { sessionFetchSafe } from "./safe-fetch.ts";
 import fs from "node:fs";
 import path from "node:path";
 import type { DatasetInfo, WarningEntry } from "../src/core/journal/types.ts";
@@ -270,9 +271,7 @@ function datasetInfos(): DatasetInfo[] {
 
 /** 经 Chromium session 拉取（带 cookie 预热，绕 SCImago 的 Cloudflare 机器人拦截） */
 async function sessionFetch(url: string, init?: RequestInit): Promise<Response> {
-  const ses = session.defaultSession;
-  if (typeof ses.fetch === "function") return ses.fetch(url, init as any);
-  return fetch(url, init);
+  return sessionFetchSafe(url, init);
 }
 
 function saveScimagoDataset(ds: ReturnType<typeof parseScimagoCsv>, source: string): DatasetInfo | undefined {

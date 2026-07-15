@@ -1,6 +1,7 @@
 // lumina-feed · OpenAlex Sources API（期刊 live 指标，免费无鉴权）
 // 类影响因子 = summary_stats["2yr_mean_citedness"]（非 Clarivate JIF）。
 import { getPoliteIdentity } from "../sources/adapter.ts";
+import { safeHeaderEmail } from "../net/byte-string.ts";
 import { normalizeIssn } from "./issn.ts";
 
 const BASE = "https://api.openalex.org/sources";
@@ -21,11 +22,7 @@ export interface OaSource {
 }
 
 function ua(): string {
-  const { email } = getPoliteIdentity();
-  const mail = String(email || "").trim();
-  // 非 ASCII 邮箱会让 Electron fetch 抛 ByteString；此处仅在纯 ASCII 时附带
-  const safe = mail && /^[\x00-\x7F]+$/.test(mail) ? mail : "unknown";
-  return `lumina-feed/1.0 (mailto:${safe})`;
+  return `lumina-feed/1.0 (mailto:${safeHeaderEmail(getPoliteIdentity().email)})`;
 }
 
 function mapSource(w: any): OaSource {

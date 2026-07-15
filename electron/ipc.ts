@@ -61,6 +61,7 @@ import {
   readPdfStorageDirSetting,
 } from "./pdf-storage.ts";
 import { fetchPdfViaSession } from "./pdf-http.ts";
+import { sessionFetchSafe } from "./safe-fetch.ts";
 import type { SummarizeOptions } from "../src/core/summarize/types.ts";
 import { DEFAULT_SUMMARIZE } from "../src/core/summarize/types.ts";
 import { setPoliteIdentity } from "../src/core/sources/adapter.ts";
@@ -282,105 +283,69 @@ export function registerIpc(deps: IpcDeps): void {
   }
 
   ipcMain.handle("search:online", async (e, raw: string, filters) => {
-    const t0 = Date.now();
-    const q = String(raw || "").trim();
-    // #region agent log
-    fetch("http://127.0.0.1:7739/ingest/f72715b3-174b-4276-af51-ebbb6cf6f9e2", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "07b43d" },
-      body: JSON.stringify({
-        sessionId: "07b43d",
-        runId: "pre-fix",
-        hypothesisId: "H4",
-        location: "ipc.ts:search:online:start",
-        message: "search online start",
-        data: { qLen: q.length, hasNonAscii: /[^\x00-\x7F]/.test(q), filters },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
-    try {
-      const opts = await buildSearchOpts();
-      const kind = classifyInput(String(raw || "").trim());
-      if (kind !== "text") {
-        const resolved = await resolveIdentifierInput(String(raw || "").trim(), opts);
-        if (resolved.ok) {
-          store.papers.upsert(resolved.paper);
-          return {
-            perSource: { resolve: { ok: true, count: 1 } },
-            count: 1,
-            papers: [resolved.paper],
-            locateMode: "identifier",
-            resolvedFrom: resolved.resolvedFrom,
-          };
-        }
-        if (resolved.reason === "not_identifier") {
-          /* fall through */
-        } else {
-          // P7 · 标识符解析失败 → 回落关键词检索（消歧）
-          const spec = rawToSpec(raw, filters);
-          const agg = await aggregateSearch(spec, opts);
-          store.papers.upsertMany(agg.papers);
-          return {
-            perSource: agg.perSource,
-            count: agg.papers.length,
-            papers: agg.papers,
-            locateMode: "disambig",
-            identifierError: resolved.message || resolved.reason,
-          };
-        }
+    const opts = await buildSearchOpts();
+    const kind = classifyInput(String(raw || "").trim());
+    if (kind !== "text") {
+      const resolved = await resolveIdentifierInput(String(raw || "").trim(), opts);
+      if (resolved.ok) {
+        store.papers.upsert(resolved.paper);
+        return {
+          perSource: { resolve: { ok: true, count: 1 } },
+          count: 1,
+          papers: [resolved.paper],
+          locateMode: "identifier",
+          resolvedFrom: resolved.resolvedFrom,
+        };
       }
-      const spec = rawToSpec(raw, filters);
-      const field = spec.filters.field ?? "all";
-      const titleQ = titleQueryText(raw);
-      if (isTitleLikeQuery(raw, field) && titleQ.length >= 8) {
-        const locals = searchLocalByTitle(titleQ);
-        const fast = await titleFastLane(spec, titleQ, opts, locals);
-        if (fast.papers.length) {
-          store.papers.upsertMany(fast.papers);
-          const primary = pickPrimaryHit(fast.papers, titleQ, field);
-          const agg = await aggregateSearch(spec, opts);
-          store.papers.upsertMany(agg.papers);
-          const merged = mergePrimaryFirst(fast.papers, agg.papers);
-          return {
-            perSource: { ...fast.perSource, ...agg.perSource },
-            count: merged.length,
-            papers: merged,
-            locateMode: primary ? "primary" : "keyword",
-            primaryPaperId: primary?.paperId,
-            primaryAmbiguous: primary?.ambiguous,
-          };
-        }
+      if (resolved.reason === "not_identifier") {
+        /* fall through */
+      } else {
+        // P7 · 标识符解析失败 → 回落关键词检索（消歧）
+        const spec = rawToSpec(raw, filters);
+        const agg = await aggregateSearch(spec, opts);
+        store.papers.upsertMany(agg.papers);
+        return {
+          perSource: agg.perSource,
+          count: agg.papers.length,
+          papers: agg.papers,
+          locateMode: "disambig",
+          identifierError: resolved.message || resolved.reason,
+        };
       }
-      const agg = await aggregateSearch(spec, opts);
-      store.papers.upsertMany(agg.papers);
-      const primary = isTitleLikeQuery(raw, field) ? pickPrimaryHit(agg.papers, titleQ, field) : null;
-      return {
-        perSource: agg.perSource,
-        count: agg.papers.length,
-        papers: agg.papers,
-        locateMode: primary ? "primary" : "keyword",
-        primaryPaperId: primary?.paperId,
-        primaryAmbiguous: primary?.ambiguous,
-      };
-    } catch (err: unknown) {
-      // #region agent log
-      fetch("http://127.0.0.1:7739/ingest/f72715b3-174b-4276-af51-ebbb6cf6f9e2", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "07b43d" },
-        body: JSON.stringify({
-          sessionId: "07b43d",
-          runId: "pre-fix",
-          hypothesisId: "H4",
-          location: "ipc.ts:search:online:error",
-          message: "search online threw",
-          data: { ms: Date.now() - t0, error: String((err as Error)?.message || err) },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
-      throw err;
     }
+    const spec = rawToSpec(raw, filters);
+    const field = spec.filters.field ?? "all";
+    const titleQ = titleQueryText(raw);
+    if (isTitleLikeQuery(raw, field) && titleQ.length >= 8) {
+      const locals = searchLocalByTitle(titleQ);
+      const fast = await titleFastLane(spec, titleQ, opts, locals);
+      if (fast.papers.length) {
+        store.papers.upsertMany(fast.papers);
+        const primary = pickPrimaryHit(fast.papers, titleQ, field);
+        const agg = await aggregateSearch(spec, opts);
+        store.papers.upsertMany(agg.papers);
+        const merged = mergePrimaryFirst(fast.papers, agg.papers);
+        return {
+          perSource: { ...fast.perSource, ...agg.perSource },
+          count: merged.length,
+          papers: merged,
+          locateMode: primary ? "primary" : "keyword",
+          primaryPaperId: primary?.paperId,
+          primaryAmbiguous: primary?.ambiguous,
+        };
+      }
+    }
+    const agg = await aggregateSearch(spec, opts);
+    store.papers.upsertMany(agg.papers);
+    const primary = isTitleLikeQuery(raw, field) ? pickPrimaryHit(agg.papers, titleQ, field) : null;
+    return {
+      perSource: agg.perSource,
+      count: agg.papers.length,
+      papers: agg.papers,
+      locateMode: primary ? "primary" : "keyword",
+      primaryPaperId: primary?.paperId,
+      primaryAmbiguous: primary?.ambiguous,
+    };
   });
 
   // 渐进式检索：Title Fast Lane 首包 + 各源增量；handler 立即返回，检索在后台跑，不占用 IPC 槽。
@@ -523,6 +488,8 @@ export function registerIpc(deps: IpcDeps): void {
         oaAttemptTimeoutMs: 10_000,
         perAttemptTimeoutMs: 22_000,
         deferAltSources: isOaMarkedPaper(paper),
+        // Chromium session：Sci-Hub 等站 cookie/重定向更稳；URL 直链仍走 electronFetch
+        fetchImpl: sessionFetchSafe as unknown as typeof fetch,
         electronFetch: (url, signal) => fetchPdfViaSession(url, signal),
       });
       if (!res.ok) {

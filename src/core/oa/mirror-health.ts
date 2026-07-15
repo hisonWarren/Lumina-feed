@@ -30,9 +30,12 @@ function dedupeUrls(list: string[]): string[] {
   });
 }
 
+/** Custom mirrors take priority, then built-in defaults are appended so Settings never erase working hosts. */
 export function baseMirrors(kind: MirrorKind, settings?: AltMirrorSettings): string[] {
   const custom = settings?.[kind];
-  return dedupeUrls(custom?.length ? custom : DEFAULTS[kind]);
+  const defaults = DEFAULTS[kind];
+  if (custom?.length) return dedupeUrls([...custom, ...defaults]);
+  return dedupeUrls(defaults);
 }
 
 async function probeOne(

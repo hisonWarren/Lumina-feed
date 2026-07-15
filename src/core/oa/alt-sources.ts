@@ -108,9 +108,12 @@ export function getAnnasMirrors(): string[] {
 
 export function getScihubMirrors(): string[] {
   return (altMirrors as { scihub_mirrors?: string[] }).scihub_mirrors ?? [
-    "https://sci-hub.se",
+    "https://sci-hub.jp",
+    "https://sci-hub.ee",
     "https://sci-hub.st",
+    "https://sci-hub.box",
     "https://sci-hub.ru",
+    "https://sci-hub.se",
   ];
 }
 
@@ -144,20 +147,26 @@ export async function searchLibgenHits(
   if (!q) return [];
   const f = deps.fetchImpl ?? fetch;
   const limit = deps.limit ?? 25;
+  const expectDoi = normDoi(q.replace(/\s+/g, "")) || undefined;
+  const doiQuery = !!expectDoi && /^10\.\d{4,9}\//i.test(expectDoi);
   const { ordered } = await orderMirrors("libgen", deps.mirrorSettings, { fetchImpl: f, signal: deps.signal });
   const out: import("../model.ts").SearchHit[] = [];
   const seen = new Set<string>();
 
   for (const mirror of ordered) {
     try {
-      const params = new URLSearchParams({ req: q });
+      const params = new URLSearchParams({ req: doiQuery ? expectDoi! : q });
       if (deps.column) params.set("column", deps.column);
+      else if (doiQuery) params.set("column", "doi");
       const res = await f(`${mirror}/index.php?${params}`, { signal: deps.signal, redirect: "follow" } as RequestInit);
       if (!res.ok) continue;
       const text = await res.text();
       if (!text.includes("md5=")) continue;
       for (const row of parseLibgenRows(text)) {
         if (!row.title || row.ext !== "pdf") continue;
+        if (doiQuery && expectDoi) {
+          if (!row.doi || !doiEq(row.doi, expectDoi)) continue;
+        }
         const key = row.doi ? `doi:${row.doi}` : `md5:${row.md5}`;
         if (seen.has(key)) continue;
         seen.add(key);
@@ -377,25 +386,81 @@ export function scihubCandidate(doi: string): PdfCandidate {
 }
 
 function resolveHref(href: string, pageUrl: string): string {
-  if (href.startsWith("//")) return `https:${href}`;
-  if (/^https?:\/\//i.test(href)) return href;
+  let h = String(href || "").trim();
+  if (!h) return h;
+  // viewer fragments (#navpanes=…) 不影响下载，去掉以免个别镜像校验失败
+  h = h.replace(/#.*$/, "");
+  if (h.startsWith("//")) return `https:${h}`;
+  if (/^https?:\/\//i.test(h)) return h;
   try {
-    return new URL(href, pageUrl).href;
+    return new URL(h, pageUrl).href;
   } catch {
-    return href;
+    return h;
   }
 }
 
-function extractPdfUrlFromHtml(html: string, pageUrl: string): string | null {
-  const iframe = /<iframe[^>]+src="([^"]+)"/i.exec(html);
-  if (iframe?.[1]) return resolveHref(iframe[1], pageUrl);
-  const embed = /<embed[^>]+src="([^"]+)"/i.exec(html);
-  if (embed?.[1]) return resolveHref(embed[1], pageUrl);
-  for (const m of html.matchAll(/<a[^>]+href="([^"]+)"/gi)) {
+function isScihubCaptchaPage(html: string): boolean {
+  // 纯验证页；正文页也可能引用 altcha 脚本，故以标题为准
+  return /<title[^>]*>\s*Sci-Hub:\s*are you are robot\?/i.test(html);
+}
+
+/** 从 Sci-Hub HTML 抽出 PDF 直链（兼容 object/iframe/embed + 等号两侧空格）。 */
+export function extractPdfUrlFromHtml(html: string, pageUrl: string): string | null {
+  if (!html) return null;
+  if (isScihubCaptchaPage(html)) return null;
+
+  const candidates: string[] = [];
+  const push = (raw?: string | null) => {
+    if (!raw) return;
+    if (!/\.pdf/i.test(raw) && !/\/download\//i.test(raw) && !/\/storage\//i.test(raw)) return;
+    candidates.push(raw);
+  };
+
+  // id="pdf" 锚点（新旧布局稳定）
+  for (const m of html.matchAll(
+    /<(?:iframe|embed|object)[^>]*\bid\s*=\s*["']?pdf["']?[^>]*>/gi,
+  )) {
+    const tag = m[0];
+    push(/src\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1]);
+    push(/data\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1]);
+  }
+
+  // 现代站：`<object data = "/storage/.../x.pdf#navpanes=0">`
+  push(/<object[^>]+data\s*=\s*["']([^"']+)["']/i.exec(html)?.[1]);
+  push(/<embed[^>]+src\s*=\s*["']([^"']+)["']/i.exec(html)?.[1]);
+  push(/<iframe[^>]+src\s*=\s*["']([^"']+)["']/i.exec(html)?.[1]);
+
+  // 泛匹配带 .pdf 的 src/href/data（容错空格）
+  for (const m of html.matchAll(/(?:src|href|data)\s*=\s*["']([^"']+\.pdf[^"']*)["']/gi)) {
+    push(m[1]);
+  }
+  for (const m of html.matchAll(/location\.href\s*=\s*["']([^"']+)["']/gi)) {
+    push(m[1]);
+  }
+  for (const m of html.matchAll(/<a[^>]+href\s*=\s*["']([^"']+)["']/gi)) {
     const href = m[1];
-    if (/\.pdf/i.test(href) || /\/pdf$/i.test(href)) return resolveHref(href, pageUrl);
+    if (/\.pdf/i.test(href) || /\/pdf$/i.test(href) || /\/download\//i.test(href)) push(href);
+  }
+
+  for (const raw of candidates) {
+    const abs = resolveHref(raw, pageUrl);
+    if (/^https?:\/\//i.test(abs)) return abs;
   }
   return null;
+}
+
+function scihubPageHeaders(referer?: string): Record<string, string> {
+  const h: Record<string, string> = {
+    accept: "text/html,application/pdf,*/*",
+    "user-agent":
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  };
+  if (referer) h.referer = referer;
+  return h;
+}
+
+function looksLikePdfBytes(buf: Uint8Array): boolean {
+  return buf.length > 4 && buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46;
 }
 
 /** Sci-Hub 抓取（备选链末尾；返回 PDF 字节或 null） */
@@ -409,28 +474,42 @@ export async function fetchScihubPdf(
 
   const mirrors = deps.mirrors ?? getScihubMirrors();
   for (const base of mirrors) {
-    const root = base.replace(/\/$/, "") + "/";
-    try {
-      const pageRes = await f(root + encodeURIComponent(id), {
-        signal: deps.signal,
-        redirect: "follow",
-        headers: { accept: "text/html,application/pdf,*/*" },
-      } as RequestInit);
-      const pageUrl = pageRes.url;
-      const ct = (pageRes.headers.get("content-type") ?? "").toLowerCase();
-      if (ct.includes("application/pdf")) {
-        const buf = new Uint8Array(await pageRes.arrayBuffer());
-        return { bytes: buf, url: pageUrl };
-      }
-      const html = await pageRes.text();
-      const pdfUrl = extractPdfUrlFromHtml(html, pageUrl);
-      if (!pdfUrl) continue;
-      const pdfRes = await f(pdfUrl, { signal: deps.signal, redirect: "follow" } as RequestInit);
-      if (!pdfRes.ok) continue;
-      const pdfCt = (pdfRes.headers.get("content-type") ?? "").toLowerCase();
-      if (pdfCt && !pdfCt.includes("pdf") && !pdfCt.includes("octet-stream")) continue;
-      return { bytes: new Uint8Array(await pdfRes.arrayBuffer()), url: pdfUrl };
-    } catch { /* 下一镜像 */ }
+    const root = base.replace(/\/$/, "");
+    // 路径保留 DOI 中的 `/`；部分镜像对 %2F 不友好。编码失败时再试 encode 形式。
+    const paths = [`${root}/${id}`, `${root}/${encodeURIComponent(id)}`];
+    for (const pageHref of paths) {
+      try {
+        const pageRes = await f(pageHref, {
+          signal: deps.signal,
+          redirect: "follow",
+          headers: scihubPageHeaders(root + "/"),
+        } as RequestInit);
+        if (!pageRes.ok && pageRes.status !== 200) continue;
+        const pageUrl = pageRes.url || pageHref;
+        const ct = (pageRes.headers.get("content-type") ?? "").toLowerCase();
+        if (ct.includes("application/pdf")) {
+          const buf = new Uint8Array(await pageRes.arrayBuffer());
+          if (looksLikePdfBytes(buf)) return { bytes: buf, url: pageUrl };
+          continue;
+        }
+        const html = await pageRes.text();
+        if (isScihubCaptchaPage(html)) continue;
+        const pdfUrl = extractPdfUrlFromHtml(html, pageUrl);
+        if (!pdfUrl) continue;
+        const pdfRes = await f(pdfUrl, {
+          signal: deps.signal,
+          redirect: "follow",
+          headers: {
+            ...scihubPageHeaders(pageUrl),
+            accept: "application/pdf,*/*",
+          },
+        } as RequestInit);
+        if (!pdfRes.ok) continue;
+        const buf = new Uint8Array(await pdfRes.arrayBuffer());
+        if (!looksLikePdfBytes(buf)) continue;
+        return { bytes: buf, url: pdfUrl };
+      } catch { /* 下一路径/镜像 */ }
+    }
   }
   return null;
 }

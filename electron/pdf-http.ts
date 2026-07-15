@@ -1,24 +1,21 @@
 // lumina-feed · 主进程 PDF HTTP（Chromium session + bioRxiv 落地页预热绕 Cloudflare）
-import { session } from "electron";
 import { getRefererForUrl } from "../src/core/oa/referer.ts";
-
-const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+import { ASCII_UA, sessionFetchSafe } from "./safe-fetch.ts";
+import { toByteStringHeader } from "../src/core/net/byte-string.ts";
 
 function headersFor(url: string, accept = "application/pdf,*/*"): Record<string, string> {
   const h: Record<string, string> = {
     Accept: accept,
-    "User-Agent": UA,
+    "User-Agent": ASCII_UA,
   };
   const ref = getRefererForUrl(url);
-  if (ref) h.Referer = ref;
+  const safeRef = ref ? toByteStringHeader(ref) : undefined;
+  if (safeRef) h.Referer = safeRef;
   return h;
 }
 
 export async function mainSessionFetch(url: string, signal?: AbortSignal, accept?: string): Promise<Response> {
-  const ses = session.defaultSession;
-  const init = { headers: headersFor(url, accept), signal };
-  if (typeof ses.fetch === "function") return ses.fetch(url, init);
-  return fetch(url, init);
+  return sessionFetchSafe(url, { headers: headersFor(url, accept), signal });
 }
 
 function biorxivLandingForPdf(pdfUrl: string): string | undefined {

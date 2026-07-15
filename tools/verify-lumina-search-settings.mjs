@@ -58,7 +58,7 @@ ok(!has(hub, "order:-1"), "已移除左栏 order:-1（回归上下）");
 
 console.log("\n[5] 链路完整性（前置未回退）");
 ok(has(ff, "CitationActions") || (has(ff, "ff-cites") && has(ff, "copyCite")), "finish 结果页单条引用复制仍在（CitationActions 或内联 copyCite）");
-ok(has(hub, "rhx-tabs") && has(hub, "MAX_TABS"), "multidoc 多标签仍在");
+ok(has(hub, "rhx-tabs") && (has(hub, "TAB_SOFT_WARN") || has(hub, "closeOthers")), "multidoc 多标签仍在（无硬上限）");
 ok(has(set, "PROVIDERS") && has(set, "visionConsent"), "Settings 六提供方 + 云端读图开关仍在");
 ok(has(ff, "ff-year-h") && (has(ff, "仅过滤本次") || has(ff, "非数据库分面") || has(ff, "我的文献")), "年份提示说明仅作用于本次结果");
 

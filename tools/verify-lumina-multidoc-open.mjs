@@ -29,10 +29,12 @@ const main = read("electron/main.ts");
 const preload = read("electron/preload.ts");
 const bridge = read("src/ui/lumina-bridge.js");
 
-console.log("\n[1] 多标签阅读（A2 · 已挂载隐藏 · 仅活跃可见 · 上限 6）");
+console.log("\n[1] 多标签阅读（A2 · 已挂载隐藏 · 仅活跃可见 · 无硬上限 + 右键菜单）");
 ok(has(hub, "const RHX_CSS = `") && has(hub, ".rhx-tabs{") && has(hub, ".rhx-pane{"), "标签条 CSS（RHX_CSS）");
 ok(has(hub, "useState({ tabs: [], activeId: null })"), "单一状态 {tabs, activeId}（原子更新）");
-ok(has(hub, "const MAX_TABS = 6") && has(hub, "最多同时打开"), "上限 6 + 提示");
+ok(!has(hub, "const MAX_TABS = 6") && has(hub, "TAB_SOFT_WARN") && has(hub, "关闭其他标签页"), "取消硬上限 6；软提示 + 右键批量关闭");
+ok(has(hub, "closeLeft") && has(hub, "closeRight") && has(hub, "onContextMenu"), "右键：关闭左侧/右侧");
+ok(has(hub, "tabs-dense") && has(hub, "tabs-crowded"), "多标签自动收缩密度");
 ok(has(hub, "const closeTab = useCallback") && has(hub, "rhx-tab-x"), "关闭标签");
 ok(has(hub, 'role="tablist"') && has(hub, '<Home size={14} />') && has(hub, "rhx-tab-nm"), "标签条 JSX（首页 + 各标签）");
 ok(has(hub, 'style={{ display: t.id === st.activeId ? "flex" : "none" }}'), "非活跃标签 display:none（已挂载隐藏，保留各自状态）");
