@@ -209,6 +209,8 @@ contextBridge.exposeInMainWorld("luminaReader", {
   swipeRemove: (id) => invoke("swipe:remove", id),
   practiceSave: (paperId, kind, text) => invoke("reader:practiceSave", paperId, kind, text),
   figure: (dataUrl, caption) => invoke("reader:figure", { dataUrl, caption }),
+  copyImage: (dataUrl: string) => invoke("reader:copyImage", dataUrl),
+  saveImage: (dataUrl: string, suggestedName?: string) => invoke("reader:saveImage", dataUrl, suggestedName),
   corpus: (kind, paperIds) => invoke("reader:corpus", { kind, paperIds }),
   analysisGet: (paperId, kind) => invoke("reader:analysisGet", paperId, kind),
   analysisSave: (paperId, env) => invoke("reader:analysisSave", paperId, env),

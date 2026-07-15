@@ -314,6 +314,33 @@ export const bridge = {
     const r = R(); if (!r || !r.figure) return mockAnalysisEnvelope("figure"); // 无引擎：占位（标原型模拟）
     try { return await r.figure(dataUrl, caption); } catch (e) { return { kind: "figure", lane: "inference", groundability: "L2", sourceBasis: "fulltext+vision", model: "(none)", title: "图表分析", refused: { reason: "图表分析失败（" + ((e && e.message) || "通道错误") + "）。纯文本云端模型（如 deepseek-v4-flash）无法读图，请改用 Ollama 视觉模型或 OpenAI/Anthropic 视觉模型。" }, claims: [] }; }
   },
+  async readerCopyImage(dataUrl) {
+    const r = R();
+    if (r && r.copyImage) {
+      try { return await r.copyImage(dataUrl); } catch (e) { return { ok: false, reason: String((e && e.message) || e) }; }
+    }
+    try {
+      const blob = await (await fetch(dataUrl)).blob();
+      if (navigator.clipboard && window.ClipboardItem) {
+        await navigator.clipboard.write([new ClipboardItem({ [blob.type || "image/png"]: blob })]);
+        return { ok: true, mock: true };
+      }
+      return { ok: false, reason: "no_clipboard" };
+    } catch (e) { return { ok: false, reason: String((e && e.message) || e) }; }
+  },
+  async readerSaveImage(dataUrl, suggestedName) {
+    const r = R();
+    if (r && r.saveImage) {
+      try { return await r.saveImage(dataUrl, suggestedName); } catch (e) { return { ok: false, reason: String((e && e.message) || e) }; }
+    }
+    try {
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = suggestedName || "lumina-snip.png";
+      a.click();
+      return { ok: true, mock: true };
+    } catch (e) { return { ok: false, reason: String((e && e.message) || e) }; }
+  },
   async readerCorpus(kind, paperIds) {
     const r = R();
     if (!r || !r.corpus) { // 无引擎：占位（标原型模拟），不伪造跨篇结论

@@ -30,8 +30,12 @@ const pre = R("electron/preload.ts"); ok(/figure:.*reader:figure/.test(pre), "pr
 const br = R("src/ui/lumina-bridge.js"); ok(/async readerFigure/.test(br) && /kind === "figure"/.test(br), "bridge readerFigure + figure mock");
 const rd = R("src/ui/modules/Reader.jsx");
 ok(/renderRegion } from "..\/pdf-engine.js"/.test(rd), "Reader 导入 renderRegion");
-ok(/const doFigure = useCallback/.test(rd) && /renderRegion\(doc, pno, bbox/.test(rd), "doFigure：定位页 canvas→归一 bbox→renderRegion");
-ok(/doFigure\(x1, y1, x2, y2, cap\.trim\(\)\)/.test(rd), "截取(snip)→区域读图（取区域文本作图注线索）");
+ok(/const doFigure = useCallback/.test(rd) && /bridge\.readerFigure\(dataUrl/.test(rd), "doFigure：已有 dataUrl → readerFigure");
+ok(/rd-snip-acts/.test(rd) && /onSnipCopy/.test(rd) && /onSnipSave/.test(rd) && /分析图表/.test(rd), "框选后动作条：复制/保存/分析图表");
+ok(/reader:copyImage/.test(ipc) && /reader:saveImage/.test(ipc), "ipc reader:copyImage + reader:saveImage");
+ok(/copyImage:.*reader:copyImage/.test(pre) && /saveImage:.*reader:saveImage/.test(pre), "preload 暴露 copyImage/saveImage");
+ok(/async readerCopyImage/.test(br) && /async readerSaveImage/.test(br), "bridge readerCopyImage/SaveImage");
+ok(/框选/.test(rd) && !/> 截图</.test(rd), "工具栏文案为「框选」而非独占「截图」");
 ok(/<InfCard env=\{figureEnv\}/.test(rd), "图表结果走 InfCard（env.lane inference 路由，HC-1 不破）");
 const st = R("src/ui/modules/Settings.jsx");
 ok(/const \[visionConsent/.test(st) && (/onToggleVisionConsent/.test(st) || /persistSettings/.test(st)) && /云端读图开关/.test(st), "Settings 云端读图授权开关 + 持久化到 llm.visionConsent");

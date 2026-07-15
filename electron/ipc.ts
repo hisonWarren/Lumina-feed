@@ -1,5 +1,5 @@
 // lumina-feed · IPC（干净基线：检索 · 总结 · OA · 设置）+ reader_engine（OA 取/存/读回 · 阅读器接地 AI）
-import { ipcMain, app, Notification, BrowserWindow, dialog, shell, type WebContents } from "electron";
+import { ipcMain, app, Notification, BrowserWindow, dialog, shell, clipboard, nativeImage, type WebContents } from "electron";
 import fs from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -1073,6 +1073,35 @@ export function registerIpc(deps: IpcDeps): void {
       const llm = await makeLlm();
       return await analyzeFigure(payload.dataUrl, payload.caption || "", llm);
     } catch (e) { console.error("reader:figure 失败", e); return analysisError("figure", e, { vision: true, sourceBasis: "fulltext+vision" }); }
+  });
+  // 框选截取：复制到系统剪贴板（位图）/ 另存 PNG（与图表分析分流，O3）
+  ipcMain.handle("reader:copyImage", async (_e, dataUrl: string) => {
+    try {
+      if (!dataUrl || typeof dataUrl !== "string") return { ok: false, reason: "missing" };
+      const img = nativeImage.createFromDataURL(dataUrl);
+      if (img.isEmpty()) return { ok: false, reason: "empty" };
+      clipboard.writeImage(img);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, reason: String((e as Error)?.message || e) };
+    }
+  });
+  ipcMain.handle("reader:saveImage", async (e, dataUrl: string, suggestedName?: string) => {
+    try {
+      if (!dataUrl || typeof dataUrl !== "string") return { ok: false, reason: "missing" };
+      const m = /^data:image\/([\w+]+);base64,(.+)$/i.exec(dataUrl);
+      if (!m) return { ok: false, reason: "bad_data" };
+      const win = BrowserWindow.fromWebContents(e.sender);
+      const { canceled, filePath } = await dialog.showSaveDialog(win && !win.isDestroyed() ? win : undefined, {
+        defaultPath: suggestedName || "lumina-snip.png",
+        filters: [{ name: "PNG 图片", extensions: ["png"] }],
+      });
+      if (canceled || !filePath) return { ok: false, reason: "canceled" };
+      await writeFile(filePath, Buffer.from(m[2], "base64"));
+      return { ok: true, path: filePath };
+    } catch (err) {
+      return { ok: false, reason: String((err as Error)?.message || err) };
+    }
   });
   // ── reader_plus·语料层（ADR-I6）：选中工作集跨篇归纳；结构化缓存 + 可选全文摘录；篇数上限见设置。
   ipcMain.handle("reader:corpus", async (_e, payload: { kind?: string; paperIds?: string[] }) => {

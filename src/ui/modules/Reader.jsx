@@ -1,6 +1,6 @@
 // Lumina Feed · 阅读器工作台 (Reader workbench) —— 累积：reader_p1a/b · p2 · p3 · reader_plus · finish
 // 渲染内核 + 导航/书签 + 缩放(预设:实际大小/适配宽度/适配整页) + 旋转 + 单页/连续/双页 + 缩略图(IO 懒渲染) + 专注 + 下载。
-// 真实文本层(可选择) + 页内查找 + 大纲目录 + 划词解释/翻译/带页码问答/多色批注 + 截取读图 + 证据/推断分析。
+// 真实文本层(可选择) + 页内查找 + 大纲目录 + 划词解释/翻译/带页码问答/多色批注 + 框选截取（复制/保存/分析图表）+ 证据/推断分析。
 // 续读位置(按 docKey) · 键盘快捷键 · 夜读反色 · 抓手平移。真实 PDF 渲染/文本层/选择/查找/各交互仅真机可验。
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import { ArrowLeft, X, PanelLeft, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Minus, Plus, Maximize, RotateCw, RotateCcw, Expand, Download, Search, Sparkles, Send, Languages, Copy, RefreshCw, List, Images, Highlighter, StickyNote, Crop, Trash2, FileDown, Loader, AlertTriangle, Square, Rows3, Columns2, FileText, Shield, Info, Layers, Lightbulb, Eye, Ban, Target, Scale, FlaskConical, ListChecks, Link2, Check, Quote, Bookmark, Workflow, Map as MapIcon, Moon, Hand, ScanLine, Undo2, Redo2, BookMarked } from "lucide-react";
@@ -420,6 +420,11 @@ const READER_CSS = `
 .rd-pop-bar button.rd-hlbtn:hover{box-shadow:0 0 0 2px rgba(255,255,255,.45)}
 .rd-pop-div{width:1px;height:18px;background:rgba(255,255,255,.25);margin:0 2px;align-self:center}
 .rd-snip{position:absolute;z-index:45;border:1.5px dashed var(--gold);background:rgba(14,124,111,.12);pointer-events:none}
+.rd-snip-acts{position:absolute;z-index:46;display:flex;flex-wrap:wrap;gap:6px;padding:7px 8px;border-radius:10px;background:var(--surf);border:1px solid var(--line);box-shadow:0 10px 28px color-mix(in srgb,var(--ink) 14%,transparent);pointer-events:auto}
+.rd-snip-acts button{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line2);background:var(--surf2);color:var(--ink2);border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer;font-family:inherit}
+.rd-snip-acts button:hover{border-color:var(--gold);color:var(--gold)}
+.rd-snip-acts button.primary{border-color:color-mix(in srgb,var(--gold) 55%,var(--line2));color:var(--gold)}
+.rd-snip-acts button.ghost{opacity:.85}
 .rd-view.snip{cursor:crosshair}
 .rd-anno{width:340px;flex-shrink:0;border-left:1px solid var(--line);background:var(--surf);overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:14px}
 .rd-anno-acts{display:flex;gap:6px;flex-wrap:wrap}
@@ -2193,6 +2198,8 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
   const [figuring, setFiguring] = useState(false);
   const [snipMode, setSnipMode] = useState(false);
   const [snipRect, setSnipRect] = useState(null);
+  const [snipChoice, setSnipChoice] = useState(null); // { dataUrl, caption, page, x, y } 框选后分流动作条
+  const [snipBusy, setSnipBusy] = useState(false);
   const loadedRef = useRef(false);
   const annosRef = useRef([]);
   const annoPendingRef = useRef({ key: "", list: null });
@@ -2504,7 +2511,8 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === "Escape") {
-        if (snipMode) { setSnipMode(false); setSnipRect(null); }
+        if (snipChoice || snipBusy) { setSnipChoice(null); setSnipRect(null); setSnipBusy(false); setSnipMode(false); }
+        else if (snipMode) { setSnipMode(false); setSnipRect(null); }
         else if (transMenuOpen) { setTransMenuOpen(false); }
         else if (zoomMenuOpen) { setZoomMenuOpen(false); }
         else if (sel) { setSel(null); }
@@ -2538,7 +2546,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, numPages, step, findOpen, sel, transMenuOpen, transMode, snipMode, aiOpen, zoomMenuOpen, doc, page, rotation, view, focus]); // undoAnno/redoAnno/fitSpread stable via refs
+  }, [onClose, numPages, step, findOpen, sel, transMenuOpen, transMode, snipMode, snipChoice, snipBusy, aiOpen, zoomMenuOpen, doc, page, rotation, view, focus]); // undoAnno/redoAnno/fitSpread stable via refs
 
   useEffect(() => {
     if (view !== "continuous") return;
@@ -2701,45 +2709,102 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
     });
   }, [page, scale, numPages, navmarks, annos.length, canUndoAnno, night, focus, hand, annoHistTick, transMode]);
 
-  // 截取（图/公式）：框选区域 → 取区域内文本层文字 → 接地解释
-  const onViewMouseDown = (e) => { if (hand && viewRef.current) { panRef.current = { x: e.clientX, y: e.clientY, sl: viewRef.current.scrollLeft, st: viewRef.current.scrollTop }; e.preventDefault(); return; } if (!snipMode || !rootRef.current) return; const host = rootRef.current.getBoundingClientRect(); snipStart.current = { x: e.clientX, y: e.clientY }; setSnipRect({ x: e.clientX - host.left, y: e.clientY - host.top, w: 0, h: 0 }); };
-  const onViewMouseMove = (e) => { if (hand) { if (panRef.current && viewRef.current) { viewRef.current.scrollLeft = panRef.current.sl - (e.clientX - panRef.current.x); viewRef.current.scrollTop = panRef.current.st - (e.clientY - panRef.current.y); } return; } if (!snipMode || !snipStart.current || !rootRef.current) return; const host = rootRef.current.getBoundingClientRect(); const sx = snipStart.current.x, sy = snipStart.current.y; setSnipRect({ x: Math.min(sx, e.clientX) - host.left, y: Math.min(sy, e.clientY) - host.top, w: Math.abs(e.clientX - sx), h: Math.abs(e.clientY - sy) }); };
-  const onViewMouseUp = (e) => {
-    if (hand) { panRef.current = null; return; }
-    if (snipMode && snipStart.current) {
-      const x1 = Math.min(snipStart.current.x, e.clientX), y1 = Math.min(snipStart.current.y, e.clientY), x2 = Math.max(snipStart.current.x, e.clientX), y2 = Math.max(snipStart.current.y, e.clientY);
-      snipStart.current = null; setSnipRect(null); setSnipMode(false);
-      if (x2 - x1 < 8 || y2 - y1 < 8) return; // 框太小忽略
-      let cap = "";
-      try { rootRef.current.querySelectorAll(".textLayer span").forEach((sp) => { const r = sp.getBoundingClientRect(); if (r.right > x1 && r.left < x2 && r.bottom > y1 && r.top < y2) cap += (sp.textContent || "") + " "; }); } catch (er) { /* noop */ }
-      doFigure(x1, y1, x2, y2, cap.trim()); // 框选图表 → 渲染区域 → 视觉读图（进推读车道）
-      return;
-    }
-    onSelectUp();
-  };
-  const doFigure = useCallback(async (x1, y1, x2, y2, caption) => {
+  // 框选区域：渲染高清 PNG → 动作条（复制 / 保存 / 分析图表）
+  const clearSnipUi = useCallback(() => {
+    setSnipChoice(null); setSnipRect(null); setSnipBusy(false); setSnipMode(false); snipStart.current = null;
+  }, []);
+  const resolveSnipCapture = useCallback(async (x1, y1, x2, y2) => {
     let canvas = null;
     try {
       const host = viewRef.current || rootRef.current;
       const cs = host ? host.querySelectorAll("canvas") : [];
-      cs.forEach((c) => { if (canvas) return; const r = c.getBoundingClientRect(); if (r.right > x1 && r.left < x2 && r.bottom > y1 && r.top < y2 && r.width > 40) canvas = c; });
+      cs.forEach((c) => {
+        if (canvas) return;
+        const r = c.getBoundingClientRect();
+        if (r.right > x1 && r.left < x2 && r.bottom > y1 && r.top < y2 && r.width > 40) canvas = c;
+      });
     } catch (er) { /* noop */ }
-    if (!canvas) { pushToast && pushToast("未定位到页面画布"); return; }
+    if (!canvas) return null;
     const cr = canvas.getBoundingClientRect();
     const bbox = { x: (Math.max(x1, cr.left) - cr.left) / cr.width, y: (Math.max(y1, cr.top) - cr.top) / cr.height, w: (Math.min(x2, cr.right) - Math.max(x1, cr.left)) / cr.width, h: (Math.min(y2, cr.bottom) - Math.max(y1, cr.top)) / cr.height };
     const wrap = canvas.closest && canvas.closest("[data-rd-page]");
     const pno = wrap ? parseInt(wrap.getAttribute("data-rd-page"), 10) : page;
+    let cap = "";
+    try { rootRef.current.querySelectorAll(".textLayer span").forEach((sp) => { const r = sp.getBoundingClientRect(); if (r.right > x1 && r.left < x2 && r.bottom > y1 && r.top < y2) cap += (sp.textContent || "") + " "; }); } catch (er) { /* noop */ }
+    const dataUrl = await renderRegion(doc, pno, bbox, { scale: 2.5 });
+    return { dataUrl, caption: cap.trim(), page: pno };
+  }, [doc, page]);
+  const onViewMouseDown = (e) => {
+    if (hand && viewRef.current) { panRef.current = { x: e.clientX, y: e.clientY, sl: viewRef.current.scrollLeft, st: viewRef.current.scrollTop }; e.preventDefault(); return; }
+    if (snipChoice) return;
+    if (!snipMode || !rootRef.current) return;
+    const host = rootRef.current.getBoundingClientRect();
+    snipStart.current = { x: e.clientX, y: e.clientY };
+    setSnipRect({ x: e.clientX - host.left, y: e.clientY - host.top, w: 0, h: 0 });
+  };
+  const onViewMouseMove = (e) => {
+    if (hand) { if (panRef.current && viewRef.current) { viewRef.current.scrollLeft = panRef.current.sl - (e.clientX - panRef.current.x); viewRef.current.scrollTop = panRef.current.st - (e.clientY - panRef.current.y); } return; }
+    if (!snipMode || !snipStart.current || !rootRef.current || snipChoice) return;
+    const host = rootRef.current.getBoundingClientRect();
+    const sx = snipStart.current.x, sy = snipStart.current.y;
+    setSnipRect({ x: Math.min(sx, e.clientX) - host.left, y: Math.min(sy, e.clientY) - host.top, w: Math.abs(e.clientX - sx), h: Math.abs(e.clientY - sy) });
+  };
+  const onViewMouseUp = (e) => {
+    if (hand) { panRef.current = null; return; }
+    if (snipMode && snipStart.current && !snipChoice) {
+      const x1 = Math.min(snipStart.current.x, e.clientX), y1 = Math.min(snipStart.current.y, e.clientY), x2 = Math.max(snipStart.current.x, e.clientX), y2 = Math.max(snipStart.current.y, e.clientY);
+      snipStart.current = null;
+      setSnipMode(false);
+      if (x2 - x1 < 8 || y2 - y1 < 8) { setSnipRect(null); return; }
+      const host = rootRef.current && rootRef.current.getBoundingClientRect();
+      const barX = host ? Math.min(x1, x2) - host.left : 0;
+      const barY = host ? Math.min(y1, y2) - host.top + Math.abs(y2 - y1) + 8 : 0;
+      setSnipBusy(true);
+      void (async () => {
+        try {
+          const shot = await resolveSnipCapture(x1, y1, x2, y2);
+          if (!shot || !shot.dataUrl) { pushToast && pushToast("未定位到页面画布"); setSnipRect(null); setSnipBusy(false); return; }
+          setSnipChoice({ ...shot, x: barX, y: barY });
+        } catch (er) { pushToast && pushToast("截取失败"); setSnipRect(null); }
+        finally { setSnipBusy(false); }
+      })();
+      return;
+    }
+    onSelectUp();
+  };
+  const doFigure = useCallback(async (dataUrl, caption) => {
+    if (!dataUrl) { pushToast && pushToast("未定位到页面画布"); return; }
     setFiguring(true); setFigureEnv(null); setAiOpen(true); setZone("inf"); setTransMode(null);
     try {
-      const dataUrl = await renderRegion(doc, pno, bbox, { scale: 2.5 });
       const env = await bridge.readerFigure(dataUrl, caption || "");
       setFigureEnv(env || null);
       if (!env) pushToast && pushToast("图表分析失败，请重试");
       if (env) saveCachedAnalysis(source, env);
     } catch (er) { pushToast && pushToast("图表分析失败"); }
     finally { setFiguring(false); }
-  }, [doc, page, pushToast]);
-
+  }, [pushToast, source]);
+  const onSnipCopy = useCallback(async () => {
+    if (!snipChoice || !snipChoice.dataUrl) return;
+    const r = await bridge.readerCopyImage(snipChoice.dataUrl);
+    if (r && r.ok) pushToast && pushToast("已复制到剪贴板");
+    else pushToast && pushToast("复制失败" + (r && r.reason ? `（${r.reason}）` : ""));
+    clearSnipUi();
+  }, [snipChoice, pushToast, clearSnipUi]);
+  const onSnipSave = useCallback(async () => {
+    if (!snipChoice || !snipChoice.dataUrl) return;
+    const name = `lumina-p${snipChoice.page || page}-snip.png`;
+    const r = await bridge.readerSaveImage(snipChoice.dataUrl, name);
+    if (r && r.ok) pushToast && pushToast(r.path ? `已保存：${r.path}` : "已保存");
+    else if (r && r.reason === "canceled") { /* 用户取消，保留框选 */ }
+    else { pushToast && pushToast("保存失败" + (r && r.reason ? `（${r.reason}）` : "")); clearSnipUi(); return; }
+    if (r && r.ok) clearSnipUi();
+  }, [snipChoice, page, pushToast, clearSnipUi]);
+  const onSnipAnalyze = useCallback(async () => {
+    if (!snipChoice || !snipChoice.dataUrl) return;
+    const { dataUrl, caption } = snipChoice;
+    clearSnipUi();
+    await doFigure(dataUrl, caption);
+  }, [snipChoice, clearSnipUi, doFigure]);
   useEffect(() => {
     let alive = true;
     loadCachedAnalysis(source, "figure").then((e) => { if (alive && e) setFigureEnv(e); });
@@ -3142,7 +3207,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
           <button className={"rd-btn" + (aiOpen && zone === "notes" ? " on" : "")} onClick={() => { if (aiOpen && zone === "notes") setAiOpen(false); else { setFocus(false); setAiOpen(true); setZone("notes"); setTransMode(null); } }} title="批注"><Highlighter size={15} /> 批注</button>
           <button className="rd-btn" disabled={!canUndoAnno} onClick={undoAnno} title="撤销批注 (Ctrl/⌘ Z)"><Undo2 size={15} /> 撤销</button>
           <button className="rd-btn" disabled={!canRedoAnno} onClick={redoAnno} title="重做批注 (Ctrl/⌘ Y)"><Redo2 size={15} /> 重做</button>
-          <button className={"rd-btn" + (snipMode ? " on" : "")} onClick={() => setSnipMode((v) => !v)} title="截图分析（框选图表→视觉分析，进推读车道）"><Crop size={15} /> 截图</button>
+          <button className={"rd-btn" + (snipMode || snipChoice ? " on" : "")} onClick={() => { if (snipChoice) clearSnipUi(); else setSnipMode((v) => !v); }} title="框选区域后可复制图片、保存 PNG，或分析图表"><Crop size={15} /> 框选</button>
           <span className="rd-trwrap">
             <button className={"rd-btn" + (transMode ? " on" : "")} onClick={() => setTransMenuOpen((v) => !v)} title="翻译"><Languages size={15} /> 译 <ChevronDown size={13} /></button>
             {transMenuOpen && (
@@ -3291,6 +3356,19 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
       )}
 
       {snipRect && <div className="rd-snip" style={{ left: snipRect.x + "px", top: snipRect.y + "px", width: snipRect.w + "px", height: snipRect.h + "px" }} />}
+      {snipBusy && snipRect && (
+        <div className="rd-snip-acts" style={{ left: Math.max(8, snipRect.x) + "px", top: (snipRect.y + snipRect.h + 8) + "px" }}>
+          <span style={{ fontSize: 12, color: "var(--ink3)", alignSelf: "center", padding: "0 4px" }}>截取中…</span>
+        </div>
+      )}
+      {snipChoice && (
+        <div className="rd-snip-acts" style={{ left: Math.max(8, snipChoice.x) + "px", top: Math.max(8, snipChoice.y) + "px" }} onMouseDown={(e) => e.stopPropagation()}>
+          <button type="button" onClick={onSnipCopy} title="复制到剪贴板"><Copy size={13} /> 复制</button>
+          <button type="button" onClick={onSnipSave} title="另存为 PNG"><Download size={13} /> 保存</button>
+          <button type="button" className="primary" onClick={onSnipAnalyze} title="送视觉模型读图（推读）"><Lightbulb size={13} /> 分析图表</button>
+          <button type="button" className="ghost" onClick={clearSnipUi} title="取消"><X size={13} /> 取消</button>
+        </div>
+      )}
 
       {ctxMenu && (
         <ReaderContextMenu
