@@ -2,6 +2,12 @@
 
 本文件记录 Lumina Feed 各版本的用户可见变更。完整提交历史见 [GitHub Releases](https://github.com/hisonWarren/Lumina-feed/releases)。
 
+## [0.4.100] — 2026-07-15
+
+### 修复
+
+- **取文 · Sci-Hub 误判身份**：PDF 文本层常把 DOI 与标题粘在一起（如 `…0114Perception…`），身份校验会当成「错误 DOI」丢掉已下好的全文；现已规范抽取并在 OA 失败后优先尝试 Sci-Hub，避免被 LibGen 探活拖死预算。
+
 ## [0.4.99] — 2026-07-15
 
 ### 新增

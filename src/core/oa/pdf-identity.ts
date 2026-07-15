@@ -7,6 +7,8 @@ import type { Paper } from "../model.ts";
 
 const DOI_RE = /10\.\d{4,9}\/[-._;()/:A-Z0-9]+/gi;
 const TITLE_MATCH_MIN = 0.82;
+/** 足够像 DOI 后缀（避免裁剪过度） */
+const DOI_CORE_RE = /^10\.\d{4,9}\/[a-z0-9][-._;()/:a-z0-9]*$/i;
 
 export interface PdfIdentityExpect {
   doi?: string;
@@ -20,11 +22,38 @@ export interface PdfIdentityResult {
   titleScore?: number;
 }
 
+/**
+ * PDF 文本层常把 DOI 与后文标题粘在一起：`…0114Perceptionof…`。
+ * 贪婪 DOI_RE 会吞掉标题，导致「找到错误 DOI」误杀正确全文。
+ */
+export function sanitizeExtractedDoi(raw: string): string | undefined {
+  let d = normDoi(raw);
+  if (!d) return undefined;
+  // normDoi 后全小写：数字后紧跟 ≥4 个字母 → 多半是正文粘连（…0114perception…）
+  d = d.replace(/(\d)[a-z]{4,}.*$/, "$1");
+  // 去掉尾部标点
+  d = d.replace(/[.,;:>\]}>]+$/g, "");
+  if (!DOI_CORE_RE.test(d)) return undefined;
+  return d;
+}
+
+/** 期望 DOI 与抽取 DOI 是否同一标识（含粘连后缀兼容）。 */
+export function doisReferSame(expected: string | undefined, found: string | undefined): boolean {
+  const a = normDoi(expected);
+  const b = sanitizeExtractedDoi(found || "") || normDoi(found);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  // 抽取过长：期望为真 DOI 前缀，后缀是粘上的英文字母
+  if (b.startsWith(a) && /^[A-Za-z]/.test(b.slice(a.length))) return true;
+  if (a.startsWith(b) && b.length >= 16) return true;
+  return false;
+}
+
 export function extractDoisFromText(text: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const m of text.matchAll(DOI_RE)) {
-    const d = normDoi(m[0]);
+    const d = sanitizeExtractedDoi(m[0]) || normDoi(m[0]);
     if (d && !seen.has(d)) {
       seen.add(d);
       out.push(d);
@@ -50,22 +79,41 @@ export function verifyPdfIdentity(bytes: Uint8Array, expect: PdfIdentityExpect):
   const expDoi = normDoi(expect.doi);
 
   if (expDoi) {
-    if (foundDois.some((d) => d === expDoi)) return { ok: true, foundDois };
-    if (foundDois.length) return { ok: false, reason: "doi_mismatch", foundDois };
+    if (foundDois.some((d) => doisReferSame(expDoi, d))) return { ok: true, foundDois };
+    // 仅当抽到的 DOI「明确是另一篇」且无标题可依时才硬拒；
+    // 粘连误抽 / 参考文献 DOI 先交给标题，避免误杀 Sci-Hub 正确全文。
+    const foreign = foundDois.filter((d) => !doisReferSame(expDoi, d));
+    const strongForeign = foreign.some((d) => {
+      const ea = expDoi.split("/");
+      const fa = d.split("/");
+      return ea[0] === fa[0] && ea[1] && fa[1]
+        && !fa[1].startsWith(ea[1].slice(0, Math.min(8, ea[1].length)))
+        && !ea[1].startsWith(fa[1].slice(0, 8));
+    });
+    if (strongForeign && !expect.title?.trim()) {
+      return { ok: false, reason: "doi_mismatch", foundDois };
+    }
   }
 
   if (expect.title?.trim()) {
     const titleScore = titleMatchScore(expect.title, text);
     if (titleScore >= TITLE_MATCH_MIN) return { ok: true, titleScore, foundDois };
+    if (expDoi && foundDois.length && foundDois.every((d) => !doisReferSame(expDoi, d))) {
+      return { ok: false, reason: "doi_mismatch", foundDois, titleScore };
+    }
     return {
       ok: false,
-      reason: foundDois.length ? "doi_mismatch" : "title_mismatch",
+      reason: "title_mismatch",
       foundDois,
       titleScore,
     };
   }
 
-  if (expDoi) return { ok: false, reason: "no_identity_signal", foundDois };
+  if (expDoi) {
+    // 期望 DOI 未出现、也没有强冲突 → 文本层不可靠时放行
+    if (!foundDois.length) return { ok: true, foundDois };
+    return { ok: false, reason: "doi_mismatch", foundDois };
+  }
   return { ok: true };
 }
 

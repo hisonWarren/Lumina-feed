@@ -308,6 +308,12 @@ export async function resolvePdfCandidates(paper: Paper, deps: ResolveDeps = {})
     }
 
     if (includeAlt && deps.use?.altSources !== false) {
+      if (doi && deps.use?.scihub !== false) {
+        trace?.("scihub", "ok", "已加入候选");
+        all.push({ kind: "scihub", doi, source: "scihub", priority: 55 });
+      } else {
+        trace?.("scihub", "skip");
+      }
       const hasDirectArxiv = !!paper.arxivId || !!(doi && /arxiv\.\d+\.\d+/i.test(doi));
       if (!hasDirectArxiv) {
         trace?.("libgen", "running");
@@ -333,12 +339,6 @@ export async function resolvePdfCandidates(paper: Paper, deps: ResolveDeps = {})
       } else {
         trace?.("libgen", "skip", "arxiv 直达");
         trace?.("annas", "skip", "arxiv 直达");
-      }
-      if (doi && deps.use?.scihub !== false) {
-        trace?.("scihub", "ok", "已加入候选");
-        all.push({ kind: "scihub", doi, source: "scihub", priority: 70 });
-      } else {
-        trace?.("scihub", "skip");
       }
     } else {
       trace?.("libgen", "skip");
@@ -382,6 +382,14 @@ export async function resolveAltPdfCandidates(paper: Paper, deps: ResolveDeps = 
   const all: PdfCandidate[] = [];
   if (!doi || deps.includeAltSources === false || deps.use?.altSources === false) return all;
 
+  // Sci-Hub 凭 DOI 即可抓，先加入候选，勿被 LibGen/Anna 探活拖住预算
+  if (deps.use?.scihub !== false) {
+    trace?.("scihub", "ok", "已加入候选");
+    all.push({ kind: "scihub", doi, source: "scihub", priority: 55 });
+  } else {
+    trace?.("scihub", "skip");
+  }
+
   let title = paper.title;
   const hasDirectArxiv = !!paper.arxivId || !!(doi && /arxiv\.\d+\.\d+/i.test(doi));
   if (!hasDirectArxiv) {
@@ -408,12 +416,6 @@ export async function resolveAltPdfCandidates(paper: Paper, deps: ResolveDeps = 
   } else {
     trace?.("libgen", "skip", "arxiv 直达");
     trace?.("annas", "skip", "arxiv 直达");
-  }
-  if (doi && deps.use?.scihub !== false) {
-    trace?.("scihub", "ok", "已加入候选");
-    all.push({ kind: "scihub", doi, source: "scihub", priority: 70 });
-  } else {
-    trace?.("scihub", "skip");
   }
   return dedupeCandidates(all);
 }

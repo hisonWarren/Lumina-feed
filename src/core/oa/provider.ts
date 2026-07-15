@@ -8,14 +8,15 @@ import {
   resolveAltPdfCandidates,
   type ResolveDeps,
 } from "./oa-resolver.ts";
-import { fetchScihubPdf, type AltMirrorSettings } from "./alt-sources.ts";
+import { fetchScihubPdf, scihubCandidate, type AltMirrorSettings } from "./alt-sources.ts";
 import { orderMirrors } from "./mirror-health.ts";
 import { fetchPdf, type FetchPdfDeps } from "./pdf-fetch.ts";
 import { extractText, type ExtractDeps } from "./pdf-extract.ts";
 import { makeTraceEmitter, traceStepForSource, type FetchTraceCallback } from "./fetch-trace.ts";
 import { attemptSignal } from "./timeout.ts";
 import { candidateKey, type PdfCandidate } from "./candidate.ts";
-import { verifyPdfIdentity, shouldVerifyPdfIdentity } from "./pdf-identity.ts";
+import { verifyPdfIdentity, shouldVerifyPdfIdentity, urlImpliesDoi } from "./pdf-identity.ts";
+import { normDoi } from "../dedupe.ts";
 import { biorxivApiPdfCandidates, biorxivPdfCandidates, fetchBiorxivLatestVersion, isBiorxivDoi } from "./biorxiv-resolve.ts";
 import { chemrxivPdfCandidates, isChemrxivDoi } from "./chemrxiv-resolve.ts";
 import { figsharePdfCandidates, isFigshareDoi } from "./figshare-resolve.ts";
@@ -68,35 +69,43 @@ async function tryOneCandidate(
   const attempt = attemptSignal(deps.signal, attemptMs);
   try {
     if (cand.kind === "scihub") {
+      // 独立超时：勿在 OA/探活已耗时后被父 signal 立刻掐断
       attempt.clear();
-      if (!scihubMirrorsRef.current) {
-        const { ordered } = await orderMirrors("scihub", deps.mirrorSettings, {
-          fetchImpl: deps.fetchImpl,
-          signal: deps.signal,
-        });
-        scihubMirrorsRef.current = ordered;
-      }
-      const got = await fetchScihubPdf(cand.doi, {
-        fetchImpl: deps.fetchImpl,
-        signal: deps.signal,
-        mirrors: scihubMirrorsRef.current,
-      });
-      if (got?.bytes?.byteLength) {
-        if (shouldVerifyPdfIdentity(cand, paper)) {
-          const id = verifyPdfIdentity(got.bytes, { doi: paper.doi, title: paper.title });
-          if (!id.ok) {
-            const detail = id.reason === "doi_mismatch" ? "PDF DOI 不符" : "PDF 标题不符";
-            trace?.patch(stepId, "fail", detail, Date.now() - t0);
-            return { hit: null, identityRejected: true };
-          }
+      const sciAttempt = attemptSignal(deps.signal, Math.max(attemptMs, 40_000));
+      try {
+        if (!scihubMirrorsRef.current) {
+          const { ordered } = await orderMirrors("scihub", deps.mirrorSettings, {
+            fetchImpl: deps.fetchImpl,
+            signal: sciAttempt.signal,
+          });
+          scihubMirrorsRef.current = ordered;
         }
-        trace?.patch(stepId, "ok", "PDF 已获取", Date.now() - t0);
-        trace?.patch("download", "ok", cand.source, Date.now() - t0);
-        trace?.skipRest(stepId);
-        return { hit: { ok: true, bytes: got.bytes, url: got.url, source: cand.source } };
+        const got = await fetchScihubPdf(cand.doi, {
+          fetchImpl: deps.fetchImpl,
+          signal: sciAttempt.signal,
+          mirrors: scihubMirrorsRef.current,
+        });
+        if (got?.bytes?.byteLength) {
+          // URL 已编码目标 DOI 时可跳过正文抽 DOI；否则走已修复粘连误杀的校验
+          const urlTrusted = !!(paper.doi && urlImpliesDoi(got.url, paper.doi));
+          if (!urlTrusted && shouldVerifyPdfIdentity(cand, paper)) {
+            const id = verifyPdfIdentity(got.bytes, { doi: paper.doi, title: paper.title });
+            if (!id.ok) {
+              const detail = id.reason === "doi_mismatch" ? "PDF DOI 不符" : "PDF 标题不符";
+              trace?.patch(stepId, "fail", detail, Date.now() - t0);
+              return { hit: null, identityRejected: true };
+            }
+          }
+          trace?.patch(stepId, "ok", "PDF 已获取", Date.now() - t0);
+          trace?.patch("download", "ok", cand.source, Date.now() - t0);
+          trace?.skipRest(stepId);
+          return { hit: { ok: true, bytes: got.bytes, url: got.url, source: cand.source } };
+        }
+        trace?.patch(stepId, "fail", sciAttempt.timedOut() ? "超时" : "镜像无 PDF", Date.now() - t0);
+        return { hit: null };
+      } finally {
+        sciAttempt.clear();
       }
-      trace?.patch(stepId, "fail", "镜像无 PDF", Date.now() - t0);
-      return { hit: null };
     }
     const bytes = await fetchPdf(cand.url, { ...deps, allowAltSources: true, signal: attempt.signal });
     if (bytes.byteLength) {
@@ -253,15 +262,34 @@ export async function fetchPaperPdf(paper: Paper, deps: OaFullTextDeps = {}): Pr
     return { ok: false, reason: "no_pdf" };
   }
 
+  // OA 耗尽后立刻试 Sci-Hub（勿等 LibGen/Anna 探活结束才排队）
+  const scihubMirrorsRef: { current?: string[] } = {};
+  const doiForAlt = normDoi(paper.doi);
+  if (doiForAlt) {
+    const sciCand = scihubCandidate(doiForAlt);
+    const sciKey = candidateKey(sciCand);
+    if (sciKey && !tried.has(sciKey)) {
+      tried.add(sciKey);
+      const { hit: sciHit, identityRejected: sciIdRej } = await tryOneCandidate(
+        sciCand, paper, deps, trace, Math.max(altMs, 40_000), scihubMirrorsRef,
+      );
+      if (sciIdRej) identityRejected = true;
+      if (sciHit) {
+        trace?.done("done", { ok: true, source: sciHit.source });
+        return sciHit;
+      }
+    }
+  }
+
   if (deferAlt) {
     trace?.patch("libgen", "skip", "OA 阶段未命中，进入备用库");
     trace?.patch("annas", "skip");
   }
 
-  const altCands = deferAlt
+  const altCands = (deferAlt
     ? await resolveAltPdfCandidates(paper, { ...deps, onTrace })
     : (await resolvePdfCandidates(paper, { ...deps, includeAltSources: true, onTrace }))
-      .filter((c) => !tried.has(candidateKey(c)));
+  ).filter((c) => c.kind !== "scihub" && !tried.has(candidateKey(c)));
 
   if (altCands.length) {
     const { hit, publisherBlocked: pb, identityRejected: idRej } = await tryCandidateList(altCands, paper, deps, trace, altMs, tried);

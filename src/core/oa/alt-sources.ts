@@ -382,7 +382,7 @@ export async function resolveAnnasUrls(
 }
 
 export function scihubCandidate(doi: string): PdfCandidate {
-  return { kind: "scihub", doi: normDoi(doi), source: "scihub", priority: 70 };
+  return { kind: "scihub", doi: normDoi(doi), source: "scihub", priority: 55 };
 }
 
 function resolveHref(href: string, pageUrl: string): string {
