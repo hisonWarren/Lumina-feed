@@ -48,6 +48,23 @@ const LIST_HTML = `<div class='title col-4 col-md-3'> ID:</div><div class='conte
 const listRows = parseWosJifListingHtml(LIST_HTML, 2026);
 ok("JIF HTML 列表解析", listRows.length === 1 && listRows[0].jif === 56.1);
 
+// 2c) 详情页 HTML 字段须剥标签（避免 Best Ranking / OA 刷屏）
+import { parseWosJifDetailHtml, cleanWosFieldHtml } from "../src/core/journal/wos-jif.ts";
+const DETAIL_HTML = `
+<div class='title col-4'>Best Ranking:</div>
+<div class='content col-8'>MULTIDISCIPLINARY SCIENCES &boxV; <span title='Q1&#8805;75%' class='badge'> Percentage rank: 94.3% </span></div>
+<div class='title col-4'>Open Access Support:</div>
+<div class='content col-8'><span class='badge'>Fully Open Access</span> &horbar; <a href='https://doaj.org/'>DOAJ</a></div>
+<div class='title col-4'>ISSN:</div><div class='content col-8'>2041-1723</div>
+<div class='title col-4'>Journal Impact Factor (JIF):</div><div class='content col-8'>15.7</div>
+`;
+const detail = parseWosJifDetailHtml(DETAIL_HTML, 2025);
+ok("详情 Best Ranking 无 HTML 标签", !!detail && !/</.test(detail.bestRanking || "") && /94\.3%/.test(detail.bestRanking || ""));
+ok("详情 Best Ranking 含学科名", !!detail && /MULTIDISCIPLINARY/i.test(detail.bestRanking || ""));
+ok("详情 OA 无 HTML 标签", !!detail && !/</.test(detail.oaSupport || "") && /Fully Open Access/i.test(detail.oaSupport || ""));
+ok("详情 OA 含 DOAJ", !!detail && /DOAJ/i.test(detail.oaSupport || ""));
+ok("cleanWosFieldHtml 解码 ≥", cleanWosFieldHtml("Q1&#8805;75%") === "Q1≥75%");
+
 const CAS_CSV = "ISSN,大类分区,大类学科\n0028-0836,1区,综合性期刊\n";
 const casDs = parseCasPartitionTable(CAS_CSV);
 ok("中科院分区表格 1 条", casDs.rows.length === 1 && casDs.rows[0].majorZone === "1区");

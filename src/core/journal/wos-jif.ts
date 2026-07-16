@@ -1,6 +1,7 @@
 // lumina-feed · WoS Journal Info (wos-journal.info) JIF 数据集
 // 第三方汇总站，非 Clarivate 官方；展示须标注来源。用户可导入表格或在线分页拉取。
 import { issnCompact, normalizeIssn } from "./issn.ts";
+import { cleanText } from "../paper-hygiene.ts";
 
 export const WOS_JIF_HOMEPAGE = "https://wos-journal.info/";
 export const WOS_JIF_SOURCE = "wos-journal.info";
@@ -51,12 +52,30 @@ function fieldContent(block: string, label: string): string | undefined {
   return m ? m[1].trim() : undefined;
 }
 
+/**
+ * wos-journal.info 详情页 content 常含 badge/span/a 与实体（&boxV; &#8805;）。
+ * 存库与展示一律转纯文本，避免 React 把 HTML 当字符串刷屏。
+ */
+export function cleanWosFieldHtml(html: string | undefined | null): string | undefined {
+  if (html == null) return undefined;
+  let s = String(html);
+  if (!s.trim()) return undefined;
+  s = s
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/&boxV;/gi, " · ")
+    .replace(/&horbar;/gi, " — ")
+    .replace(/&ndash;/gi, "–")
+    .replace(/&mdash;/gi, "—");
+  s = cleanText(s);
+  return s || undefined;
+}
+
 function fieldContentHtml(block: string, label: string): string | undefined {
   const esc = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const re = new RegExp(`${esc}:[\\s\\S]*?<div class='content[^']*'[^>]*>([\\s\\S]*?)<\\/div>`, "i");
   const m = block.match(re);
   if (!m) return undefined;
-  return m[1].replace(/<br\s*\/?>/gi, " ").replace(/\s+/g, " ").trim() || undefined;
+  return cleanWosFieldHtml(m[1]);
 }
 
 function collectIssns(issn?: string, eissn?: string): string[] {

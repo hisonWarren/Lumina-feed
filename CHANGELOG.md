@@ -2,6 +2,12 @@
 
 本文件记录 Lumina Feed 各版本的用户可见变更。完整提交历史见 [GitHub Releases](https://github.com/hisonWarren/Lumina-feed/releases)。
 
+## [0.4.101] — 2026-07-16
+
+### 修复
+
+- **期刊 · WoS 字段刷屏**：Best Ranking / 开放获取等来自 wos-journal.info 的 HTML（`<span>`、`&boxV;` 等）不再当纯文本显示；解析与展示均转为可读纯文本。
+
 ## [0.4.100] — 2026-07-15
 
 ### 修复

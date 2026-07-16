@@ -156,19 +156,41 @@ function Metric({ value, label, hint, source, dim }) {
   );
 }
 
+/** 兼容旧缓存：字段里可能仍嵌着 wos-journal.info 的 HTML */
+function plainWosField(v) {
+  if (v == null) return "";
+  const s = String(v);
+  if (!/[<&]/.test(s)) return s;
+  return s
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/&boxV;/gi, " · ")
+    .replace(/&horbar;/gi, " — ")
+    .replace(/&(#x?[0-9a-f]+|[a-z0-9]+);/gi, (_, e) => {
+      if (e[0] === "#") {
+        const code = e[1] && e[1].toLowerCase() === "x" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+        return Number.isFinite(code) ? String.fromCodePoint(code) : "";
+      }
+      const named = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", ndash: "–", mdash: "—" };
+      return named[e.toLowerCase()] ?? "";
+    })
+    .replace(/<[^>]+>/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function WoSDetailPanel({ jf }) {
   if (!jf) return null;
   const items = [
     jf.jif5yr != null ? ["5 年影响因子", jf.jif5yr.toLocaleString(undefined, { maximumFractionDigits: 1 })] : null,
-    jf.wosIndexes ? ["WoS 核心收录", jf.wosIndexes] : null,
-    jf.category ? ["学科类别", jf.category] : null,
-    jf.abbreviation ? ["缩写", jf.abbreviation] : null,
-    jf.bestRanking ? ["Best Ranking", jf.bestRanking] : null,
-    jf.oaSupport ? ["开放获取", jf.oaSupport] : null,
-    jf.wosStatus ? ["WoS 状态", jf.wosStatus] : null,
-    jf.country ? ["国家/地区", jf.country] : null,
-    jf.publisher ? ["出版商", jf.publisher] : null,
-  ].filter(Boolean);
+    jf.wosIndexes ? ["WoS 核心收录", plainWosField(jf.wosIndexes)] : null,
+    jf.category ? ["学科类别", plainWosField(jf.category)] : null,
+    jf.abbreviation ? ["缩写", plainWosField(jf.abbreviation)] : null,
+    jf.bestRanking ? ["Best Ranking", plainWosField(jf.bestRanking)] : null,
+    jf.oaSupport ? ["开放获取", plainWosField(jf.oaSupport)] : null,
+    jf.wosStatus ? ["WoS 状态", plainWosField(jf.wosStatus)] : null,
+    jf.country ? ["国家/地区", plainWosField(jf.country)] : null,
+    jf.publisher ? ["出版商", plainWosField(jf.publisher)] : null,
+  ].filter((row) => row && row[1]);
   if (!items.length) return null;
   return (
     <div className="jr-wos">
@@ -619,7 +641,7 @@ export default function Journals({ pushToast }) {
               <div className="jr-tags">
                 {p.isOa && <span className="jr-tag oa"><ShieldCheck size={12} /> 开放获取</span>}
                 {p.isInDoaj && <span className="jr-tag doaj"><BadgeCheck size={12} /> DOAJ 收录</span>}
-                {jf?.wosIndexes && <span className="jr-tag" style={{ color: "var(--gold)", borderColor: "var(--gold-line)" }}>{jf.wosIndexes.split(/\s*-\s*/)[0]?.trim() || "WoS"}</span>}
+                {jf?.wosIndexes && <span className="jr-tag" style={{ color: "var(--gold)", borderColor: "var(--gold-line)" }}>{plainWosField(jf.wosIndexes).split(/\s*-\s*/)[0]?.trim() || "WoS"}</span>}
                 {!p.warning && <span className="jr-tag" style={{ color: "var(--ok)", borderColor: "color-mix(in srgb,var(--ok) 30%,transparent)" }}><BookOpenCheck size={12} /> 未在预警名单</span>}
               </div>
 
