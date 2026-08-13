@@ -167,6 +167,7 @@ function analysisError(kind: string, e: unknown, opts: { vision?: boolean; sourc
 }
 
 import { registerCiteExport } from "./ipc-cite-export.ts";
+import { registerPrintPdf } from "./print-pdf.ts";
 
 function broadcastSettingsChanged(): void {
   for (const w of BrowserWindow.getAllWindows()) {
@@ -186,6 +187,7 @@ export function registerIpc(deps: IpcDeps): void {
   // 启动时按保留策略清理简报历史（snapshots + 每日报告缓存）；papers / 工作集永不受此影响
   void (async () => { try { const s0 = await loadAppSettings(store); pruneDigestHistory(store, s0.digestHistoryRetentionDays); } catch { /* ignore */ } })();
   registerCiteExport();
+  registerPrintPdf();
 
   async function buildSearchOpts(): Promise<SearchOpts> {
     const settings = await loadAppSettings(store);

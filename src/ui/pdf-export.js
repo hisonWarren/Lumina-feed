@@ -20,21 +20,33 @@ function baseName(name) {
   return i > 0 ? n.slice(0, i) : n;
 }
 
-/** 导出带高亮的 PDF（非破坏：基于原字节复制后绘制）。 */
-export async function exportAnnotatedPdf(bytes, annotations, name) {
+/** 基于原字节绘制高亮（及便签框），返回 PDF 字节，不下载。 */
+export async function buildAnnotatedPdfBytes(bytes, annotations) {
   const pdf = await PDFDocument.load(bytes);
   const pages = pdf.getPages();
   for (const a of (annotations || [])) {
-    if (a.type !== "highlight" || !a.rects) continue;
     const pg = pages[(a.page || 1) - 1];
     if (!pg) continue;
     const H = pg.getHeight();
     const c = COLOR_RGB[a.color] || COLOR_RGB.yellow;
-    for (const r of a.rects) {
-      pg.drawRectangle({ x: r.x, y: H - r.y - r.h, width: r.w, height: r.h, color: rgb(c[0], c[1], c[2]), opacity: 0.35 });
+    const rects = a.rects || [];
+    if (a.type === "highlight" || a.type === "note") {
+      for (const r of rects) {
+        if (!r || !(r.w > 0) || !(r.h > 0)) continue;
+        pg.drawRectangle({
+          x: r.x, y: H - r.y - r.h, width: r.w, height: r.h,
+          color: rgb(c[0], c[1], c[2]),
+          opacity: a.type === "note" ? 0.22 : 0.35,
+        });
+      }
     }
   }
-  const out = await pdf.save();
+  return await pdf.save();
+}
+
+/** 导出带高亮的 PDF（非破坏：基于原字节复制后绘制）。 */
+export async function exportAnnotatedPdf(bytes, annotations, name) {
+  const out = await buildAnnotatedPdfBytes(bytes, annotations);
   downloadBlob(new Blob([out], { type: "application/pdf" }), baseName(name) + ".annotated.pdf");
 }
 

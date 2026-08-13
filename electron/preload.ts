@@ -225,6 +225,7 @@ contextBridge.exposeInMainWorld("luminaReader", {
   readLocalPdf: (localPath: string) => invoke("reader:readLocalPdf", localPath),
   removeContinue: (entryKey: string) => invoke("reader:removeContinue", entryKey),
   clearContinue: () => invoke("reader:clearContinue"),
+  printPdf: (payload: unknown) => invoke("reader:printPdf", payload),
 });
 
 contextBridge.exposeInMainWorld("luminaAnno", {

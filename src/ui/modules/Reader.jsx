@@ -3,11 +3,12 @@
 // 真实文本层(可选择) + 页内查找 + 大纲目录 + 划词解释/翻译/带页码问答/多色批注 + 框选截取（复制/保存/分析图表）+ 证据/推断分析。
 // 续读位置(按 docKey) · 键盘快捷键 · 夜读反色 · 抓手平移。真实 PDF 渲染/文本层/选择/查找/各交互仅真机可验。
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
-import { ArrowLeft, X, PanelLeft, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Minus, Plus, Maximize, RotateCw, RotateCcw, Expand, Download, Search, Sparkles, Send, Languages, Copy, RefreshCw, List, Images, Highlighter, StickyNote, Crop, Trash2, FileDown, Loader, AlertTriangle, Square, Rows3, Columns2, FileText, Shield, Info, Layers, Lightbulb, Eye, Ban, Target, Scale, FlaskConical, ListChecks, Link2, Check, Quote, Bookmark, Workflow, Map as MapIcon, Moon, Hand, ScanLine, Undo2, Redo2, BookMarked } from "lucide-react";
+import { ArrowLeft, X, PanelLeft, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Minus, Plus, Maximize, RotateCw, RotateCcw, Expand, Download, Printer, Search, Sparkles, Send, Languages, Copy, RefreshCw, List, Images, Highlighter, StickyNote, Crop, Trash2, FileDown, Loader, AlertTriangle, Square, Rows3, Columns2, FileText, Shield, Info, Layers, Lightbulb, Eye, Ban, Target, Scale, FlaskConical, ListChecks, Link2, Check, Quote, Bookmark, Workflow, Map as MapIcon, Moon, Hand, ScanLine, Undo2, Redo2, BookMarked } from "lucide-react";
 import { openPdf, getOutline, getPageStrings, extractPageTextForTranslate, renderTextLayer, destToPageNumber, fitWidthScale, getDocPages, splitCites, renderRegion } from "../pdf-engine.js";
 import { bridge } from "../lumina-bridge.js";
 import { persistSettings } from "../settings-persist.js";
-import { exportAnnotatedPdf, exportNotesMarkdown } from "../pdf-export.js";
+import { exportAnnotatedPdf, buildAnnotatedPdfBytes, exportNotesMarkdown } from "../pdf-export.js";
+import { pageRangesForScope } from "../print-page-ranges.js";
 import { captureTextSelection, captureDomTextSelection, getTranslationUnitPair } from "../reader-selection.js";
 import { setReaderContextHost, shouldReaderHandleContextTarget } from "../reader-context-host.js";
 import ReaderContextMenu from "../components/ReaderContextMenu.jsx";
@@ -211,6 +212,13 @@ const READER_CSS = `
 .rd-find-float .rd-btn{padding:5px 7px}
 .rd-find-float .rd-x{border:none;background:transparent;color:var(--ink3);cursor:pointer;display:inline-flex;border-radius:6px;padding:3px;margin-left:2px}
 .rd-find-float .rd-x:hover{background:var(--surf2);color:var(--ink)}
+.rd-print-dlg{position:absolute;top:12px;right:16px;z-index:36;width:min(320px,calc(100% - 32px));padding:14px 16px 12px;background:var(--surf);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.14);display:flex;flex-direction:column;gap:8px}
+.rd-print-h{font-size:13.5px;font-weight:650;color:var(--ink);margin-bottom:2px}
+.rd-print-opt{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink2);cursor:pointer;user-select:none}
+.rd-print-opt input[type="text"]{flex:1;min-width:0;border:1px solid var(--line2);border-radius:7px;padding:4px 8px;font-size:12px;font-family:inherit;background:var(--surf);color:var(--ink)}
+.rd-print-opt input[type="text"]:disabled{opacity:.45}
+.rd-print-acts{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}
+.rd-print-acts .rd-btn.on{background:var(--gold);color:#fff;border-color:var(--gold)}
 .rd-side{flex-shrink:0;border-right:1px solid var(--line);background:var(--surf);display:flex;flex-direction:row;overflow:hidden;box-sizing:border-box}
 .rd-rail{width:46px;flex-shrink:0;display:flex;flex-direction:column;gap:6px;padding:9px 6px;border-right:1px solid var(--line2);background:var(--surf2)}
 .rd-railbtn{width:34px;height:34px;display:grid;place-items:center;border:1px solid transparent;background:transparent;color:var(--ink3);border-radius:8px;cursor:pointer}
@@ -2200,6 +2208,11 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
   const [snipRect, setSnipRect] = useState(null);
   const [snipChoice, setSnipChoice] = useState(null); // { dataUrl, caption, page, x, y } 框选后分流动作条
   const [snipBusy, setSnipBusy] = useState(false);
+  const [printOpen, setPrintOpen] = useState(false);
+  const [printScope, setPrintScope] = useState("all");
+  const [printCustom, setPrintCustom] = useState("");
+  const [printAnnos, setPrintAnnos] = useState(false);
+  const [printBusy, setPrintBusy] = useState(false);
   const loadedRef = useRef(false);
   const annosRef = useRef([]);
   const annoPendingRef = useRef({ key: "", list: null });
@@ -2516,6 +2529,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
         else if (transMenuOpen) { setTransMenuOpen(false); }
         else if (zoomMenuOpen) { setZoomMenuOpen(false); }
         else if (sel) { setSel(null); }
+        else if (printOpen) { if (!printBusy) setPrintOpen(false); }
         else if (findOpen) { setFindOpen(false); setFind(null); setFindQuery(""); if (findDebounceRef.current) clearTimeout(findDebounceRef.current); }
         else if (focus) { setFocus(false); }
         else if (aiOpen) { setAiOpen(false); }
@@ -2538,7 +2552,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
       }
       else if (!mod && (e.key === "r" || e.key === "R") && e.shiftKey) { e.preventDefault(); setRotation((r) => (r + 270) % 360); }
       else if (!mod && (e.key === "r" || e.key === "R")) { e.preventDefault(); setRotation((r) => (r + 90) % 360); }
-      else if (mod && (e.key === "p" || e.key === "P")) { e.preventDefault(); const api = window.luminaApi; if (api && api.contextAction) api.contextAction("print"); }
+      else if (mod && (e.key === "p" || e.key === "P")) { e.preventDefault(); setPrintOpen(true); }
       else if (mod && (e.key === "z" || e.key === "Z") && !e.shiftKey) { e.preventDefault(); undoAnnoRef.current(); }
       else if (mod && ((e.key === "y" || e.key === "Y") || (e.shiftKey && (e.key === "z" || e.key === "Z")))) { e.preventDefault(); redoAnnoRef.current(); }
       else if (e.key === "ArrowRight" || e.key === "PageDown") setPage((p) => Math.min(numPages, p + step));
@@ -2546,7 +2560,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, numPages, step, findOpen, sel, transMenuOpen, transMode, snipMode, snipChoice, snipBusy, aiOpen, zoomMenuOpen, doc, page, rotation, view, focus]); // undoAnno/redoAnno/fitSpread stable via refs
+  }, [onClose, numPages, step, findOpen, sel, transMenuOpen, transMode, snipMode, snipChoice, snipBusy, aiOpen, zoomMenuOpen, doc, page, rotation, view, focus, printOpen, printBusy]); // undoAnno/redoAnno/fitSpread stable via refs
 
   useEffect(() => {
     if (view !== "continuous") return;
@@ -2912,6 +2926,47 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
   }, [undoAnno, redoAnno]);
 
   const onExportPdf = useCallback(async () => { try { await exportAnnotatedPdf(source.data, annos, source.name); pushToast && pushToast("已导出带注释 PDF"); } catch (e) { pushToast && pushToast("导出失败"); } }, [annos, source, pushToast]);
+  const runPrint = useCallback(async () => {
+    if (printBusy) return;
+    const ranges = pageRangesForScope(printScope, page, printCustom, numPages);
+    if (printScope === "custom" && ranges && ranges.error) {
+      pushToast && pushToast(ranges.error === "empty" ? "请填写页码范围" : "页码范围无效");
+      return;
+    }
+    setPrintBusy(true);
+    pushToast && pushToast("正在准备打印…");
+    try {
+      const wantAnnos = printAnnos && annos.length > 0;
+      let bytes;
+      let filePath;
+      if (wantAnnos) {
+        bytes = await buildAnnotatedPdfBytes(source.data, annos);
+      } else if (source.localPath) {
+        filePath = source.localPath;
+      } else {
+        bytes = source.data;
+      }
+      const r = await bridge.printPdf({
+        bytes,
+        filePath,
+        pageRanges: Array.isArray(ranges) ? ranges : [],
+        title: source.name,
+      });
+      if (r && r.ok) {
+        if (r.fallback === "os_reader") pushToast && pushToast("已用系统阅读器打开，请在其中打印");
+        else pushToast && pushToast("已打开系统打印");
+        setPrintOpen(false);
+      } else if (r && r.reason === "canceled") {
+        pushToast && pushToast("已取消打印");
+      } else {
+        pushToast && pushToast("打印失败" + (r && r.reason ? `（${r.reason}）` : ""));
+      }
+    } catch (e) {
+      pushToast && pushToast("打印失败");
+    } finally {
+      setPrintBusy(false);
+    }
+  }, [printBusy, printScope, printCustom, printAnnos, page, numPages, annos, source, pushToast]);
   const onExportMd = useCallback(() => { try { exportNotesMarkdown(annos, source.name); pushToast && pushToast("已导出笔记 Markdown"); } catch (e) { /* noop */ } }, [annos, source, pushToast]);
   const addHighlight = (color, fromSel) => {
     const s = fromSel || sel;
@@ -3043,7 +3098,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
       case "toggleFocus": setFocus((v) => !v); break;
       case "toggleHand": setHand((v) => !v); break;
       case "download": download(); break;
-      case "print": { const api = window.luminaApi; if (api && api.contextAction) api.contextAction("print"); break; }
+      case "print": setPrintOpen(true); break;
       case "exportPdf": onExportPdf(); break;
       case "exportMd": onExportMd(); break;
       case "undoAnno": undoAnno(); break;
@@ -3218,6 +3273,7 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
               </div>
             )}
           </span>
+          <button className={"rd-btn" + (printOpen ? " on" : "")} onClick={() => setPrintOpen((v) => !v)} title="打印 (Ctrl/⌘ P)"><Printer size={15} /> 打印</button>
           <button className="rd-btn" onClick={download} title="下载"><Download size={15} /></button>
           <span className="rd-hint" title="选中文本后可高亮、便签；批注随文档自动保存">
             {annos.length > 0 ? `${annos.length} 条批注` : "划词可批注"}
@@ -3226,6 +3282,40 @@ export default function Reader({ source, onClose, pushToast, inLibFn, onLibraryI
       </div>
 
       <div className="rd-body">
+        {printOpen && (
+          <div className="rd-print-dlg" role="dialog" aria-label="打印 PDF">
+            <div className="rd-print-h">打印文档</div>
+            <label className="rd-print-opt">
+              <input type="radio" name="rd-print-scope" checked={printScope === "all"} onChange={() => setPrintScope("all")} />
+              全部页{numPages ? `（${numPages}）` : ""}
+            </label>
+            <label className="rd-print-opt">
+              <input type="radio" name="rd-print-scope" checked={printScope === "current"} onChange={() => setPrintScope("current")} />
+              当前页（第 {page} 页）
+            </label>
+            <label className="rd-print-opt">
+              <input type="radio" name="rd-print-scope" checked={printScope === "custom"} onChange={() => setPrintScope("custom")} />
+              页码范围
+              <input
+                type="text"
+                value={printCustom}
+                onChange={(e) => { setPrintCustom(e.target.value); setPrintScope("custom"); }}
+                placeholder="如 1-3,5"
+                disabled={printBusy}
+              />
+            </label>
+            {annos.length > 0 && (
+              <label className="rd-print-opt">
+                <input type="checkbox" checked={printAnnos} onChange={(e) => setPrintAnnos(e.target.checked)} disabled={printBusy} />
+                含批注高亮（{annos.length} 条）
+              </label>
+            )}
+            <div className="rd-print-acts">
+              <button className="rd-btn" type="button" onClick={() => setPrintOpen(false)} disabled={printBusy}>取消</button>
+              <button className="rd-btn on" type="button" onClick={runPrint} disabled={printBusy}>{printBusy ? "准备中…" : "打印"}</button>
+            </div>
+          </div>
+        )}
         {findOpen && (
           <div className={"rd-find-float" + (find && find.q && !find.matches.length ? " no-match" : "")} role="search">
             <Search size={15} aria-hidden />

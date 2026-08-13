@@ -67,7 +67,7 @@ export function runContextAction(wc: WebContents | null | undefined, action: str
       if (extra) clipboard.writeText(extra);
       break;
     case "print":
-      wc.print({ silent: false, printBackground: true });
+      // 阅读器打印走 reader:printPdf（隐藏窗 + 原始 PDF）。此处不再对主窗口 chrome 调用 wc.print。
       break;
     default: break;
   }

@@ -442,6 +442,45 @@ export const bridge = {
     }
     return null;
   },
+  async printPdf(opts = {}) {
+    const r = R();
+    if (r && r.printPdf) {
+      try {
+        const payload = {
+          filePath: opts.filePath,
+          pageRanges: opts.pageRanges,
+          title: opts.title,
+          silent: !!opts.silent,
+          deviceName: opts.deviceName,
+          landscape: !!opts.landscape,
+          dryRun: !!opts.dryRun,
+        };
+        if (!opts.filePath && opts.bytes) payload.bytes = ipcCloneBytes(opts.bytes);
+        return await r.printPdf(payload);
+      } catch (e) {
+        return { ok: false, reason: String((e && e.message) || e) };
+      }
+    }
+    try {
+      const bytes = opts.bytes;
+      if (!bytes) return { ok: false, reason: "no_backend" };
+      const blob = new Blob([bytes], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const iframe = document.createElement("iframe");
+      iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0";
+      iframe.src = url;
+      document.body.appendChild(iframe);
+      await new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error("print_frame_timeout")), 20000);
+        iframe.onload = () => { clearTimeout(t); resolve(); };
+      });
+      iframe.contentWindow.print();
+      setTimeout(() => { try { document.body.removeChild(iframe); URL.revokeObjectURL(url); } catch { /* ignore */ } }, 60_000);
+      return { ok: true, fallback: "iframe" };
+    } catch (e) {
+      return { ok: false, reason: String((e && e.message) || e) };
+    }
+  },
   async openContinueEntry(entry) {
     if (!entry) return { ok: false, reason: "invalid" };
     if (entry.missing) return { ok: false, reason: "missing" };
