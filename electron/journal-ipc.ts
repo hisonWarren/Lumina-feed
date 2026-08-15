@@ -24,6 +24,8 @@ import {
 } from "../src/core/journal/cas-partition.ts";
 import type { WosJifInfo, CasPartitionInfo } from "../src/core/journal/types.ts";
 import { structureWarningEntries } from "../src/core/journal/warning-structure.ts";
+import { fetchSourceByIssn } from "../src/core/journal/openalex-source.ts";
+import { raceFirstValid } from "../src/core/net/race-first.ts";
 import { llmFromConfig } from "../src/core/summarize/llm-client.ts";
 import { PROVIDER_DEFAULT_MODEL } from "../src/core/summarize/model-presets.ts";
 import { hydrateLlmSettings } from "./settings.ts";
@@ -137,17 +139,26 @@ async function withDeadline<T>(fn: (signal: AbortSignal) => Promise<T>, ms: numb
   try { return await fn(ac.signal); } finally { clearTimeout(t); }
 }
 
-/**
- * 逐刊按需在线获取 JIF / 中科院分区（本地未命中时才联网），命中后落盘缓存。
- * 与主查询分离，由渲染层在卡片渲染后调用，做渐进式补齐，不拖慢主查询。
- */
-async function liveMetrics(issns: string[]): Promise<{ jif?: WosJifInfo; cas?: CasPartitionInfo; jifTried?: boolean; casTried?: boolean }> {
-  loadFromDisk();
-  const list = (issns || []).map((s) => String(s || "").trim()).filter(Boolean);
-  const out: { jif?: WosJifInfo; cas?: CasPartitionInfo; jifTried?: boolean; casTried?: boolean } = {};
-  if (!list.length) return out;
+export type LiveOpenAlexPatch = {
+  impact2yr?: number;
+  hIndex?: number;
+  worksCount?: number;
+  citedByCount?: number;
+  isOa?: boolean;
+  isInDoaj?: boolean;
+};
 
-  // JIF：先查合并数据集，未命中再联网
+export type LiveMetricsResult = {
+  jif?: WosJifInfo;
+  cas?: CasPartitionInfo;
+  openalex?: LiveOpenAlexPatch;
+  jifTried?: boolean;
+  casTried?: boolean;
+  oaTried?: boolean;
+};
+
+/** JIF-like 槽：本地命中优先；未命中则多 ISSN 竞速，先校验通过者胜出并 abort 其余。 */
+async function liveJifSlot(list: string[]): Promise<{ jif?: WosJifInfo; jifTried?: boolean }> {
   const jifHit = wosJifLookup(mergedJifDataset(), list);
   if (jifHit && (jifHit.jif != null || jifHit.jif5yr != null)) {
     let row = jifHit;
@@ -170,42 +181,92 @@ async function liveMetrics(issns: string[]): Promise<{ jif?: WosJifInfo; cas?: C
         }
       } catch { /* 详情页失败仍用列表字段 */ }
     }
-    out.jif = jifRowToInfo(row);
-  } else {
-    out.jifTried = true;
-    for (const issn of list.slice(0, 2)) {
-      try {
-        const row = await withDeadline((signal) => fetchWosJifByIssn(issn, getWosBrowserFetch().fetch, signal), 25000);
-        if (row && (row.jif != null || row.jif5yr != null)) {
-          Object.assign(liveJifByIssn, buildWosJifDataset([row]).byIssn);
-          try { fs.writeFileSync(jifLivePath(), JSON.stringify(liveJifByIssn), "utf-8"); } catch { /* ignore */ }
-          out.jif = jifRowToInfo(row);
-          break;
-        }
-      } catch { /* 超时/网络失败 → 保持未命中 */ }
-    }
+    return { jif: jifRowToInfo(row) };
   }
 
-  // 中科院分区：同上
+  const row = await raceFirstValid(
+    list.slice(0, 2).map(
+      (issn) => (signal: AbortSignal) => fetchWosJifByIssn(issn, getWosBrowserFetch().fetch, signal),
+    ),
+    (r) => !!(r && (r.jif != null || r.jif5yr != null)),
+    { timeoutMs: 28000 },
+  );
+  if (row) {
+    Object.assign(liveJifByIssn, buildWosJifDataset([row]).byIssn);
+    try { fs.writeFileSync(jifLivePath(), JSON.stringify(liveJifByIssn), "utf-8"); } catch { /* ignore */ }
+    return { jif: jifRowToInfo(row), jifTried: true };
+  }
+  return { jifTried: true };
+}
+
+/** 中科院槽：本地命中优先；否则 ISSN 竞速。 */
+async function liveCasSlot(list: string[]): Promise<{ cas?: CasPartitionInfo; casTried?: boolean }> {
   const casHit = casPartitionLookup(mergedCasDataset(), list);
-  if (casHit && casHit.majorZone) {
-    out.cas = casRowToInfo(casHit);
-  } else {
-    out.casTried = true;
-    for (const issn of list.slice(0, 2)) {
-      try {
-        const row = await withDeadline((signal) => fetchCasPartitionByIssn(issn, sessionFetch as unknown as typeof fetch, signal), 18000);
-        if (row && row.majorZone) {
-          Object.assign(liveCasByIssn, buildCasPartitionDataset([row]).byIssn);
-          try { fs.writeFileSync(casLivePath(), JSON.stringify(liveCasByIssn), "utf-8"); } catch { /* ignore */ }
-          out.cas = casRowToInfo(row);
-          break;
-        }
-      } catch { /* 超时/网络失败 → 保持未命中 */ }
-    }
-  }
+  if (casHit && casHit.majorZone) return { cas: casRowToInfo(casHit) };
 
-  return out;
+  const row = await raceFirstValid(
+    list.slice(0, 2).map(
+      (issn) => (signal: AbortSignal) =>
+        fetchCasPartitionByIssn(issn, sessionFetch as unknown as typeof fetch, signal),
+    ),
+    (r) => !!(r && r.majorZone),
+    { timeoutMs: 20000 },
+  );
+  if (row) {
+    Object.assign(liveCasByIssn, buildCasPartitionDataset([row]).byIssn);
+    try { fs.writeFileSync(casLivePath(), JSON.stringify(liveCasByIssn), "utf-8"); } catch { /* ignore */ }
+    return { cas: casRowToInfo(row), casTried: true };
+  }
+  return { casTried: true };
+}
+
+/** OpenAlex 类影响因子槽（与 JIF 分槽，互不抢标签）。 */
+async function liveOpenAlexSlot(list: string[]): Promise<{ openalex?: LiveOpenAlexPatch; oaTried?: boolean }> {
+  const src = await raceFirstValid(
+    list.slice(0, 2).map(
+      (issn) => (signal: AbortSignal) =>
+        fetchSourceByIssn(issn, { fetchImpl: sessionFetch as unknown as typeof fetch, signal }),
+    ),
+    (r) => !!(r && (r.impact2yr != null || r.hIndex != null)),
+    { timeoutMs: 12000 },
+  );
+  if (!src) return { oaTried: true };
+  return {
+    oaTried: true,
+    openalex: {
+      impact2yr: src.impact2yr,
+      hIndex: src.hIndex,
+      worksCount: src.worksCount,
+      citedByCount: src.citedByCount,
+      isOa: src.isOa,
+      isInDoaj: src.isInDoaj,
+    },
+  };
+}
+
+/**
+ * 分槽并行补齐：OpenAlex 类影响因子 ∥ JIF-like ∥ 中科院分区。
+ * 各槽独立；槽内多 ISSN 竞速，先校验通过者胜出并 abort 其余。不把 OpenAlex 标成 JIF。
+ * opts 控制开哪些槽（默认全开，兼容旧调用）。
+ */
+async function liveMetrics(
+  issns: string[],
+  opts?: { jif?: boolean; cas?: boolean; openalex?: boolean },
+): Promise<LiveMetricsResult> {
+  loadFromDisk();
+  const list = (issns || []).map((s) => String(s || "").trim()).filter(Boolean);
+  if (!list.length) return {};
+
+  const wantJif = opts?.jif !== false;
+  const wantCas = opts?.cas !== false;
+  const wantOa = opts?.openalex !== false;
+
+  const [oa, jifPart, casPart] = await Promise.all([
+    wantOa ? liveOpenAlexSlot(list) : Promise.resolve({} as { openalex?: LiveOpenAlexPatch; oaTried?: boolean }),
+    wantJif ? liveJifSlot(list) : Promise.resolve({} as { jif?: WosJifInfo; jifTried?: boolean }),
+    wantCas ? liveCasSlot(list) : Promise.resolve({} as { cas?: CasPartitionInfo; casTried?: boolean }),
+  ]);
+  return { ...oa, ...jifPart, ...casPart };
 }
 
 /**
@@ -483,7 +544,8 @@ export function registerJournalIpc(deps: IpcDeps): void {
     }
   });
   ipcMain.handle("journal:datasets", () => datasetInfos());
-  ipcMain.handle("journal:liveMetrics", (_e, issns: string[]) => liveMetrics(issns));
+  ipcMain.handle("journal:liveMetrics", (_e, issns: string[], opts?: { jif?: boolean; cas?: boolean; openalex?: boolean }) =>
+    liveMetrics(issns, opts));
   ipcMain.handle("journal:updateScimago", () => updateScimago());
   ipcMain.handle("journal:importScimago", (_e, text: string) => importScimagoFromText(text));
   ipcMain.handle("journal:updateJif", async (e) => updateJif((p) => {

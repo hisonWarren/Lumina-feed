@@ -2,6 +2,12 @@
 
 本文件记录 Lumina Feed 各版本的用户可见变更。完整提交历史见 [GitHub Releases](https://github.com/hisonWarren/Lumina-feed/releases)。
 
+## [0.4.106] — 2026-08-15
+
+### 改进
+
+- **期刊 · 分槽并行补齐**：OpenAlex 类影响因子、JIF-like、中科院分区并行拉取；槽内多 ISSN 竞速，先校验通过者胜出并取消其余；互不抢「JIF」标签。
+
 ## [0.4.105] — 2026-08-15
 
 ### 修复

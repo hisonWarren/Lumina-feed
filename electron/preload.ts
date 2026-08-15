@@ -176,7 +176,8 @@ contextBridge.exposeInMainWorld("luminaOa", {
 
 contextBridge.exposeInMainWorld("luminaJournal", {
   search: (query: string) => invoke("journal:search", query),
-  liveMetrics: (issns: string[]) => invoke("journal:liveMetrics", issns),
+  liveMetrics: (issns: string[], opts?: { jif?: boolean; cas?: boolean; openalex?: boolean }) =>
+    invoke("journal:liveMetrics", issns, opts),
   datasets: () => invoke("journal:datasets"),
   updateScimago: () => invoke("journal:updateScimago"),
   importScimago: (text: string) => invoke("journal:importScimago", text),

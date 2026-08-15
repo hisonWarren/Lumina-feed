@@ -863,9 +863,9 @@ export const bridge = {
     if (!j || !j.search) return { ok: false, query, error: "no_backend", provenance: {}, warning: null };
     try { return await j.search(query); } catch (e) { return { ok: false, query, error: String((e && e.message) || e), provenance: {}, warning: null }; }
   },
-  async journalLiveMetrics(issns) {
+  async journalLiveMetrics(issns, opts) {
     const j = J(); if (!j || !j.liveMetrics) return {};
-    try { return (await j.liveMetrics(issns)) || {}; } catch { return {}; }
+    try { return (await j.liveMetrics(issns, opts)) || {}; } catch { return {}; }
   },
   async journalDatasets() {
     const j = J(); if (!j || !j.datasets) return [];

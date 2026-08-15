@@ -342,20 +342,39 @@ export default function Journals({ pushToast }) {
     } finally {
       setLoading(false);
     }
-    // 渐进式补齐：JIF / 中科院分区 本地未命中 → 逐刊按需联网（不拖慢主卡片）
+    // 渐进式补齐：分槽并行（OpenAlex 类影响因子 ∥ JIF ∥ 中科院），互不抢标签
     if (r && r.ok) {
       const issns = (r.issns && r.issns.length) ? r.issns : (r.issnL ? [r.issnL] : []);
       const needJif = r.jif == null;
       const needCas = r.cas == null;
-      if (issns.length && (needJif || needCas)) {
-        setLiveBusy({ jif: needJif, cas: needCas });
+      const needOa = r.impact2yr == null && r.hIndex == null;
+      if (issns.length && (needJif || needCas || needOa)) {
+        setLiveBusy({ jif: needJif, cas: needCas, oa: needOa });
         try {
-          const live = await bridge.journalLiveMetrics(issns);
+          const live = await bridge.journalLiveMetrics(issns, {
+            jif: needJif,
+            cas: needCas,
+            openalex: needOa,
+          });
           setProfile((prev) => {
             if (!prev || !prev.ok || prev.query !== r.query) return prev;
             const next = { ...prev };
             if (needJif && live?.jif) next.jif = live.jif;
             if (needCas && live?.cas) next.cas = live.cas;
+            if (needOa && live?.openalex) {
+              const oa = live.openalex;
+              if (oa.impact2yr != null) next.impact2yr = oa.impact2yr;
+              if (oa.hIndex != null) next.hIndex = oa.hIndex;
+              if (oa.worksCount != null) next.worksCount = oa.worksCount;
+              if (oa.citedByCount != null) next.citedByCount = oa.citedByCount;
+              if (oa.isOa != null) next.isOa = oa.isOa;
+              if (oa.isInDoaj != null) next.isInDoaj = oa.isInDoaj;
+              next.provenance = {
+                ...(next.provenance || {}),
+                ...(oa.impact2yr != null ? { impact2yr: { source: "OpenAlex" } } : {}),
+                ...(oa.hIndex != null ? { hIndex: { source: "OpenAlex" } } : {}),
+              };
+            }
             return next;
           });
         } catch { /* 忽略：保持未命中态 */ }
