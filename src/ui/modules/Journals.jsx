@@ -352,12 +352,23 @@ export default function Journals({ pushToast }) {
       const needOa = r.impact2yr == null && r.hIndex == null;
       if (issns.length && (needJif || needCas || needOa)) {
         setLiveBusy({ jif: needJif, cas: needCas, oa: needOa });
+        let liveTimer;
         try {
-          const live = await bridge.journalLiveMetrics(issns, {
+          const livePromise = bridge.journalLiveMetrics(issns, {
             jif: needJif,
             cas: needCas,
             openalex: needOa,
           });
+          // UI 兜底：主进程卡住时也不要永久「查询中」
+          const live = await Promise.race([
+            livePromise,
+            new Promise((resolve) => {
+              liveTimer = setTimeout(() => resolve({ __uiTimeout: true, jifTried: needJif, casTried: needCas, oaTried: needOa }), 55000);
+            }),
+          ]);
+          if (live?.__uiTimeout) {
+            try { await bridge.journalCancelJif(); } catch { /* ignore */ }
+          }
           setProfile((prev) => {
             if (!prev || !prev.ok || prev.query !== r.query) return prev;
             const next = { ...prev };
@@ -381,6 +392,7 @@ export default function Journals({ pushToast }) {
           });
         } catch { /* 忽略：保持未命中态 */ }
         finally {
+          if (liveTimer) clearTimeout(liveTimer);
           setLiveBusy({});
           setLiveTried({
             jif: needJif,
@@ -428,13 +440,22 @@ export default function Journals({ pushToast }) {
 
   const updateJif = useCallback(async () => {
     setBusyState("jif", true);
-    setJifProgress("正在连接 wos-journal.info…");
+    setJifProgress("正在连接 wos-journal.info…（约 8 秒后若需验证会弹出窗口）");
     const r = await bridge.journalUpdateJif();
     setBusyState("jif", false);
     setJifProgress("");
     if (r?.ok) { pushToast && pushToast("JIF 数据已更新 · " + (r.info?.count || 0).toLocaleString() + " 条"); await refreshDatasets(); }
     else pushToast && pushToast("更新失败：" + (r?.error || "网络错误"));
   }, [pushToast, refreshDatasets, setBusyState]);
+
+  const cancelJif = useCallback(async () => {
+    await bridge.journalCancelJif();
+    setBusyState("jif", false);
+    setJifProgress("");
+    setLiveBusy((prev) => ({ ...prev, jif: false }));
+    setLiveTried((prev) => ({ ...prev, jif: true }));
+    pushToast && pushToast("已取消 JIF 在线拉取");
+  }, [pushToast, setBusyState]);
 
   const importJifFile = useCallback(async (file) => {
     if (!file) return;
@@ -590,6 +611,11 @@ export default function Journals({ pushToast }) {
                   <button className="jr-btn" onClick={updateJif} disabled={busy["jif"]} title="wos-journal.info 全库（数分钟）">
                     {busy["jif"] ? <Loader2 size={12} className="jr-spin" /> : <RefreshCw size={12} />} 在线
                   </button>
+                  {busy["jif"] && (
+                    <button className="jr-btn" type="button" onClick={() => void cancelJif()} title="取消在线拉取并解除卡住">
+                      取消
+                    </button>
+                  )}
                 </>
               )}
               {d.id === "cas" && (

@@ -196,6 +196,8 @@ async function liveJifSlot(list: string[]): Promise<{ jif?: WosJifInfo; jifTried
     try { fs.writeFileSync(jifLivePath(), JSON.stringify(liveJifByIssn), "utf-8"); } catch { /* ignore */ }
     return { jif: jifRowToInfo(row), jifTried: true };
   }
+  // 超时/失败后必须 reset，否则卡住的 warm 会堵死后续「在线」全库与单刊补查。
+  resetWosBrowserFetch();
   return { jifTried: true };
 }
 
@@ -344,15 +346,26 @@ function getWosBrowserFetch(): OriginBrowserFetch {
       readyExpr:
         `!/just a moment/i.test(document.title) && /Journal Impact Factor/i.test(document.body ? document.body.innerText : "")`,
       warmTimeoutMs: 90_000,
+      loadTimeoutMs: 25_000,
+      showAfterMs: 8_000,
     });
   }
   return wosBrowserFetch;
 }
 
+function resetWosBrowserFetch(): void {
+  try { wosBrowserFetch?.reset(); } catch { /* ignore */ }
+  // Keep instance (reset clears queue); recreate only if fully closed
+  if (!wosBrowserFetch) return;
+}
+
 function jifOnlineError(err: unknown): string {
   const msg = String((err as Error)?.message || err);
-  if (/403|Cloudflare|challenge/i.test(msg)) {
-    return "wos-journal.info 启用了 Cloudflare 人机验证，在线拉取失败。请稍后重试，或改用「导入」CSV。";
+  if (/aborted/i.test(msg)) {
+    return "已取消或超时。可稍后重试；若反复卡住，请改用「导入」CSV。";
+  }
+  if (/timeout|Cloudflare|challenge|403/i.test(msg)) {
+    return "wos-journal.info 人机验证未通过或超时。若弹出验证窗口请勾选完成；仍失败请改用「导入」CSV。";
   }
   return msg;
 }
@@ -434,6 +447,7 @@ async function updateJif(
     const info = saveJifDataset(ds, WOS_JIF_HOMEPAGE);
     return { ok: true, info };
   } catch (e) {
+    resetWosBrowserFetch();
     return { ok: false, error: jifOnlineError(e) };
   }
 }
@@ -552,6 +566,10 @@ export function registerJournalIpc(deps: IpcDeps): void {
   ipcMain.handle("journal:updateJif", async (e) => updateJif((p) => {
     try { e.sender.send("journal:jifProgress", p); } catch { /* 渲染层已关 */ }
   }));
+  ipcMain.handle("journal:cancelJif", () => {
+    resetWosBrowserFetch();
+    return { ok: true };
+  });
   ipcMain.handle("journal:importJif", (_e, text: string) => importJifFromText(text));
   ipcMain.handle("journal:updateCas", async (e) => updateCas((p) => {
     try { e.sender.send("journal:casProgress", p); } catch { /* 渲染层已关 */ }

@@ -182,6 +182,7 @@ contextBridge.exposeInMainWorld("luminaJournal", {
   updateScimago: () => invoke("journal:updateScimago"),
   importScimago: (text: string) => invoke("journal:importScimago", text),
   updateJif: () => invoke("journal:updateJif"),
+  cancelJif: () => invoke("journal:cancelJif"),
   importJif: (text: string) => invoke("journal:importJif", text),
   updateCas: () => invoke("journal:updateCas"),
   importCas: (text: string) => invoke("journal:importCas", text),

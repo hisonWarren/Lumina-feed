@@ -1,11 +1,14 @@
 // Hidden BrowserWindow + in-page fetch — passes Cloudflare Turnstile where session.fetch cannot.
 // session.net.fetch keeps cf_clearance but still gets 403; Chromium page fetch succeeds after warm.
+// Interactive Turnstile: briefly show the window so the user can complete the checkbox, then hide.
 import { BrowserWindow, app } from "electron";
 
 export type OriginBrowserFetch = {
   fetch: typeof fetch;
   warm: (onStatus?: (label: string) => void) => Promise<void>;
   close: () => void;
+  /** Hard-reset queue + window so a stuck warm cannot block later calls forever */
+  reset: () => void;
 };
 
 function sleep(ms: number): Promise<void> {
@@ -14,7 +17,6 @@ function sleep(ms: number): Promise<void> {
 
 export function isCloudflareChallengeHtml(html: string): boolean {
   const s = String(html || "");
-  // Real journal pages may embed cdn-cgi scripts — require interstitial signals.
   if (/<title[^>]*>\s*Just a moment/i.test(s)) return true;
   if (/cf-browser-verification|id=["']challenge-form["']/i.test(s)) return true;
   if (/Cf-Mitigated|cf-mitigated/i.test(s) && /challenge/i.test(s) && !/Journal Impact Factor/i.test(s)) return true;
@@ -28,28 +30,37 @@ function toUrl(input: RequestInfo | URL): string {
   return String((input as Request).url || input);
 }
 
+function aborted(signal?: AbortSignal): boolean {
+  return !!(signal && signal.aborted);
+}
+
 /**
- * One hidden window per origin. First navigation clears CF; later requests use in-page fetch
- * (serialized) so cookies + browser TLS stack stay aligned.
+ * One window per origin. First navigation clears CF; later requests use in-page fetch
+ * (serialized). If Turnstile needs a click, the window is shown after a short wait.
  */
 export function createOriginBrowserFetch(
   homeUrl: string,
   opts?: {
-    /** JS expression → boolean: page looks like real content */
     readyExpr?: string;
     warmTimeoutMs?: number;
+    loadTimeoutMs?: number;
+    /** After this many ms still on challenge, show the window for interactive Turnstile */
+    showAfterMs?: number;
   },
 ): OriginBrowserFetch {
   const origin = new URL(homeUrl).origin;
   const readyExpr =
     opts?.readyExpr ||
     `!/just a moment/i.test(document.title) && /Journal Impact Factor|SCImago|letpub/i.test(document.body ? document.body.innerText : "")`;
-  const warmTimeoutMs = opts?.warmTimeoutMs ?? 60_000;
+  const warmTimeoutMs = opts?.warmTimeoutMs ?? 90_000;
+  const loadTimeoutMs = opts?.loadTimeoutMs ?? 25_000;
+  const showAfterMs = opts?.showAfterMs ?? 8_000;
 
   let win: BrowserWindow | null = null;
   let chain: Promise<unknown> = Promise.resolve();
   let warmed = false;
   let closed = false;
+  let gen = 0;
 
   const enqueue = <T,>(fn: () => Promise<T>): Promise<T> => {
     const run = chain.then(fn, fn);
@@ -60,13 +71,29 @@ export function createOriginBrowserFetch(
     return run;
   };
 
-  const destroy = () => {
-    closed = true;
-    warmed = false;
+  const destroyWindow = () => {
     if (win && !win.isDestroyed()) {
       try { win.destroy(); } catch { /* ignore */ }
     }
     win = null;
+    warmed = false;
+  };
+
+  const hardReset = () => {
+    gen += 1;
+    closed = false;
+    warmed = false;
+    destroyWindow();
+    // Drop any hung loadURL/warm so later calls are not queued behind a zombie promise.
+    chain = Promise.resolve();
+  };
+
+  const destroy = () => {
+    closed = true;
+    gen += 1;
+    warmed = false;
+    destroyWindow();
+    chain = Promise.resolve();
   };
 
   const ensureWindow = async (): Promise<BrowserWindow> => {
@@ -74,10 +101,11 @@ export function createOriginBrowserFetch(
     if (win && !win.isDestroyed()) return win;
     win = new BrowserWindow({
       show: false,
-      width: 1280,
-      height: 900,
+      width: 1100,
+      height: 780,
+      autoHideMenuBar: true,
+      title: "Lumina · 人机验证",
       webPreferences: {
-        // Turnstile needs a normal Chromium renderer; sandbox-only can flake ("No available adapters").
         sandbox: false,
         contextIsolation: true,
         nodeIntegration: false,
@@ -90,31 +118,79 @@ export function createOriginBrowserFetch(
     return win;
   };
 
-  const waitReady = async (w: BrowserWindow, onStatus?: (label: string) => void): Promise<void> => {
+  const loadWithTimeout = async (w: BrowserWindow, url: string, signal?: AbortSignal): Promise<void> => {
+    if (aborted(signal) || closed) throw new Error("aborted");
+    const nav = w.loadURL(url).catch(() => undefined);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timed = new Promise<void>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(`loadURL timeout @ ${origin}`)), loadTimeoutMs);
+    });
+    try {
+      await Promise.race([nav, timed]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+
+  const waitReady = async (
+    w: BrowserWindow,
+    onStatus?: (label: string) => void,
+    signal?: AbortSignal,
+    myGen?: number,
+  ): Promise<void> => {
     const t0 = Date.now();
+    let shown = false;
     onStatus?.("正在通过人机验证…");
     while (Date.now() - t0 < warmTimeoutMs) {
-      if (closed) throw new Error("aborted");
+      if (closed || (myGen != null && myGen !== gen) || aborted(signal)) throw new Error("aborted");
       try {
         const ok = await w.webContents.executeJavaScript(`(!!(${readyExpr}))`);
-        if (ok) return;
+        if (ok) {
+          if (shown && win && !win.isDestroyed()) {
+            try { win.hide(); } catch { /* ignore */ }
+          }
+          return;
+        }
       } catch { /* navigating */ }
+
+      // Interactive Turnstile needs a visible window; silent managed challenge often finishes earlier.
+      if (!shown && Date.now() - t0 >= showAfterMs) {
+        shown = true;
+        onStatus?.("请在弹出窗口完成人机验证（勾选后自动继续）…");
+        try {
+          if (!w.isDestroyed()) {
+            w.show();
+            w.focus();
+          }
+        } catch { /* ignore */ }
+      }
       await sleep(400);
+    }
+    if (shown && win && !win.isDestroyed()) {
+      try { win.hide(); } catch { /* ignore */ }
     }
     throw new Error(`Cloudflare challenge timeout @ ${origin}`);
   };
 
-  const warm = async (onStatus?: (label: string) => void): Promise<void> => {
+  const warm = async (onStatus?: (label: string) => void, signal?: AbortSignal): Promise<void> => {
+    const myGen = gen;
     await enqueue(async () => {
+      if (myGen !== gen || closed) throw new Error("aborted");
       if (warmed && win && !win.isDestroyed()) return;
       const w = await ensureWindow();
       onStatus?.("正在连接站点…");
       try {
-        await w.loadURL(homeUrl);
-      } catch {
-        /* CF/plugin may reject loadURL; still poll readiness */
+        await loadWithTimeout(w, homeUrl, signal);
+      } catch (e) {
+        if (String((e as Error)?.message || e).includes("timeout")) {
+          // Still poll — CF pages sometimes never fire loadURL 'done'.
+          onStatus?.("连接较慢，继续等待人机验证…");
+        } else if (aborted(signal) || closed) {
+          throw new Error("aborted");
+        }
       }
-      await waitReady(w, onStatus);
+      await waitReady(w, onStatus, signal, myGen);
+      if (myGen !== gen) throw new Error("aborted");
       warmed = true;
       onStatus?.("人机验证已通过，开始拉取…");
     });
@@ -124,15 +200,18 @@ export function createOriginBrowserFetch(
     if (!url.startsWith(origin)) {
       throw new Error(`origin_browser_fetch_cross_origin: ${url}`);
     }
-    await warm();
+    const signal = init?.signal ?? undefined;
+    await warm(undefined, signal);
     return enqueue(async () => {
+      if (aborted(signal) || closed) throw new Error("aborted");
+      const myGen = gen;
       const w = await ensureWindow();
       if (!warmed) {
-        try { await w.loadURL(homeUrl); } catch { /* ignore */ }
-        await waitReady(w);
+        try { await loadWithTimeout(w, homeUrl, signal); } catch { /* ignore */ }
+        await waitReady(w, undefined, signal, myGen);
         warmed = true;
       }
-      if (init?.signal?.aborted) throw new Error("aborted");
+      if (aborted(signal) || closed || myGen !== gen) throw new Error("aborted");
 
       const method = String(init?.method || "GET").toUpperCase();
       const headers: Record<string, string> = { accept: "text/html,*/*" };
@@ -157,12 +236,12 @@ export function createOriginBrowserFetch(
         })()`,
       ) as { status: number; statusText: string; headers: Record<string, string>; body: string };
 
-      if (init?.signal?.aborted) throw new Error("aborted");
+      if (aborted(signal) || closed || myGen !== gen) throw new Error("aborted");
 
       if (isCloudflareChallengeHtml(payload.body) || payload.status === 403) {
         warmed = false;
-        try { await w.loadURL(homeUrl); } catch { /* ignore */ }
-        await waitReady(w);
+        try { await loadWithTimeout(w, homeUrl, signal); } catch { /* ignore */ }
+        await waitReady(w, undefined, signal, myGen);
         warmed = true;
         const retry = await w.webContents.executeJavaScript(
           `(async () => {
@@ -201,7 +280,8 @@ export function createOriginBrowserFetch(
 
   return {
     fetch: pageFetch as typeof fetch,
-    warm,
+    warm: (onStatus) => warm(onStatus),
     close: destroy,
+    reset: hardReset,
   };
 }

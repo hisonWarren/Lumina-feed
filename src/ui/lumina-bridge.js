@@ -883,6 +883,10 @@ export const bridge = {
     const j = J(); if (!j || !j.updateJif) return { ok: false, error: "no_backend" };
     try { return await j.updateJif(); } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
   },
+  async journalCancelJif() {
+    const j = J(); if (!j || !j.cancelJif) return { ok: false, error: "no_backend" };
+    try { return await j.cancelJif(); } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+  },
   async journalImportJif(text) {
     const j = J(); if (!j || !j.importJif) return { ok: false, error: "no_backend" };
     try { return await j.importJif(text); } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
