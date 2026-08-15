@@ -99,6 +99,7 @@
    ───────────────────────────────────────────────────────────────────────── */
 .dg-rp-reader{max-width:760px;padding:6px 4px 44px}
 .dg-rp-topbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:18px}
+.dg-rp-updating{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink3);font-family:'Space Mono',monospace}
 .dg-rp-back,.dg-rp-refresh{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line2);background:var(--surf);color:var(--ink2);border-radius:8px;padding:6px 11px;font-size:12px;cursor:pointer;font-family:inherit;transition:border-color .14s,color .14s}
 .dg-rp-back:hover,.dg-rp-refresh:hover{border-color:var(--gold);color:var(--gold)}
 .dg-rp-refresh:disabled{opacity:.55;cursor:default}

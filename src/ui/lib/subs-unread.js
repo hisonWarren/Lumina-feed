@@ -75,10 +75,7 @@ export function digestReportNeedsRefresh(report, subs, scope, dateKey = digestDa
     }
     if (expected.length > 1 && (!report.subSpotlights || report.subSpotlights.length < expected.length)) return true;
   }
-  if (!report.brief) return true;
-  // brief 过短或像主题词堆砌 → 强制刷新（旧版一句空话）
-  const brief = String(report.brief || "");
-  if (brief.length > 0 && brief.length < 80) return true;
-  if (!Array.isArray(report.highlights) || report.highlights.length < 2) return true;
+  // 仅当正文完全缺失时才视为需刷新；短 brief / 要点偏少不得抹掉已就绪报告。
+  if (!report.brief && !(Array.isArray(report.highlights) && report.highlights.length)) return true;
   return false;
 }

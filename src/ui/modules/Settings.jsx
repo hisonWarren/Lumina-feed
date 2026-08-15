@@ -1103,7 +1103,7 @@ export default function Settings({ theme, onTheme, pushToast, onClose, initialCa
                   <span className="set-lbl">检索完成后自动生成「今日简报总报告」</span>
                   <button role="switch" aria-checked={digestReportAuto} className={"set-switch" + (digestReportAuto ? " on" : "")} onClick={() => void onToggleDigestReportAuto()} aria-label="自动生成简报总报告" title="订阅检索完成后自动生成今日简报总报告"><i /></button>
                 </div>
-                <span className="set-hint">与每条「相关说明」分开：总报告归纳今日全部待读（基于标题+摘要）。关闭后仍可在简报页手动生成。默认开启。</span>
+                <span className="set-hint">与每条「相关说明」分开：总报告归纳今日全部待读（基于标题+摘要）。关闭后仍可在简报页手动生成。默认关闭，由你选择是否开启。</span>
                 <div className="set-toggle">
                   <span className="set-lbl">关闭时最小化到托盘后台运行（订阅检索与每日简报继续）</span>
                   <button role="switch" aria-checked={bgTray} className={"set-switch" + (bgTray ? " on" : "")} onClick={() => void onToggleBgTray()} aria-label="后台运行开关" title="关闭主窗口后驻留托盘，订阅检索与简报继续"><i /></button>

@@ -189,7 +189,7 @@ async function liveJifSlot(list: string[]): Promise<{ jif?: WosJifInfo; jifTried
       (issn) => (signal: AbortSignal) => fetchWosJifByIssn(issn, getWosBrowserFetch().fetch, signal),
     ),
     (r) => !!(r && (r.jif != null || r.jif5yr != null)),
-    { timeoutMs: 28000 },
+    { timeoutMs: 45000 },
   );
   if (row) {
     Object.assign(liveJifByIssn, buildWosJifDataset([row]).byIssn);
@@ -343,6 +343,7 @@ function getWosBrowserFetch(): OriginBrowserFetch {
     wosBrowserFetch = createOriginBrowserFetch(WOS_JIF_HOMEPAGE, {
       readyExpr:
         `!/just a moment/i.test(document.title) && /Journal Impact Factor/i.test(document.body ? document.body.innerText : "")`,
+      warmTimeoutMs: 90_000,
     });
   }
   return wosBrowserFetch;

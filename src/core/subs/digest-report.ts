@@ -214,10 +214,8 @@ export function digestReportNeedsRefresh(
     }
     if (expected.length > 1 && (!report.subSpotlights || report.subSpotlights.length < expected.length)) return true;
   }
-  if (!report.brief) return true;
-  const brief = String(report.brief || "");
-  if (brief.length > 0 && brief.length < 80) return true;
-  if (!Array.isArray(report.highlights) || report.highlights.length < 2) return true;
+  // 仅当正文完全缺失时才视为需刷新；短 brief / 要点偏少是质量问题，不得抹掉已就绪报告。
+  if (!report.brief && !(Array.isArray(report.highlights) && report.highlights.length)) return true;
   return false;
 }
 
@@ -225,6 +223,11 @@ export function recoverStaleGeneratingReport(report: DigestReport): DigestReport
   if (report.status !== "generating") return report;
   const at = report.generatedAt ? new Date(report.generatedAt).getTime() : 0;
   if (!at || Date.now() - at < DIGEST_REPORT_GENERATING_STALE_MS) return report;
+  // 中断时若仍有上一版正文，恢复为 ready，避免「有待读却空白」；无正文则 failed 以便手动重试。
+  const hasBody = !!(report.brief || (Array.isArray(report.highlights) && report.highlights.length));
+  if (hasBody) {
+    return { ...report, status: "ready", error: undefined };
+  }
   return {
     ...report,
     status: "failed",
@@ -272,7 +275,11 @@ export function loadDigestReport(store: Store, dateKey: string, scope: "all" | s
     if (!r?.payload) return emptyDigestReport(dateKey, scope);
     const parsed = JSON.parse(r.payload) as DigestReport;
     const merged = { ...emptyDigestReport(dateKey, scope), ...parsed, dateKey, scope };
-    return recoverStaleGeneratingReport(merged);
+    const recovered = recoverStaleGeneratingReport(merged);
+    if (recovered.status !== merged.status || recovered.error !== merged.error) {
+      try { saveDigestReport(store, recovered); } catch { /* ignore persist */ }
+    }
+    return recovered;
   } catch {
     return emptyDigestReport(dateKey, scope);
   }
@@ -498,8 +505,23 @@ export async function runDigestReportGeneration(
     saveDigestReport(store, skipped);
     return skipped;
   }
+  // 保留上一版 ready 正文：生成中不把「今日报告」刷成空白（用户观感 = 报告消失）。
+  const prev = loadDigestReport(store, dateKey, scope);
+  const keepBody = prev.status === "ready" || (prev.status === "generating" && !!(prev.brief || prev.highlights?.length));
   const generating: DigestReport = {
     ...base,
+    ...(keepBody
+      ? {
+          brief: prev.brief,
+          headline: prev.headline,
+          highlights: prev.highlights || [],
+          themes: prev.themes || [],
+          priorityPicks: prev.priorityPicks || [],
+          subSpotlights: prev.subSpotlights,
+          model: prev.model,
+          contributingSubIds: prev.contributingSubIds,
+        }
+      : {}),
     status: "generating",
     paperCount: inputs.length,
     subCount,

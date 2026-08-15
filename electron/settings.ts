@@ -27,7 +27,7 @@ export interface AppSettings {
   notifications?: boolean;
   /** 订阅简报系统通知：calm=仅 app 内 · regular=汇总一条 · power=每订阅一条 */
   digestNotifyTier?: "calm" | "regular" | "power";
-  /** 检索完成后自动生成「今日简报总报告」（默认开） */
+  /** 检索完成后自动生成「今日简报总报告」（默认关：须用户选择） */
   digestReportAuto?: boolean;
   /** 简报历史保留天数（snapshots + 每日报告缓存）；<=0 或省略=永久保留。papers / 工作集永不受此清理 */
   digestHistoryRetentionDays?: number;
@@ -39,6 +39,8 @@ export interface AppSettings {
     fetchEmailShown?: boolean;
     /** 一次性：v0.4.14 将旧版默认开启的预取开关重置为关 */
     prefetchManualOnlyV0414?: boolean;
+    /** 一次性：v0.4.107 简报总报告默认改为手动（关闭自动生成） */
+    digestManualAiDefaultV04107?: boolean;
     /** 首次创建订阅后：后台运行说明横幅 */
     subsBackgroundHintDismissed?: boolean;
   };
@@ -58,7 +60,7 @@ export interface AppSettingsView extends AppSettings {
 const DEFAULTS: AppSettings = {
   searchDepth: "standard",
   digestNotifyTier: "regular",
-  digestReportAuto: true,
+  digestReportAuto: false,
   digestHistoryRetentionDays: 365,
   autoIngestOnFetch: true,
   prefetchOnIdentifier: false,
@@ -81,11 +83,21 @@ export async function loadAppSettings(store: Store): Promise<AppSettings> {
   try {
     const parsed = JSON.parse(r.payload) as AppSettings;
     const merged: AppSettings = { ...DEFAULTS, ...parsed };
+    let dirty = false;
     if (!parsed.prompts?.prefetchManualOnlyV0414) {
       merged.prefetchOnIdentifier = false;
       merged.prefetchOaResults = false;
       merged.primaryAutoOpenReader = false;
       merged.prompts = { ...merged.prompts, prefetchManualOnlyV0414: true };
+      dirty = true;
+    }
+    // 一次性：简报总报告 / AI 默认改为「用户手动选择」，避免升级后仍自动烧 token、刷空白报告。
+    if (!parsed.prompts?.digestManualAiDefaultV04107) {
+      merged.digestReportAuto = false;
+      merged.prompts = { ...merged.prompts, digestManualAiDefaultV04107: true };
+      dirty = true;
+    }
+    if (dirty) {
       const toSave = { ...merged };
       store.db.prepare(
         `INSERT INTO sources_cache(key,payload,fetched_at) VALUES(?,?,?)

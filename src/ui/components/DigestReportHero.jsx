@@ -198,12 +198,31 @@ export default function DigestReportHero({
   );
 }
 
-export function DigestReportReader({ report, onJumpPaper, onBackToScan, onGenerate, generating, paperTitleById, scopeMode, scopeLabel, onOpenSettings }) {
+export function DigestReportReader({ report, onJumpPaper, onBackToScan, onGenerate, generating, paperTitleById, scopeMode, scopeLabel, onOpenSettings, autoReport }) {
   const busy = generating || report?.status === "generating";
   const titles = paperTitleById || {};
   const jump = (id) => onJumpPaper && onJumpPaper(id);
   const mode = scopeMode === "single" ? "single" : "all";
   const label = scopeLabel || (mode === "single" ? "订阅" : "今日全部简报");
+  const hasBody = !!(report?.brief || (Array.isArray(report?.highlights) && report.highlights.length));
+
+  // 生成中但已有上一版正文：继续展示，顶部提示更新（避免「报告突然消失」）
+  if (busy && hasBody) {
+    return (
+      <div className="dg-report-reader dg-rp-reader" data-mode={mode}>
+        <div className="dg-rp-topbar">
+          <button type="button" className="dg-rp-back" onClick={onBackToScan}><ChevronLeft size={15} /> 扫描列表</button>
+          <span className="dg-rp-updating"><Loader size={13} className="dg-spin" /> 正在更新报告…</span>
+        </div>
+        <ReportLede report={report} scopeLabel={label} mode={mode} />
+        {report.brief && report.brief !== report.headline && (
+          <p className="dg-rp-brief reader">{report.brief}</p>
+        )}
+        {mode === "all" && <ReportSubSpotlights spotlights={report.subSpotlights} titles={titles} jump={jump} />}
+        <ReportSections report={report} titles={titles} jump={jump} mode={mode} />
+      </div>
+    );
+  }
 
   if (busy && (!report || report.status !== "ready")) {
     return (
@@ -218,6 +237,7 @@ export function DigestReportReader({ report, onJumpPaper, onBackToScan, onGenera
   if (!report || report.status !== "ready") {
     const failed = report?.status === "failed";
     const noLlm = report?.skippedReason === "llm_not_configured";
+    const autoOff = report?.skippedReason === "auto_off" || autoReport === false;
     return (
       <div className="dg-report-reader dg-rp-state" data-mode={mode}>
         <div className={"dg-rp-state-icon" + (failed ? " warn" : "")}>{failed ? <AlertTriangle size={26} /> : <Sparkles size={26} />}</div>
@@ -227,7 +247,9 @@ export function DigestReportReader({ report, onJumpPaper, onBackToScan, onGenera
             ? "今日报告由 AI 基于标题 + 摘要归纳，请先在设置中填写模型 API Key。"
             : failed
               ? (report.error ? `原因：${report.error}。可重试，或在设置中换用更稳定 / 上下文更长的模型。` : "可能是模型超时或网络波动 —— 重试通常即可恢复。")
-              : "系统会在有待读时自动生成；也可手动触发。"}
+              : autoOff
+                ? "今日报告需你手动生成（不会自动调用模型）。点下方按钮即可；也可在设置中开启自动生成。"
+                : "有待读时可手动生成；若已在设置中开启自动生成，系统也会在检索后撰写。"}
         </p>
         <div className="dg-rp-state-btns">
           {onGenerate && (

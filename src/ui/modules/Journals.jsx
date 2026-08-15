@@ -207,7 +207,7 @@ function WoSDetailPanel({ jf }) {
   );
 }
 
-function HeroEmpty({ loading, srcLabel }) {
+function HeroEmpty({ loading, srcLabel, tried }) {
   if (loading) {
     return (
       <>
@@ -218,13 +218,13 @@ function HeroEmpty({ loading, srcLabel }) {
   }
   return (
     <>
-      <div className="jr-hero-empty"><span className="m">—</span> 未收录 / 去添加</div>
-      <div className="jr-hero-src">点击导入或在线拉取</div>
+      <div className="jr-hero-empty"><span className="m">—</span> {tried ? "暂不可用" : "未收录 / 去添加"}</div>
+      <div className="jr-hero-src">{tried ? "在线拉取未命中 · 可导入 CSV 或点数据集「在线」" : "点击导入或在线拉取"}</div>
     </>
   );
 }
 
-function HeroJif({ jif, loading }) {
+function HeroJif({ jif, loading, tried }) {
   const has = jif?.jif != null;
   const openDs = () => { if (!has && !loading) document.getElementById("jr-ds-toggle")?.click(); };
   return (
@@ -237,7 +237,7 @@ function HeroJif({ jif, loading }) {
           {jif.jif5yr != null && <div className="jr-hero-sub">5 年 IF · {jif.jif5yr.toLocaleString(undefined, { maximumFractionDigits: 1 })}</div>}
           <div className="jr-hero-src">{jif.year ? `wos-journal.info · ${jif.year}` : "wos-journal.info"}</div>
         </>
-      ) : <HeroEmpty loading={loading} srcLabel="wos-journal.info" />}
+      ) : <HeroEmpty loading={loading} srcLabel="wos-journal.info" tried={tried} />}
     </div>
   );
 }
@@ -303,6 +303,7 @@ export default function Journals({ pushToast }) {
   const [casProgress, setCasProgress] = useState("");
   const [dsOpen, setDsOpen] = useState(false);
   const [liveBusy, setLiveBusy] = useState({});
+  const [liveTried, setLiveTried] = useState({});
 
   const scrollDsPanel = useCallback((open) => {
     if (!open) return;
@@ -333,6 +334,7 @@ export default function Journals({ pushToast }) {
     setLoading(true);
     setProfile(null);
     setLiveBusy({});
+    setLiveTried({});
     let r = null;
     try {
       r = await bridge.journalSearch(term);
@@ -378,7 +380,14 @@ export default function Journals({ pushToast }) {
             return next;
           });
         } catch { /* 忽略：保持未命中态 */ }
-        finally { setLiveBusy({}); }
+        finally {
+          setLiveBusy({});
+          setLiveTried({
+            jif: needJif,
+            cas: needCas,
+            oa: needOa,
+          });
+        }
       }
     }
   }, [q]);
@@ -665,7 +674,7 @@ export default function Journals({ pushToast }) {
               </div>
 
               <div className="jr-spotlight">
-                <HeroJif jif={jf} loading={!!liveBusy.jif} />
+                <HeroJif jif={jf} loading={!!liveBusy.jif} tried={!!liveTried.jif && !jf} />
                 <HeroCas cas={cas} loading={!!liveBusy.cas} />
                 <HeroQuartile sj={sj} bestQ={bestQ} />
               </div>
