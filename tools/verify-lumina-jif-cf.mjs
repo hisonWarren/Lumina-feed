@@ -20,6 +20,7 @@ const ipc = fs.readFileSync(path.join(ROOT, "electron/journal-ipc.ts"), "utf8");
 ok("ipc imports origin-browser-fetch", ipc.includes("origin-browser-fetch"));
 ok("updateJif uses browser.fetch", /crawlWosJifDataset\(\s*browser\.fetch/.test(ipc));
 ok("liveMetrics uses getWosBrowserFetch", ipc.includes("getWosBrowserFetch().fetch"));
+ok("liveMetrics slot-parallel", ipc.includes("liveOpenAlexSlot") && ipc.includes("Promise.all"));
 ok("no crawl via sessionFetch for JIF", !/crawlWosJifDataset\(\s*sessionFetch/.test(ipc));
 
 const wos = fs.readFileSync(path.join(ROOT, "src/core/journal/wos-jif.ts"), "utf8");
