@@ -162,6 +162,15 @@ export function parseYearFromHtml(html: string): number | undefined {
   return m ? Number(m[1]) : undefined;
 }
 
+/** Cloudflare / bot interstitial (status may still be 200). */
+export function isWosCloudflareHtml(html: string): boolean {
+  const s = String(html || "");
+  if (/<title[^>]*>\s*Just a moment/i.test(s)) return true;
+  if (/cf-browser-verification|id=["']challenge-form["']/i.test(s)) return true;
+  if (/challenges\.cloudflare\.com/i.test(s) && !/Journal Impact Factor|Journal Title/i.test(s)) return true;
+  return false;
+}
+
 function splitDelimitedLine(line: string, delim: string): string[] {
   const out: string[] = [];
   let cur = "";
@@ -262,6 +271,9 @@ export async function fetchWosJifPage(
   });
   if (!res.ok) throw new Error(`HTTP ${res.status} @ wos-journal.info`);
   const html = await res.text();
+  if (isWosCloudflareHtml(html)) {
+    throw new Error("HTTP 403 @ wos-journal.info (Cloudflare challenge)");
+  }
   const year = parseYearFromHtml(html);
   const rows = parseWosJifListingHtml(html, year);
   return { rows, year, html };

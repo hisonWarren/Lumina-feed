@@ -2,6 +2,12 @@
 
 本文件记录 Lumina Feed 各版本的用户可见变更。完整提交历史见 [GitHub Releases](https://github.com/hisonWarren/Lumina-feed/releases)。
 
+## [0.4.104] — 2026-08-15
+
+### 修复
+
+- **期刊 · JIF 在线更新 HTTP 403**：`wos-journal.info` 启用 Cloudflare Turnstile 后，`session.fetch` 会被拦截；改为隐藏窗过人机验证后用页内 fetch 拉取；失败时提示改用 CSV「导入」。
+
 ## [0.4.103] — 2026-08-15
 
 ### 修复

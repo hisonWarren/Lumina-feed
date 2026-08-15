@@ -2,6 +2,7 @@
 // 数据策略：OpenAlex/DOAJ 每次 live 查询；SCImago 分区、预警名单为「在线拉取 + 手动更新」磁盘缓存。
 import { ipcMain, app } from "electron";
 import { sessionFetchSafe } from "./safe-fetch.ts";
+import { createOriginBrowserFetch, type OriginBrowserFetch } from "./origin-browser-fetch.ts";
 import fs from "node:fs";
 import path from "node:path";
 import type { DatasetInfo, WarningEntry } from "../src/core/journal/types.ts";
@@ -153,8 +154,8 @@ async function liveMetrics(issns: string[]): Promise<{ jif?: WosJifInfo; cas?: C
     if (row.wosId && (!row.jif5yr || !row.wosIndexes)) {
       try {
         const detail = await withDeadline(
-          (signal) => fetchWosJifDetail(row.wosId!, sessionFetch as unknown as typeof fetch, signal),
-          15000,
+          (signal) => fetchWosJifDetail(row.wosId!, getWosBrowserFetch().fetch, signal),
+          20000,
         );
         if (detail) {
           row = {
@@ -174,7 +175,7 @@ async function liveMetrics(issns: string[]): Promise<{ jif?: WosJifInfo; cas?: C
     out.jifTried = true;
     for (const issn of list.slice(0, 2)) {
       try {
-        const row = await withDeadline((signal) => fetchWosJifByIssn(issn, sessionFetch as unknown as typeof fetch, signal), 15000);
+        const row = await withDeadline((signal) => fetchWosJifByIssn(issn, getWosBrowserFetch().fetch, signal), 25000);
         if (row && (row.jif != null || row.jif5yr != null)) {
           Object.assign(liveJifByIssn, buildWosJifDataset([row]).byIssn);
           try { fs.writeFileSync(jifLivePath(), JSON.stringify(liveJifByIssn), "utf-8"); } catch { /* ignore */ }
@@ -274,6 +275,26 @@ async function sessionFetch(url: string, init?: RequestInit): Promise<Response> 
   return sessionFetchSafe(url, init);
 }
 
+/** wos-journal.info：session.fetch 仍会被 CF 403；隐藏窗 + 页内 fetch 可过 Turnstile */
+let wosBrowserFetch: OriginBrowserFetch | null = null;
+function getWosBrowserFetch(): OriginBrowserFetch {
+  if (!wosBrowserFetch) {
+    wosBrowserFetch = createOriginBrowserFetch(WOS_JIF_HOMEPAGE, {
+      readyExpr:
+        `!/just a moment/i.test(document.title) && /Journal Impact Factor/i.test(document.body ? document.body.innerText : "")`,
+    });
+  }
+  return wosBrowserFetch;
+}
+
+function jifOnlineError(err: unknown): string {
+  const msg = String((err as Error)?.message || err);
+  if (/403|Cloudflare|challenge/i.test(msg)) {
+    return "wos-journal.info 启用了 Cloudflare 人机验证，在线拉取失败。请稍后重试，或改用「导入」CSV。";
+  }
+  return msg;
+}
+
 function saveScimagoDataset(ds: ReturnType<typeof parseScimagoCsv>, source: string): DatasetInfo | undefined {
   const journalCount = ds.rows.length;
   const file: ScimagoFile = {
@@ -343,14 +364,15 @@ function importJifFromText(text: string): { ok: boolean; info?: DatasetInfo; err
 async function updateJif(
   onProgress?: (p: { phase: string; page: number; rows: number; label: string }) => void,
 ): Promise<{ ok: boolean; info?: DatasetInfo; error?: string }> {
+  const browser = getWosBrowserFetch();
   try {
-    try { await sessionFetch(WOS_JIF_HOMEPAGE, { headers: { accept: "text/html,*/*" } }); } catch { /* 预热失败仍尝试 */ }
-    const ds = await crawlWosJifDataset(sessionFetch as unknown as typeof fetch, (p) => onProgress?.(p));
+    await browser.warm((label) => onProgress?.({ phase: "crawl", page: 0, rows: 0, label }));
+    const ds = await crawlWosJifDataset(browser.fetch, (p) => onProgress?.(p), { pageDelayMs: 80 });
     if (!ds.rows.length) return { ok: false, error: "empty_or_parse_failed" };
     const info = saveJifDataset(ds, WOS_JIF_HOMEPAGE);
     return { ok: true, info };
   } catch (e) {
-    return { ok: false, error: String((e as Error)?.message || e) };
+    return { ok: false, error: jifOnlineError(e) };
   }
 }
 

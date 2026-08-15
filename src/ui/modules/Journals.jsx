@@ -595,7 +595,7 @@ export default function Journals({ pushToast }) {
             </React.Fragment>
           ))}
           <div className="jr-note" style={{marginTop:'12px', borderTop:'1px solid var(--line2)', paddingTop:'12px'}}>
-            中科院分区无个人官方 API：推荐从学校/课题组 Excel「导入」；「在线」走 <a href="https://www.letpub.com.cn/index.php?page=journalapp" target="_blank" rel="noreferrer">LetPub</a> 第三方汇总（非 fenqubiao 授权，约 4.4 万刊、耗时较长）。JIF 来源 <a href="https://wos-journal.info/" target="_blank" rel="noreferrer">wos-journal.info</a>。SCImago 可官网下 CSV 后导入。预警名单内置 2025 版。
+            中科院分区无个人官方 API：推荐从学校/课题组 Excel「导入」；「在线」走 <a href="https://www.letpub.com.cn/index.php?page=journalapp" target="_blank" rel="noreferrer">LetPub</a> 第三方汇总（非 fenqubiao 授权，约 4.4 万刊、耗时较长）。JIF 来源 <a href="https://wos-journal.info/" target="_blank" rel="noreferrer">wos-journal.info</a>（站点有 Cloudflare 验证，在线拉取会先自动过人机验证；失败时可改用 CSV「导入」）。SCImago 可官网下 CSV 后导入。预警名单内置 2025 版。
           </div>
         </div>
       </div>
