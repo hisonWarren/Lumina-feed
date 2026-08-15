@@ -1826,12 +1826,15 @@ function scheduleDigestReport(store: Store, secrets: SecretStore, scope: "all" |
   void (async () => {
     const settings = await loadAppSettings(store);
     if (settings.digestReportAuto === false) return;
-    if (digestReportJob) {
+    const runOne = async (sc: "all" | string) => {
+      if (digestReportJob) await digestReportJob.catch(() => null);
+      digestReportJob = generateDigestReportNow(store, secrets, { scope: sc, force: false });
       await digestReportJob.catch(() => null);
-    }
-    digestReportJob = generateDigestReportNow(store, secrets, { scope, force: false });
-    await digestReportJob.catch(() => null);
-    digestReportJob = null;
+      digestReportJob = null;
+    };
+    // 先刷新当前订阅报告，再刷新「全部」——避免只写 all 导致单订阅页「报告尚未就绪」
+    if (scope !== "all") await runOne(scope);
+    await runOne("all");
   })();
 }
 
@@ -2072,7 +2075,7 @@ async function runSubscriptionNow(
             await persistSubscriptionToday(store, norm, todayMerged, seen, fresh, meta, dateKey, sameDay, recencyPool, agg.papers);
             emitSubsProgress(sender, subId, { phase: "ai", mode: mode as "blurb", current: aiMeta.processed, total: aiMeta.total, label: "AI 完成" });
             broadcastSubsUpdated({ subId, ai: aiMeta });
-            scheduleDigestReport(store, secrets, "all");
+            scheduleDigestReport(store, secrets, subId);
           } catch {
             emitSubsProgress(sender, subId, { phase: "ai", mode: mode as "blurb", current: 0, total: 0, label: "AI 失败" });
             broadcastSubsUpdated({ subId, ai: { status: "failed", mode } });
@@ -2093,7 +2096,7 @@ async function runSubscriptionNow(
       try {
         await persistSubscriptionToday(store, norm, todayMerged, seen, fresh, meta, dateKey, sameDay, recencyPool, agg.papers);
       } catch { /* 持久化失败不阻断 */ }
-      scheduleDigestReport(store, secrets, "all");
+      scheduleDigestReport(store, secrets, subId);
     }
     emitSubsProgress(sender, subId, { phase: "search", mode: "off", current: 1, total: 1, label: "检索完成" });
     return {

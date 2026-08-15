@@ -60,6 +60,8 @@
 .dg-report-icon:hover{color:var(--gold);background:var(--surf2)}
 .dg-report-body{padding:10px 12px 12px;font-size:13px;line-height:1.65;color:var(--ink2)}
 .dg-rp-brief.strip{margin:4px 0 8px;font-size:14px;line-height:1.65;color:var(--ink)}
+.dg-rp-points.strip{margin:0 0 10px;gap:8px}
+.dg-rp-points.strip li{font-size:12.5px;line-height:1.55;color:var(--ink2)}
 .dg-rp-expand.inline{display:inline-flex;align-items:center;gap:4px;margin:0;padding:0;border:none;background:transparent;font-size:12px;color:var(--gold);cursor:pointer;font-family:inherit}
 .dg-rp-expand.inline:hover{text-decoration:underline}
 .dg-report-disclaimer{font-size:10.5px;font-family:'Space Mono',monospace;color:var(--gold);margin:0 0 10px}

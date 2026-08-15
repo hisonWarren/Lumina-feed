@@ -1,6 +1,6 @@
 {
   "name": "lumina-feed",
-  "version": "0.4.102",
+  "version": "0.4.103",
   "description": "Lumina Feed · 干净基线（检索取文 + 接地总结）",
   "author": "hisonWarren",
   "repository": {
@@ -58,7 +58,9 @@
     "verify:reader-assist-layout": "node tools/verify-lumina-reader-assist-layout.mjs",
     "verify:doubao-ep-cleanup": "node tools/verify-lumina-doubao-ep-cleanup.mjs",
     "verify:print": "node tools/verify-lumina-print.mjs",
+    "verify:subs-count": "node tools/verify-lumina-subs-count-unify.mjs",
     "smoke:print": "node tools/smoke-print-pdf.mjs",
+    "smoke:subs-count": "node tools/smoke-subs-count-report.mjs",
     "smoke:untested": "node tools/smoke-untested-patches.mjs",
     "smoke:live-sources": "npx tsx tools/live-smoke-sources.mjs",
     "smoke:open-sources-man": "node tools/smoke-open-sources-man.mjs",

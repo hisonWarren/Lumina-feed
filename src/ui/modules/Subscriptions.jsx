@@ -13,7 +13,7 @@ import DigestReportHero, { DigestReportReader } from "../components/DigestReport
 import DigestRetro from "../components/DigestRetro.jsx";
 import DigestSourceLine from "../components/DigestSourceLine.jsx";
 import { dedupeDigestEntries, DIGEST_PAGE } from "../lib/digest-ui.js";
-import { unreadTodayCount, countSubsUnread, digestReportNeedsRefresh } from "../lib/subs-unread.js";
+import { unreadTodayCount, countSubsUnread, digestReportNeedsRefresh, unreadTodayPapers } from "../lib/subs-unread.js";
 import { isFetched, fetchProgressUi } from "../fetch-meta.js";
 import { persistSettings } from "../settings-persist.js";
 
@@ -41,6 +41,16 @@ const SUBS_CSS = `
 .suball{cursor:pointer;text-align:left}
 .addsub{margin-top:4px;display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px dashed var(--line2);background:transparent;color:var(--ink2);border-radius:11px;padding:10px;font-size:13px;cursor:pointer;font-family:inherit}
 .addsub:hover{border-color:var(--gold);color:var(--gold)}
+.sub-confirm-mask{position:fixed;inset:0;z-index:80;background:rgba(20,24,28,.42);display:grid;place-items:center;padding:20px}
+.sub-confirm{width:min(420px,100%);background:var(--surf);border:1px solid var(--line);border-radius:14px;padding:18px 18px 14px;box-shadow:0 16px 40px rgba(0,0,0,.18)}
+.sub-confirm h4{margin:0 0 8px;font-size:16px;color:var(--ink);font-family:'Source Serif 4',Georgia,serif}
+.sub-confirm p{margin:0 0 10px;font-size:13px;line-height:1.55;color:var(--ink2)}
+.sub-confirm-acts{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+.sub-confirm-acts button{border-radius:9px;padding:8px 14px;font-size:13px;cursor:pointer;font-family:inherit}
+.sub-confirm-acts .ghost{border:1px solid var(--line2);background:var(--surf);color:var(--ink2)}
+.sub-confirm-acts .ghost:hover{border-color:var(--gold);color:var(--gold)}
+.sub-confirm-acts .danger{border:1px solid #c0392b;background:#c0392b;color:#fff}
+.sub-confirm-acts .danger:hover{filter:brightness(1.05)}
 .digest{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
 .dg-head{flex-shrink:0;padding:22px 26px 14px;border-bottom:1px solid var(--line);background:var(--surf)}
 .dg-h1row{display:flex;align-items:flex-start;gap:14px}
@@ -286,6 +296,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
     try { return localStorage.getItem("lumina_subs_view") || "scan"; } catch { return "scan"; }
   });
   const [subsBgHintDismissed, setSubsBgHintDismissed] = useState(true);
+  const [pendingRemoveId, setPendingRemoveId] = useState(null);
   const backend = hasBackend();
   const reportScope = activeSub === "all" ? "all" : activeSub;
   const scopeMode = activeSub === "all" ? "all" : "single";
@@ -319,9 +330,13 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
     }).catch(() => {});
   }, []);
   useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape" && dlgOpen) { setDlgOpen(false); setEditSub(null); } };
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      if (pendingRemoveId) { setPendingRemoveId(null); return; }
+      if (dlgOpen) { setDlgOpen(false); setEditSub(null); }
+    };
     window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
-  }, [dlgOpen]);
+  }, [dlgOpen, pendingRemoveId]);
 
   useEffect(() => {
     if (!backend || !bridge.onSubsBatchProgress) return;
@@ -374,7 +389,10 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
       pushToast && pushToast("需引擎后端才能生成报告");
       return;
     }
-    if (countSubsUnread(subs) <= 0) {
+    const scopeUnread = reportScope === "all"
+      ? countSubsUnread(subs)
+      : unreadTodayCount(subs.find((s) => String(s.id) === String(reportScope)));
+    if (scopeUnread <= 0) {
       setReportGenerating(false);
       setDigestReportsByScope((prev) => ({
         ...prev,
@@ -382,6 +400,8 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
           status: "skipped",
           skippedReason: subs.length === 0 ? "no_subs" : "no_unread",
           scope: reportScope,
+          unreadCount: 0,
+          paperCount: 0,
           highlights: [],
           themes: [],
           priorityPicks: [],
@@ -472,14 +492,22 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
     await bridge.subsRemove(id);
     setSubs((s) => s.filter((x) => x.id !== id));
     if (activeSub === id) setActiveSub("all");
+    setPendingRemoveId(null);
     setRunProgress(null);
     setRunningSubId(null);
     setReportGenerating(false);
-    setDigestReportsByScope({});
+    setDigestReportsByScope((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
     onSubsChange?.();
-    pushToast && pushToast("订阅已删除");
+    pushToast && pushToast("订阅已删除 · 历史回顾仍保留");
     void loadReport("all");
   }, [activeSub, pushToast, onSubsChange, loadReport]);
+  const askRemoveSub = useCallback((id) => {
+    setPendingRemoveId(id);
+  }, []);
   const onSaveSub = useCallback(async (sub) => {
     const saved = (await bridge.subsSave(sub)) || sub;
     setSubs((s) => { const i = s.findIndex((x) => x.id === saved.id); if (i >= 0) { const n = s.slice(); n[i] = saved; return n; } return [...s, saved]; });
@@ -577,23 +605,13 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
     pushToast && pushToast("已全部标为已读");
   }, [activeSub, backend, pushToast, refreshSubs]);
 
-  const hasUsefulAbstract = (p) => String(p?.abstract || "").trim().length >= 40;
-  const hasStableId = (p) => !!(String(p?.doi || "").trim() || String(p?.pmid || "").trim());
-  const todayPapers = (s) => Array.isArray(s.today) ? s.today.filter((p) => p && typeof p === "object") : [];
-  const visiblePapers = (s) => {
-    const papers = todayPapers(s);
-    if (!s?.hideNoAbstract) return papers;
-    return papers.filter((p) => hasUsefulAbstract(p) || hasStableId(p));
-  };
-  const unread = (s) => {
-    const read = new Set(Array.isArray(s.readIds) ? s.readIds.map(String) : []);
-    return visiblePapers(s).filter((p) => !read.has(p.id));
-  };
+  const unread = (s) => unreadTodayPapers(s);
 
   const today = new Date();
   const shown = activeSub === "all" ? subs : subs.filter((s) => s.id === activeSub);
-  const total = shown.reduce((n, s) => n + (s.enabled !== false ? unread(s).length : 0), 0);
+  const total = shown.reduce((n, s) => n + unreadTodayCount(s), 0);
   const preprintCount = shown.reduce((n, s) => n + unread(s).filter((p) => p.preprint).length, 0);
+  const allUnreadTotal = countSubsUnread(subs);
 
   useEffect(() => {
     if (!backend) return;
@@ -721,7 +739,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
         <h3><Rss size={13} /> 我的订阅</h3>
         <button className={"subitem suball" + (activeSub === "all" ? " on" : "")} onClick={() => setActiveSub("all")}>
           <div className="q">今日全部简报</div>
-          <div className="sc"><Inbox size={13} /> {subs.reduce((n, s) => n + unread(s).length, 0)} 篇待读 · {subs.length} 个订阅</div>
+          <div className="sc"><Inbox size={13} /> {allUnreadTotal} 篇待读 · {subs.filter((s) => s.enabled !== false).length} 个订阅</div>
         </button>
         {subs.map((s) => (
           <div key={s.id} className={"subitem" + (activeSub === s.id ? " on" : "") + (s.enabled === false ? " off" : "")} onClick={() => setActiveSub(s.id)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setActiveSub(s.id); } }}>
@@ -733,7 +751,7 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
               <button title="立即运行一次" disabled={runningSubId === s.id} onClick={() => subRunNow(s)}><Clock size={13} /></button>
               <button title={s.enabled === false ? "恢复" : "暂停"} onClick={() => subPatch(s.id, { enabled: s.enabled === false })}>{s.enabled === false ? <Play size={13} /> : <Pause size={13} />}</button>
               <button title="编辑" onClick={() => { setEditSub(s); setDlgOpen(true); }}><Pencil size={13} /></button>
-              <button title="删除" onClick={() => subRemove(s.id)}><Trash2 size={13} /></button>
+              <button title="删除" onClick={() => askRemoveSub(s.id)}><Trash2 size={13} /></button>
             </div>
           </div>
         ))}
@@ -882,6 +900,22 @@ export default function Subscriptions({ pushToast, fetchedMeta = {}, fetchingMet
       </div>
 
       {dlgOpen && <SubDialog initial={editSub} onClose={() => { setDlgOpen(false); setEditSub(null); }} onSave={onSaveSub} />}
+      {pendingRemoveId && (() => {
+        const victim = subs.find((x) => x.id === pendingRemoveId);
+        const label = victim ? String(subLabel(victim)).slice(0, 48) : "该订阅";
+        return (
+          <div className="sub-confirm-mask" role="dialog" aria-modal="true" aria-label="确认删除订阅" onClick={() => setPendingRemoveId(null)}>
+            <div className="sub-confirm" onClick={(e) => e.stopPropagation()}>
+              <h4>删除订阅「{label}」？</h4>
+              <p>将移除该订阅及其今日待读列表。历史回顾 / 简报快照会保留，不会一并清空。</p>
+              <div className="sub-confirm-acts">
+                <button type="button" className="ghost" onClick={() => setPendingRemoveId(null)}>取消</button>
+                <button type="button" className="danger" onClick={() => void subRemove(pendingRemoveId)}>确认删除</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

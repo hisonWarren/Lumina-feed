@@ -5,9 +5,8 @@ import type { Store } from "../store/index.ts";
 import {
   dedupeDigestPapers,
   normalizeSubscription,
-  subscriptionReadIds,
-  todayPaperList,
   unreadTodayCount,
+  unreadTodayPapers,
 } from "./digest-search.ts";
 
 export const DIGEST_REPORT_CAP = 50;
@@ -159,10 +158,9 @@ export function collectDigestReportInputs(
     : scopedRaw;
   const entries: DigestEntry[] = [];
   for (const sub of scoped) {
-    const read = subscriptionReadIds(sub);
     const label = String(sub.name || sub.q || "订阅").slice(0, 80);
-    for (const p of todayPaperList(sub)) {
-      if (read.has(p.id)) continue;
+    // 与侧栏/列表同一口径：尊重 hideNoAbstract，避免「列表 3 篇、简报写 48 篇」
+    for (const p of unreadTodayPapers(sub)) {
       entries.push({ subId: String(sub.id), subLabel: label, paper: p });
     }
   }
@@ -217,6 +215,9 @@ export function digestReportNeedsRefresh(
     if (expected.length > 1 && (!report.subSpotlights || report.subSpotlights.length < expected.length)) return true;
   }
   if (!report.brief) return true;
+  const brief = String(report.brief || "");
+  if (brief.length > 0 && brief.length < 80) return true;
+  if (!Array.isArray(report.highlights) || report.highlights.length < 2) return true;
   return false;
 }
 
@@ -364,7 +365,7 @@ function parseReportJson(raw: string, inputs: DigestReportPaperInput[], caps: Re
         };
       }).filter((p) => p.paperId && idSet.has(p.paperId) && p.reason)
     : [];
-  const brief = o.brief ? String(o.brief).trim().slice(0, 320) : undefined;
+  const brief = o.brief ? String(o.brief).trim().slice(0, 720) : undefined;
   const subSpotlights: DigestReportSubSpotlight[] = Array.isArray(o.subSpotlights)
     ? o.subSpotlights.slice(0, 8).map((s: Record<string, unknown>) => ({
         subLabel: String(s.subLabel || s.label || "订阅").slice(0, 80),
@@ -380,43 +381,47 @@ function parseReportJson(raw: string, inputs: DigestReportPaperInput[], caps: Re
 }
 
 const SYS_ALL = `你是学术文献「今日证据简报」主编。用户有**多个**订阅同时命中文献；输入按「订阅」分段列出。需同时产出：
-1) **brief**：扫描列表用的一段话简报（2-4句，80-220字）
+1) **brief**：扫描列表用的总述（3-6句，150-420字）
 2) **完整报告**：要点、主题、优先读（今日报告页用）
 
 规则：
 - 只使用给定文献，不编造；不替用户做纳入判断
-- 用中文，有编辑视角
-- **subSpotlights 必填**：输入里每个「## 订阅」段各一条，subLabel 与段名一致，summary 写该订阅今日核心（2句），paperIds 从该段选
+- 用中文，有编辑视角；数字须与输入篇数一致（例如输入 N 篇就写 N，禁止写错篇数）
+- **禁止**把 brief/highlights 写成疾病名/方法名清单（如「涵盖抑郁症、PTSD、fMRI、机器学习…」）；每条必须落到可核对的具体发现、对比或争议
+- **subSpotlights 必填**：输入里每个「## 订阅」段各一条，subLabel 与段名一致，summary 写该订阅 2 句具体发现（含对象/方法/结果线索），paperIds 从该段选
 - brief 必须同时概括**每一个**订阅，禁止只写最大/最近一个主题
-- headline ≤60字，可略抽象；brief 比 headline 更完整
-- themes / priorityPicks 应覆盖不同订阅来源（跨主题综合概览）
+- headline ≤60字；brief 比 headline 更完整，至少点出 2 个可核对发现
+- themes / priorityPicks 应覆盖不同订阅来源；priorityPicks.reason 说明「为何今天先看这篇」
 - 若摘要缺失，在 highlights 说明
 - 只输出 JSON：
-  brief（一段话简报，扫描列表用）
+  brief（总述简报，扫描列表用）
   subSpotlights（数组；每个订阅一条：subLabel、summary、paperIds）
   headline（短标题 ≤60字）
-  highlights（3-5条跨订阅要点）
+  highlights（4-6条跨订阅要点，每条一句完整判断）
   themes（2-5组：title、summary、paperIds）
   priorityPicks（3-5条：paperId、reason）
 不要 markdown，不要多余文字。`;
 
-const SYS_SINGLE = `你是学术文献单主题「今日深度简报」编辑。需同时产出扫描列表用的一段话简报 + 完整深度报告。
+const SYS_SINGLE = `你是学术文献单主题「今日深度简报」编辑。需同时产出扫描列表用的总述 + 完整深度报告。
 规则：
 - 只使用给定文献，不编造；不替用户做纳入判断
-- 用中文，信息密度高
-- brief：2-3句话（80-180字），概括该主题今日全貌（扫描列表用）
-- headline：≤60字短标题
-- highlights / themes / priorityPicks：完整报告用，比 brief 更细
+- 用中文，信息密度高；篇数与输入一致
+- **禁止**主题词堆砌；brief 与 highlights 必须写具体发现（人群/干预/指标/方向），宁可少写也不要空泛列举
+- brief：4-6句（180-420字），先给今日全貌，再点出 2-3 个最值得核对的发现线索
+- headline：≤60字短标题（可含核心发现词，不要只写领域名）
+- highlights：4-7条，每条一个可核对要点（避免「涉及XX方法」这类空句）
+- themes：按子方向分组，summary 写该方向今天在争什么/发现了什么
+- priorityPicks：4-8条，reason 写「相对同批其他文，为何优先」
 - 只输出 JSON：
-  brief（一段话简报）
+  brief（总述简报）
   headline（短标题）
-  highlights（4-6条）
+  highlights（4-7条）
   themes（3-6组：title、summary、paperIds）
   priorityPicks（4-8条：paperId、reason）
 不要 markdown，不要多余文字。`;
 
-const CAPS_ALL: ReportCaps = { highlights: 5, themes: 5, picks: 5, themePapers: 8 };
-const CAPS_SINGLE: ReportCaps = { highlights: 6, themes: 6, picks: 8, themePapers: 10 };
+const CAPS_ALL: ReportCaps = { highlights: 6, themes: 5, picks: 5, themePapers: 8 };
+const CAPS_SINGLE: ReportCaps = { highlights: 7, themes: 6, picks: 8, themePapers: 10 };
 
 function formatReportUserContent(inputs: DigestReportPaperInput[], scope: string): string {
   const fmtPaper = (p: DigestReportPaperInput, n: number) => {
@@ -468,7 +473,7 @@ export async function generateDigestReportContent(
   const text = await llm.complete([
     { role: "system", content: single ? SYS_SINGLE : SYS_ALL },
     { role: "user", content: userContent },
-  ], { maxTokens: single ? 3800 : 3400, temperature: 0.25 });
+  ], { maxTokens: single ? 4800 : 4200, temperature: 0.25 });
   return parseReportJson(text || "", inputs, single ? CAPS_SINGLE : CAPS_ALL);
 }
 

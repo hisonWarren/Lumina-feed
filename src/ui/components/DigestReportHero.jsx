@@ -183,8 +183,13 @@ export default function DigestReportHero({
         {ready && (
           <>
             <p className="dg-rp-brief strip">{report.brief || report.headline}</p>
+            {Array.isArray(report.highlights) && report.highlights.length > 0 && (
+              <ul className="dg-rp-points strip">
+                {report.highlights.slice(0, 4).map((h, i) => <li key={i}>{h}</li>)}
+              </ul>
+            )}
             {onViewReport && (
-              <button type="button" className="dg-rp-expand inline" onClick={onViewReport}>完整报告：要点 · 主题 · 优先读 <ArrowRight size={13} /></button>
+              <button type="button" className="dg-rp-expand inline" onClick={onViewReport}>完整报告：主题分组 · 优先读 <ArrowRight size={13} /></button>
             )}
           </>
         )}

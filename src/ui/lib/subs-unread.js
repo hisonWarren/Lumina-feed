@@ -10,10 +10,27 @@ export function todayPaperList(sub) {
   return sub.today.filter((p) => p && typeof p === "object" && p.id);
 }
 
-export function unreadTodayCount(sub) {
-  if (!sub || sub.enabled === false) return 0;
+/** 与列表/报告入模一致：开启 hideNoAbstract 时过滤弱条目 */
+export function digestPaperVisible(sub, paper) {
+  if (!paper || typeof paper !== "object") return false;
+  if (!sub || sub.hideNoAbstract !== true) return true;
+  const abs = String(paper.abstract || "").trim();
+  if (abs.length >= 40) return true;
+  return !!(String(paper.doi || "").trim() || String(paper.pmid || "").trim());
+}
+
+export function visibleTodayPapers(sub) {
+  return todayPaperList(sub).filter((p) => digestPaperVisible(sub, p));
+}
+
+export function unreadTodayPapers(sub) {
+  if (!sub || sub.enabled === false) return [];
   const read = subscriptionReadIds(sub);
-  return todayPaperList(sub).filter((p) => !read.has(p.id)).length;
+  return visibleTodayPapers(sub).filter((p) => !read.has(p.id));
+}
+
+export function unreadTodayCount(sub) {
+  return unreadTodayPapers(sub).length;
 }
 
 export function countSubsUnread(subs) {
@@ -21,7 +38,7 @@ export function countSubsUnread(subs) {
 }
 
 export function isPaperUnread(sub, paperId) {
-  return todayPaperList(sub).some((p) => p.id === paperId) && !subscriptionReadIds(sub).has(paperId);
+  return unreadTodayPapers(sub).some((p) => p.id === paperId);
 }
 
 /** 今日 dateKey（本地时区），与 core digest-report 一致 */
@@ -59,5 +76,9 @@ export function digestReportNeedsRefresh(report, subs, scope, dateKey = digestDa
     if (expected.length > 1 && (!report.subSpotlights || report.subSpotlights.length < expected.length)) return true;
   }
   if (!report.brief) return true;
+  // brief 过短或像主题词堆砌 → 强制刷新（旧版一句空话）
+  const brief = String(report.brief || "");
+  if (brief.length > 0 && brief.length < 80) return true;
+  if (!Array.isArray(report.highlights) || report.highlights.length < 2) return true;
   return false;
 }

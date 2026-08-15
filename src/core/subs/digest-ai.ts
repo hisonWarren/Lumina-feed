@@ -73,10 +73,10 @@ export async function generateDigestBlurb(
   const abs = String(pp.abstract || "").slice(0, 400);
   try {
     const text = await llm.complete([
-      { role: "system", content: "你是学术文献简报助手。用一句中文（≤40字）说明该论文与订阅主题的相关点。不要建议纳入或排除研究。不要列表。" },
+      { role: "system", content: "你是学术文献简报助手。用两句中文（合计 40–90 字）说明：①这篇论文相对订阅主题做了什么；②最值得核对的一点发现或方法。禁止只列疾病/方法名词。不要建议纳入或排除研究。不要列表。" },
       { role: "user", content: `订阅：${topic}\n标题：${title}\n摘要：${abs}` },
-    ], { maxTokens: 80, temperature: 0.2 });
-    return text?.trim().slice(0, 120) || undefined;
+    ], { maxTokens: 160, temperature: 0.2 });
+    return text?.trim().slice(0, 200) || undefined;
   } catch {
     return undefined;
   }

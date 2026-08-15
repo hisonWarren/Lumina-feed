@@ -221,11 +221,32 @@ export function enrichSubscriptionToday(
   return { ...sub, today };
 }
 
-/** 单订阅待读数（today 中未在 readIds 的条数） */
-export function unreadTodayCount(sub: Record<string, unknown> | null | undefined): number {
-  if (!sub || sub.enabled === false) return 0;
+/** 订阅开启「隐藏无摘要」时，与 UI 列表可见性一致的过滤 */
+export function digestPaperVisible(sub: Record<string, unknown> | null | undefined, paper: Paper | Record<string, unknown> | null | undefined): boolean {
+  if (!paper || typeof paper !== "object") return false;
+  if (!sub || sub.hideNoAbstract !== true) return true;
+  const abs = String((paper as Paper).abstract || "").trim();
+  if (abs.length >= 40) return true;
+  const doi = String((paper as Paper).doi || "").trim();
+  const pmid = String((paper as { pmid?: string }).pmid || "").trim();
+  return !!(doi || pmid);
+}
+
+/** 单订阅今日可见论文（尊重 hideNoAbstract） */
+export function visibleTodayPapers(sub: Record<string, unknown> | null | undefined): Paper[] {
+  return todayPaperList(sub).filter((p) => digestPaperVisible(sub, p));
+}
+
+/** 单订阅待读列表（today 中未读且对用户可见） */
+export function unreadTodayPapers(sub: Record<string, unknown> | null | undefined): Paper[] {
+  if (!sub || sub.enabled === false) return [];
   const read = subscriptionReadIds(sub);
-  return todayPaperList(sub).filter((p) => !read.has(p.id)).length;
+  return visibleTodayPapers(sub).filter((p) => !read.has(p.id));
+}
+
+/** 单订阅待读数（与侧栏 / 标题 / 报告入模同一口径） */
+export function unreadTodayCount(sub: Record<string, unknown> | null | undefined): number {
+  return unreadTodayPapers(sub).length;
 }
 
 /** 顶栏/托盘待读徽标：各启用订阅待读之和 */
@@ -234,7 +255,7 @@ export function countSubsUnread(subs: Record<string, unknown>[]): number {
 }
 
 export function isPaperUnread(sub: Record<string, unknown>, paperId: string): boolean {
-  return todayPaperList(sub).some((p) => p.id === paperId) && !subscriptionReadIds(sub).has(paperId);
+  return unreadTodayPapers(sub).some((p) => p.id === paperId);
 }
 
 export function withPaperMarkedRead(sub: Record<string, unknown>, paperId: string): Record<string, unknown> {
