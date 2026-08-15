@@ -54,11 +54,13 @@ function pdfPathForPaper(id: string): string {
 }
 
 function showMainWindow(): void {
-  if (win) {
+  // 关窗后 win 可能仍指向已 destroy 的 BrowserWindow；托盘 click 再调 isMinimized/show 会抛 Object has been destroyed
+  if (win && !win.isDestroyed()) {
     if (win.isMinimized()) win.restore();
     win.show();
     win.focus();
   } else {
+    win = null;
     void createWindow();
   }
 }
@@ -150,7 +152,9 @@ function createTray(): boolean {
     if (img.isEmpty()) return false;
     tray = new Tray(img);
     tray.setToolTip("Lumina Feed");
-    tray.on("click", () => { showMainWindow(); });
+    tray.on("click", () => {
+      try { showMainWindow(); } catch { win = null; void createWindow(); }
+    });
     wireTrayMenu();
     return true;
   } catch { return false; }
@@ -177,9 +181,13 @@ async function readPdfOpenPayload(p: string) {
   };
 }
 async function sendOpenPdf(p: string | null) {
-  if (!p || !win) return;
+  if (!p) return;
   try {
     const payload = await readPdfOpenPayload(p);
+    if (!win || win.isDestroyed()) {
+      await createWindow();
+    }
+    if (!win || win.isDestroyed()) return;
     win.webContents.send("open-local-pdf", payload);
     if (win.isMinimized()) win.restore();
     win.show(); win.focus();
@@ -188,8 +196,8 @@ async function sendOpenPdf(p: string | null) {
 if (!gotLock) {
   app.quit();
 } else {
-  app.on("second-instance", (_e, argv) => { if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } void sendOpenPdf(pdfFromArgv(argv)); });
-  app.on("open-file", (e, p) => { e.preventDefault(); if (win) void sendOpenPdf(p); else pendingPdf = p; }); // macOS
+  app.on("second-instance", (_e, argv) => { showMainWindow(); void sendOpenPdf(pdfFromArgv(argv)); });
+  app.on("open-file", (e, p) => { e.preventDefault(); if (win && !win.isDestroyed()) void sendOpenPdf(p); else pendingPdf = p; }); // macOS
 }
 
 async function createWindow() {
@@ -220,10 +228,11 @@ async function createWindow() {
     if (p) coldOpenPdfPath = p;
   });
   await win.loadURL(process.env.VITE_DEV_SERVER_URL ?? `file://${path.join(__dirname, "../dist/index.html")}`);
+  win.on("closed", () => { win = null; });
   win.on("close", (e) => {
     if (!minimizeToTray || isQuiting) return;
     if (!ensureTray()) {
-      if (win) dialog.showMessageBoxSync(win, {
+      if (win && !win.isDestroyed()) dialog.showMessageBoxSync(win, {
         type: "warning",
         title: "Lumina Feed",
         message: "无法最小化到系统托盘",
@@ -235,7 +244,7 @@ async function createWindow() {
       return;
     }
     e.preventDefault();
-    win && win.hide();
+    if (win && !win.isDestroyed()) win.hide();
   });
 }
 
@@ -291,7 +300,8 @@ app.whenReady().then(async () => {
     try { return await readPdfOpenPayload(p); } catch { return null; }
   });
   ipcMain.handle("lumina:context-action", (_e, action: string, extra?: string) => {
-    runContextAction(win?.webContents, action, extra);
+    if (!win || win.isDestroyed()) return;
+    runContextAction(win.webContents, action, extra);
   });
   await createWindow();
   createTray();
@@ -305,6 +315,5 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) void createWindow();
-  else win?.show();
+  showMainWindow();
 });

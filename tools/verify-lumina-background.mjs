@@ -39,6 +39,7 @@ ok(has(trayMenu, "设置") && has(trayMenu, "退出 Lumina") && has(trayMenu, "�
 ok(has(trayMenu, "buildAboutDetail") && has(trayMenu, "数据目录") && has(trayMenu, "打开关于页"), "托盘关于：本机路径 + 跳转设置关于页");
 ok(has(trayMenu, "隐藏主窗口") || has(trayMenu, "显示 Lumina"), "托盘菜单：显示/隐藏主窗口");
 ok(has(main, 'win.on("close"') && has(main, "minimizeToTray") && has(main, "ensureTray()") && has(main, "win.hide()"), "关窗 → 托盘就绪则最小化，否则提示并正常关闭");
+ok(has(main, "function showMainWindow") && has(main, "!win.isDestroyed()") && has(main, 'win.on("closed"'), "托盘唤起：destroyed 窗口重建 + closed 清空 win（防 Object has been destroyed）");
 ok(has(main, 'app.on("before-quit"') && has(main, "isQuiting = true"), "before-quit 置 isQuiting（允许真退出）");
 ok(has(main, "if (minimizeToTray) return;") && has(main, "window-all-closed"), "window-all-closed：后台开启不退出（调度器/托盘保活）");
 ok(has(preload, "onAppNavigate") && has(preload, "app:navigate"), "preload 托盘导航 app:navigate");

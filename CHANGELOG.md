@@ -2,6 +2,12 @@
 
 本文件记录 Lumina Feed 各版本的用户可见变更。完整提交历史见 [GitHub Releases](https://github.com/hisonWarren/Lumina-feed/releases)。
 
+## [0.4.105] — 2026-08-15
+
+### 修复
+
+- **托盘 · Object has been destroyed**：关窗销毁主窗口后点托盘仍调用已销毁的 `BrowserWindow`；现检测 `isDestroyed`、在 `closed` 清空引用并重建窗口。
+
 ## [0.4.104] — 2026-08-15
 
 ### 修复
