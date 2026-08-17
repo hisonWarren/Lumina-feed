@@ -85,10 +85,14 @@ function buildProfile(query: string, src: OaSource, deps: LookupDeps): JournalPr
       bestRanking: jf.bestRanking,
       year: jf.year ?? deps.jif?.year,
       wosId: jf.wosId,
-      sourceHomepage: jf.wosId ? `${WOS_JIF_HOMEPAGE}journalid/${jf.wosId}` : WOS_JIF_HOMEPAGE,
+      source: jf.source,
+      sourceHomepage: jf.sourceHomepage
+        || (jf.wosId ? `${WOS_JIF_HOMEPAGE}journalid/${jf.wosId}` : WOS_JIF_HOMEPAGE),
     };
     provenance.jif = {
-      source: "WoS Journal Info (wos-journal.info)",
+      source: jf.source === "LetPub"
+        ? "LetPub（第三方汇总）"
+        : "WoS Journal Info (wos-journal.info)",
       year: profile.jif.year,
       note: "第三方汇总，非 Clarivate 官方授权数据",
     };

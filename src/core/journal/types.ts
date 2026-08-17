@@ -28,7 +28,7 @@ export interface WarningEntry {
   reason?: string;
 }
 
-/** wos-journal.info JIF 条目（第三方汇总，非 Clarivate 官方授权数据） */
+/** wos-journal.info / LetPub 等第三方汇总的影响因子（非 Clarivate 官方授权） */
 export interface WosJifInfo {
   jif?: number;
   jif5yr?: number;
@@ -43,6 +43,8 @@ export interface WosJifInfo {
   year?: number;
   wosId?: number;
   sourceHomepage?: string;
+  /** 展示用数据源名，如 LetPub / wos-journal.info */
+  source?: string;
 }
 
 /** 中科院期刊分区（通常为第三方汇总，非 fenqubiao 官方授权） */

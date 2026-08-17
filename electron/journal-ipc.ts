@@ -15,9 +15,10 @@ import {
   BUILTIN_WARNING_YEAR, BUILTIN_WARNING_SOURCE, BUILTIN_WARNING_ENTRIES, type WarningDataset,
 } from "../src/core/journal/warning-list.ts";
 import {
-  parseWosJifTable, crawlWosJifDataset, wosJifLookup, buildWosJifDataset, fetchWosJifByIssn, fetchWosJifDetail,
+  parseWosJifTable, crawlWosJifDataset, wosJifLookup, buildWosJifDataset, fetchWosJifByIssn,
   WOS_JIF_HOMEPAGE, WOS_JIF_SOURCE, type WosJifDataset, type WosJifRow,
 } from "../src/core/journal/wos-jif.ts";
+import { fetchLetPubImpactByIssn, LETPUB_IF_SOURCE } from "../src/core/journal/letpub-impact.ts";
 import {
   parseCasPartitionTable, crawlCasPartitionDataset, casPartitionLookup, buildCasPartitionDataset, fetchCasPartitionByIssn,
   LETPUB_HOMEPAGE, LETPUB_SOURCE, type CasPartitionDataset, type CasPartitionRow,
@@ -104,6 +105,7 @@ function mergedCasDataset(): CasPartitionDataset | null {
 }
 
 function jifRowToInfo(row: WosJifRow): WosJifInfo {
+  const fromLetPub = row.source === LETPUB_IF_SOURCE;
   return {
     jif: row.jif,
     jif5yr: row.jif5yr,
@@ -117,7 +119,10 @@ function jifRowToInfo(row: WosJifRow): WosJifInfo {
     bestRanking: row.bestRanking,
     year: row.year ?? jifCache?.year,
     wosId: row.wosId,
-    sourceHomepage: row.wosId ? `${WOS_JIF_HOMEPAGE}journalid/${row.wosId}` : WOS_JIF_HOMEPAGE,
+    source: row.source || WOS_JIF_SOURCE,
+    sourceHomepage: fromLetPub
+      ? (row.sourceHomepage || LETPUB_HOMEPAGE)
+      : (row.wosId ? `${WOS_JIF_HOMEPAGE}journalid/${row.wosId}` : WOS_JIF_HOMEPAGE),
   };
 }
 function casRowToInfo(row: CasPartitionRow): CasPartitionInfo {
@@ -131,12 +136,6 @@ function casRowToInfo(row: CasPartitionRow): CasPartitionInfo {
       ? `${LETPUB_HOMEPAGE}&view=detail&journalid=${row.letpubId}`
       : LETPUB_HOMEPAGE,
   };
-}
-
-async function withDeadline<T>(fn: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> {
-  const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), ms);
-  try { return await fn(ac.signal); } finally { clearTimeout(t); }
 }
 
 export type LiveOpenAlexPatch = {
@@ -157,33 +156,57 @@ export type LiveMetricsResult = {
   oaTried?: boolean;
 };
 
-/** JIF-like 槽：本地命中优先；未命中则多 ISSN 竞速，先校验通过者胜出并 abort 其余。 */
+/** 将 LetPub 行写入逐刊缓存并返回。 */
+function cacheLetPubJif(lp: NonNullable<Awaited<ReturnType<typeof fetchLetPubImpactByIssn>>>, list: string[]): WosJifInfo {
+  const row: WosJifRow = {
+    title: lp.title,
+    issns: lp.issns.length ? lp.issns : list.map((s) => String(s)).filter(Boolean),
+    jif: lp.jif,
+    jif5yr: lp.jif5yr,
+    year: lp.year,
+    source: LETPUB_IF_SOURCE,
+    sourceHomepage: lp.sourceHomepage,
+  };
+  Object.assign(liveJifByIssn, buildWosJifDataset([row]).byIssn);
+  try { fs.writeFileSync(jifLivePath(), JSON.stringify(liveJifByIssn), "utf-8"); } catch { /* ignore */ }
+  return jifRowToInfo(row);
+}
+
+/** 竞速 LetPub ISSN → IF（国内直连）。 */
+async function tryLetPubJif(list: string[], timeoutMs: number) {
+  return raceFirstValid(
+    list.slice(0, 2).map(
+      (issn) => (signal: AbortSignal) =>
+        fetchLetPubImpactByIssn(issn, sessionFetch as unknown as typeof fetch, signal),
+    ),
+    (r) => !!(r && (r.jif != null || r.jif5yr != null)),
+    { timeoutMs },
+  );
+}
+
+/** JIF-like 槽：本地命中优先 → LetPub（国内直连）→ wos-journal.info（可能需翻墙/CF）。 */
 async function liveJifSlot(list: string[]): Promise<{ jif?: WosJifInfo; jifTried?: boolean }> {
   const jifHit = wosJifLookup(mergedJifDataset(), list);
   if (jifHit && (jifHit.jif != null || jifHit.jif5yr != null)) {
-    let row = jifHit;
-    if (row.wosId && (!row.jif5yr || !row.wosIndexes)) {
-      try {
-        const detail = await withDeadline(
-          (signal) => fetchWosJifDetail(row.wosId!, getWosBrowserFetch().fetch, signal),
-          20000,
-        );
-        if (detail) {
-          row = {
-            ...row,
-            ...detail,
-            wosId: row.wosId,
-            issns: detail.issns.length ? detail.issns : row.issns,
-            jif: detail.jif ?? row.jif,
-            jif5yr: detail.jif5yr ?? row.jif5yr,
-            wosIndexes: detail.wosIndexes ?? row.wosIndexes,
-          };
-        }
-      } catch { /* 详情页失败仍用列表字段 */ }
+    // 已是 LetPub，或字段齐全：直接返回，不阻塞在 WOS Cloudflare。
+    if (jifHit.source === LETPUB_IF_SOURCE || (jifHit.jif5yr != null && jifHit.source)) {
+      return { jif: jifRowToInfo(jifHit) };
     }
-    return { jif: jifRowToInfo(row) };
+    // 旧 WOS 缓存缺五年 IF / 未标来源：先用 LetPub 升级（国内可直连），失败再用本地值。
+    try {
+      const lp = await tryLetPubJif(list, 14000);
+      if (lp) return { jif: cacheLetPubJif(lp, list), jifTried: true };
+    } catch { /* 仍返回本地 */ }
+    return { jif: jifRowToInfo(jifHit) };
   }
 
+  // 1) LetPub 优先：无需翻墙、无 Cloudflare；公开页有 IF 历史图末值 / 五年 IF。
+  try {
+    const lp = await tryLetPubJif(list, 18000);
+    if (lp) return { jif: cacheLetPubJif(lp, list), jifTried: true };
+  } catch { /* LetPub 失败则回退 WOS */ }
+
+  // 2) wos-journal.info 回退（CF / 网络可能失败）
   const row = await raceFirstValid(
     list.slice(0, 2).map(
       (issn) => (signal: AbortSignal) => fetchWosJifByIssn(issn, getWosBrowserFetch().fetch, signal),
@@ -196,7 +219,6 @@ async function liveJifSlot(list: string[]): Promise<{ jif?: WosJifInfo; jifTried
     try { fs.writeFileSync(jifLivePath(), JSON.stringify(liveJifByIssn), "utf-8"); } catch { /* ignore */ }
     return { jif: jifRowToInfo(row), jifTried: true };
   }
-  // 超时/失败后必须 reset，否则卡住的 warm 会堵死后续「在线」全库与单刊补查。
   resetWosBrowserFetch();
   return { jifTried: true };
 }

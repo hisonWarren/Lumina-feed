@@ -21,6 +21,9 @@ export interface WosJifRow {
   wosStatus?: string;
   bestRanking?: string;
   year?: number;
+  /** LetPub / wos-journal.info */
+  source?: string;
+  sourceHomepage?: string;
 }
 
 export interface WosJifDataset {

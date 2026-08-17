@@ -235,9 +235,9 @@ function HeroJif({ jif, loading, tried }) {
         <>
           <div className="jr-hero-val">{jif.jif.toLocaleString(undefined, { maximumFractionDigits: 1 })}</div>
           {jif.jif5yr != null && <div className="jr-hero-sub">5 年 IF · {jif.jif5yr.toLocaleString(undefined, { maximumFractionDigits: 1 })}</div>}
-          <div className="jr-hero-src">{jif.year ? `wos-journal.info · ${jif.year}` : "wos-journal.info"}</div>
+          <div className="jr-hero-src">{(jif.source || "LetPub") + (jif.year ? ` · ${jif.year}` : "")}</div>
         </>
-      ) : <HeroEmpty loading={loading} srcLabel="wos-journal.info" tried={tried} />}
+      ) : <HeroEmpty loading={loading} srcLabel="LetPub" tried={tried} />}
     </div>
   );
 }
@@ -533,7 +533,7 @@ export default function Journals({ pushToast }) {
       <div className="jr-head">
         <div className="jr-h1">期刊信息</div>
         <div className="jr-sub">
-          输入刊名或 ISSN，查看分区、预警状态、JIF、开放获取正规性与类影响因子。JIF 与中科院分区在本地未收录时会<b>逐刊自动在线获取并缓存</b>（wos-journal.info / LetPub 第三方汇总）；也可在本页「数据集」面板中批量导入或全库拉取。
+          输入刊名或 ISSN，查看分区、预警状态、JIF、开放获取正规性与类影响因子。JIF 与中科院分区在本地未收录时会<b>逐刊自动在线获取并缓存</b>（优先 LetPub，回退 wos-journal.info）；也可在本页「数据集」面板中批量导入或全库拉取。
         </div>
         <div className="jr-bar">
           <Search size={17} color="var(--ink3)" />
@@ -649,7 +649,7 @@ export default function Journals({ pushToast }) {
             </React.Fragment>
           ))}
           <div className="jr-note" style={{marginTop:'12px', borderTop:'1px solid var(--line2)', paddingTop:'12px'}}>
-            中科院分区无个人官方 API：推荐从学校/课题组 Excel「导入」；「在线」走 <a href="https://www.letpub.com.cn/index.php?page=journalapp" target="_blank" rel="noreferrer">LetPub</a> 第三方汇总（非 fenqubiao 授权，约 4.4 万刊、耗时较长）。JIF 来源 <a href="https://wos-journal.info/" target="_blank" rel="noreferrer">wos-journal.info</a>（站点有 Cloudflare 验证，在线拉取会先自动过人机验证；失败时可改用 CSV「导入」）。SCImago 可官网下 CSV 后导入。预警名单内置 2025 版。
+            中科院分区无个人官方 API：推荐从学校/课题组 Excel「导入」；「在线」走 <a href="https://www.letpub.com.cn/index.php?page=journalapp" target="_blank" rel="noreferrer">LetPub</a> 第三方汇总（非 fenqubiao 授权，约 4.4 万刊、耗时较长）。单刊 JIF 优先从 LetPub 详情页读取（国内可直连）；失败再回退 <a href="https://wos-journal.info/" target="_blank" rel="noreferrer">wos-journal.info</a>（可能需翻墙且有 Cloudflare 验证）。SCImago 可官网下 CSV 后导入。预警名单内置 2025 版。
           </div>
         </div>
       </div>
@@ -755,7 +755,7 @@ export default function Journals({ pushToast }) {
 
               <div className="jr-foot">
                 {p.homepage && <button className="jr-act" onClick={() => openExt(p.homepage)}><ExternalLink size={13} /> 期刊主页</button>}
-                {jf?.sourceHomepage && <button className="jr-act" onClick={() => openExt(jf.sourceHomepage)}><ExternalLink size={13} /> wos-journal.info</button>}
+                {jf?.sourceHomepage && <button className="jr-act" onClick={() => openExt(jf.sourceHomepage)}><ExternalLink size={13} /> {/letpub/i.test(jf.source || "") ? "LetPub" : "wos-journal.info"}</button>}
                 {cas?.sourceHomepage && <button className="jr-act" onClick={() => openExt(cas.sourceHomepage)}><ExternalLink size={13} /> LetPub</button>}
                 {issn && <button className="jr-act" onClick={() => openExt(`https://mjl.clarivate.com/search-results?issn=${issn}`)}><ExternalLink size={13} /> Clarivate JCR 官方页</button>}
                 <button className="jr-act" onClick={() => openExt("https://www.scimagojr.com/journalsearch.php?q=" + encodeURIComponent(p.name || p.query))}><ExternalLink size={13} /> SCImago 官方页</button>

@@ -2,6 +2,12 @@
 
 本文件记录 Lumina Feed 各版本的用户可见变更。完整提交历史见 [GitHub Releases](https://github.com/hisonWarren/Lumina-feed/releases)。
 
+## [0.4.109] — 2026-08-17
+
+### 改进
+
+- **期刊 · JIF 优先 LetPub**：单刊补齐影响因子时先查 LetPub 详情页（国内可直连，读 IF 历史图末值 / 五年 IF）；失败再回退 wos-journal.info（可能需翻墙与 Cloudflare）。来源标签显示 LetPub。旧 WOS 逐刊缓存缺五年 IF 时也会先用 LetPub 升级，不再堵在 Cloudflare 详情页。
+
 ## [0.4.108] — 2026-08-15
 
 ### 修复
